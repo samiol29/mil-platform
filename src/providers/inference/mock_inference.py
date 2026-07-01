@@ -36,9 +36,11 @@ class MockInferenceProvider(InferenceProvider):
     ``"mock-inference-1.0.0"``.  The ``prompt_version`` is echoed from the
     incoming ``InferenceContext`` to satisfy Principle XII.
 
-    The ``evidence_citations`` in the result contain the ``evidence_ref``
-    values of up to three evidence items from the context so that callers
-    receive a non-empty citation list.
+    The ``evidence_citations`` in the result contain the ``ref`` values of up
+    to three grounding items from the context so that callers receive a
+    non-empty citation list.  (Legacy ``evidence_items`` are normalised into
+    ``grounding_items`` by ``InferenceContext``, so this works unchanged for
+    evidence-only callers.)
 
     Configurable responses:
 
@@ -58,7 +60,7 @@ class MockInferenceProvider(InferenceProvider):
 
         content = self._responses.get(context.query, _DEFAULT_RESPONSE)
 
-        citations = tuple(entry.evidence_ref for entry in context.evidence_items[:3])
+        citations = tuple(item.ref for item in context.grounding_items[:3])
 
         elapsed_ms = (time.monotonic() - start) * 1000.0
 

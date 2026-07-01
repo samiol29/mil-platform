@@ -48,7 +48,16 @@ applications.  Human reviewers retain decision authority at every stage.
    `mil/kernel/providers/` but are never imported by `mil/kernel/` itself.
    They are wired together only in `container.py`.
 4. Domain events defined in `mil/kernel/events.py` are the only cross-context
-   communication channel.  Bounded contexts must not call each other directly.
+   channel for **writes and state-changing coordination**.  Bounded contexts
+   must not call each other's services directly to change state, and must not
+   import each other's internal modules.
+   **Read-side exception (ADR-010):** synchronous, read-only cross-context
+   access is permitted through **Query Ports** — consumer-owned, read-only
+   interfaces satisfied by adapters wired only in the composition root.  Query
+   Ports MUST NEVER be used for transactional business logic; they exist solely
+   for synchronous read-side concerns such as explainability, reporting, and AI
+   assistants.  Any state change must continue to flow through domain services
+   and Domain Events.  See §7 and ADR-010.
 
 ---
 
@@ -156,6 +165,42 @@ and test.  Production deployments register a broker-backed implementation
 - Events record `tenant_id`, `event_id`, `occurred_at`, and `correlation_id`.
 - Events are always serialisable to plain JSON.
 
+### 7.1 Synchronous Read Access via Query Ports (ADR-010)
+
+Domain events are the write-side coordination channel; they are asynchronous and
+fire-and-forget, and cannot answer a synchronous, request-scoped question such as
+"explain why this Finding was generated" (which must read Application, Documents,
+Evidence, Findings, PolicyResults, Review history, and Audit *at once, now*).
+
+For this **read-only** need, the platform sanctions **Query Ports** as an official,
+narrowly-scoped exception to the events-only rule:
+
+```
+   consumer.service ──depends-on──▶ consumer.ports.SomeReader   (abstraction, in consumer)
+                                              ▲  implements
+                          consumer adapter (SomeReaderAdapter) ──wraps──▶ producing.Repository
+                                              ▲  constructed in
+                                     composition root (container / deps)
+```
+
+Rules:
+
+- **Read-only, always.** A Query Port exposes only read methods.  It never mutates
+  state, emits an event, or writes to the outbox.
+- **Query Ports MUST NEVER be used for transactional business logic.** They exist
+  solely for synchronous read-side concerns such as explainability, reporting, and AI
+  assistants.  Any state change must continue to flow through domain services and
+  Domain Events.
+- **Consumer-owned.** The port interface is declared inside the *consuming* context,
+  expressing exactly the reads it needs.  Producing contexts stay unaware of consumers.
+- **No cross-context internal imports in consumer code.** The consumer depends only on
+  its own port abstractions.  Adapters that wrap a producing context's read repository
+  are constructed only in the composition root — never imported into consumer code.
+- **Committed reads only.** A read-only aggregation runs in its own read transaction and
+  never joins a producing context's write unit of work.
+
+The first Query Ports are the Copilot read interfaces in `src/mil/copilot/ports.py`.
+
 ---
 
 ## 8. How to Add a New Bounded Context
@@ -227,7 +272,7 @@ and test.  Production deployments register a broker-backed implementation
 | Anti-pattern | Why it is wrong |
 |---|---|
 | Importing a concrete provider class in a bounded context | Breaks replaceability; couples the context to an implementation detail |
-| Calling another bounded context's service directly | Creates hidden coupling; use domain events instead |
+| Calling another bounded context's service directly to change state | Creates hidden coupling; use domain events instead. (Synchronous *read-only* access is allowed only through Query Ports — §7.1, ADR-010.) |
 | Adding mortgage business logic to `mil/kernel/` | Violates the domain-agnostic kernel invariant |
 | Storing credentials in source code or config files | Violates Engineering Constitution Principle V; use the secret management layer |
 | Returning AI output without a version identifier | Violates Principle XII; every finding must be reproducible |
