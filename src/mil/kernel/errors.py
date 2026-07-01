@@ -215,6 +215,25 @@ class ExplainabilityError(DomainError):
         )
 
 
+class PolicyEvaluationError(DomainError):
+    """
+    A Policy evaluation could not be completed or produced an incomplete result.
+
+    Raised when no active Policy Pack exists for a tenant, or when a
+    ``PolicyEvaluationResult`` is missing a required attribution field
+    (``policy_version``, ``outcome``). Policy evaluation is non-negotiable:
+    every ``PolicyResult`` must record which pack version produced it
+    (Engineering Constitution, Principle XII).
+    """
+
+    def __init__(self, message: str, details: dict[str, object] | None = None) -> None:
+        super().__init__(
+            message=message,
+            code=ErrorCode.POLICY_EVALUATION_FAILED,
+            details=details,
+        )
+
+
 class ScopeViolationError(DomainError):
     """
     Access to data outside the caller's permitted scope was attempted.

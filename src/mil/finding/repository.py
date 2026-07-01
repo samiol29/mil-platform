@@ -54,6 +54,10 @@ class FindingRepository:
         )
         return list(self._session.scalars(stmt))
 
+    def get_by_id(self, finding_id: UUID) -> Finding | None:
+        """Return the Finding with the given id, or ``None`` if not found."""
+        return self._session.get(Finding, finding_id)
+
     def exists_for_application_and_version(self, application_id: UUID, model_version: str) -> bool:
         """
         Return ``True`` if a Finding already exists for an application under a

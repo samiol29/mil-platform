@@ -25,6 +25,7 @@ from providers.extraction.mock_extraction import MockExtractionProvider
 from providers.inference.mock_inference import MockInferenceProvider
 from providers.los.mock_los import MockLOSAdapter
 from providers.ocr.mock_ocr import MockOCRProvider
+from providers.policy.mock_policy import MockPolicyProvider
 from providers.storage.local_storage import LocalStorageProvider
 
 
@@ -55,6 +56,12 @@ def extraction_provider() -> MockExtractionProvider:
 def inference_provider() -> MockInferenceProvider:
     """Concrete InferenceProvider implementation under conformance test."""
     return MockInferenceProvider()
+
+
+@pytest.fixture
+def policy_provider() -> MockPolicyProvider:
+    """Concrete PolicyProvider implementation under conformance test."""
+    return MockPolicyProvider()
 
 
 @pytest.fixture

@@ -155,6 +155,14 @@ class SpyDeadLetterSink:
         self.records.append((job, error))
 
 
+class FakeJobQueue:
+    def __init__(self) -> None:
+        self.enqueued: list[Job] = []
+
+    def enqueue(self, job: Job) -> None:
+        self.enqueued.append(job)
+
+
 # ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
@@ -204,6 +212,7 @@ class _Harness:
         self.findings = FakeFindingRepository()
         self.workflows = FakeWorkflowRepository(self.run)
         self.outbox = FakeOutboxRepository()
+        self.job_queue = FakeJobQueue()
         self.dead_letter = dead_letter if dead_letter is not None else SpyDeadLetterSink()
         collaborators = FindingCollaborators(
             inference_provider=self.provider,  # type: ignore[arg-type]
@@ -212,6 +221,7 @@ class _Harness:
             findings=self.findings,  # type: ignore[arg-type]
             workflows=self.workflows,  # type: ignore[arg-type]
             outbox=self.outbox,  # type: ignore[arg-type]
+            job_queue=self.job_queue,  # type: ignore[arg-type]
         )
         self.processor = FindingJobProcessor(
             collaborators, retry_policy=retry_policy, dead_letter=self.dead_letter
@@ -284,12 +294,57 @@ class TestSuccess:
         assert len(h.outbox.added) == 1
         assert isinstance(h.outbox.added[0], FindingGenerated)
 
-    def test_finding_generated_carries_policy_version_from_pinned_sentinel(self) -> None:
+    def test_finding_generated_carries_pinned_policy_version(self) -> None:
         h = _Harness()
         h.run_processor()
         event = h.outbox.added[0]
         assert isinstance(event, FindingGenerated)
         assert event.policy_version == "n/a"
+
+    def test_no_next_step_dispatches_no_job(self) -> None:
+        """A run with only a FINDING step (no POLICY step planned) is a no-op."""
+        h = _Harness()
+        h.run_processor()
+        assert h.job_queue.enqueued == []
+
+
+# ---------------------------------------------------------------------------
+# Next-step dispatch (US2 Sprint 5 — Policy Evaluation stage)
+# ---------------------------------------------------------------------------
+
+
+class TestNextStepDispatch:
+    def test_dispatches_policy_job(self) -> None:
+        h = _Harness()
+        h.run.plan_step(step_name="POLICY", step_order=1)
+        h.run_processor()
+        assert len(h.job_queue.enqueued) == 1
+        job = h.job_queue.enqueued[0]
+        assert job.job_type == "workflow_step"
+        assert job.payload["step_name"] == "POLICY"
+        assert job.payload["application_id"] == str(h.application_id)
+        assert job.payload["workflow_run_id"] == str(h.run.id)
+        assert "finding_id" in job.payload
+
+    def test_policy_job_idempotency_key_is_deterministic(self) -> None:
+        h = _Harness()
+        h.run.plan_step(step_name="POLICY", step_order=1)
+        h.run_processor()
+        job = h.job_queue.enqueued[0]
+        assert job.idempotency_key == f"{h.run.id}:POLICY"
+
+    def test_run_stays_running_when_policy_step_is_planned(self) -> None:
+        """FINDING is no longer the last step, so the run must not complete yet."""
+        h = _Harness()
+        h.run.plan_step(step_name="POLICY", step_order=1)
+        h.run_processor()
+        assert h.run.status == WorkflowStatus.RUNNING
+
+    def test_terminal_failure_does_not_dispatch_next_step(self) -> None:
+        h = _Harness(provider=FakeInferenceProvider(raises=ProviderError("boom", retryable=False)))
+        h.run.plan_step(step_name="POLICY", step_order=1)
+        h.run_processor()
+        assert h.job_queue.enqueued == []
 
 
 # ---------------------------------------------------------------------------

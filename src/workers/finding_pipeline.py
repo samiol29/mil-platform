@@ -26,8 +26,12 @@ Responsibilities (and explicit non-responsibilities):
       ``FindingService`` (full provider-version attribution — Principle XII).
     - Emits the existing typed ``FindingGenerated`` ``DomainEvent`` through the
       Transactional Outbox (ADR-007) — never published directly to the bus.
-    - Advances the ``WorkflowStep`` (and, since ``FINDING`` is this workflow's
-      sole step, the ``WorkflowRun``) state (ADR-008 per-job Unit of Work).
+    - Advances the ``WorkflowStep`` state (ADR-008 per-job Unit of Work), and,
+      on success, dispatches the workflow's next planned step (``POLICY``,
+      US2 Sprint 5) exactly as ``workers.document_pipeline`` dispatches
+      ``EXTRACTION`` after ``OCR`` — or completes the ``WorkflowRun`` if
+      ``FINDING`` is the last planned step (older runs / tests with no
+      Policy step planned).
     - Never evaluates Policy, never performs human review, never mutates
       ``EvidenceItem`` or ``Document`` rows.
 
@@ -72,7 +76,7 @@ from mil.kernel.errors import (
     ValidationError,
 )
 from mil.kernel.events import FindingGenerated, WorkflowStepFailed
-from mil.kernel.job_queue import JobQueue
+from mil.kernel.job_queue import Job, JobQueue
 from mil.kernel.providers.inference import EvidenceEntry, InferenceContext
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, FindingId, TenantId, WorkflowRunId
@@ -101,25 +105,32 @@ if TYPE_CHECKING:
 
     from mil.evidence.models import EvidenceItem
     from mil.kernel.container import Container
-    from mil.kernel.job_queue import Job
     from mil.kernel.providers.inference import InferenceProvider
     from workers.bootstrap import JobHandler, WorkerContext
 
-# FINDING step label — the sole step of the FINDING_GENERATION workflow.
+# FINDING step label — the first step of the FINDING_GENERATION workflow.
 FINDING_STEP_NAME = "FINDING"
+
+# POLICY step label — dispatched after FINDING completes (US2 Sprint 5).
+# REVIEW step label — dispatched after POLICY completes (US2 Sprint 6).
+# Duplicated as literals here (rather than imported from
+# workers.policy_pipeline / workers.review_pipeline) to avoid a cross-worker
+# import dependency; the workers agree on this job-payload contract, not on
+# shared code.
+_POLICY_STEP_NAME = "POLICY"
+_REVIEW_STEP_NAME = "REVIEW"
 
 # Workflow type dispatched on the MortgageApplication DRAFT -> SUBMITTED
 # transition (ADR-009).
 FINDING_WORKFLOW_TYPE = "FINDING_GENERATION"
 
+# Job type for every dispatched WorkflowStep job (orchestrator convention).
+_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
+
 # Fixed prompt version for this sprint's generic evidence-assessment prompt.
 # No prompt-management system exists yet; this is a passive attribution
 # constant, not a policy decision.
 _FINDING_PROMPT_VERSION = "finding-generation-prompt-v1"
-
-# Policy Pack does not exist yet (a later sprint). This sentinel is a passive
-# echo, never evaluated — see mil.finding package docstring.
-_POLICY_VERSION_SENTINEL = "n/a"
 
 _NO_EVIDENCE_SENTINEL = "n/a"
 
@@ -154,6 +165,7 @@ class FindingCollaborators:
     findings: FindingRepository
     workflows: WorkflowRepository
     outbox: OutboxRepository
+    job_queue: JobQueue
 
 
 class FindingJobProcessor:
@@ -264,7 +276,56 @@ class FindingJobProcessor:
                 correlation_id=correlation_id,
             )
         )
+        self._dispatch_next_step(
+            run=run,
+            completed_step=step,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            correlation_id=correlation_id,
+            finding_id=finding.id,
+        )
         return FindingProcessingOutcome.COMPLETED
+
+    def _dispatch_next_step(
+        self,
+        *,
+        run: WorkflowRun,
+        completed_step: WorkflowStep,
+        application_id: UUID,
+        tenant_id: UUID,
+        correlation_id: str,
+        finding_id: UUID,
+    ) -> None:
+        """
+        Enqueue the job for the next planned step (``POLICY``, US2 Sprint 5),
+        if any.
+
+        Mirrors ``workers.document_pipeline``'s OCR -> EXTRACTION dispatch:
+        same job type, same idempotency-key derivation. A run with no further
+        planned steps (e.g. single-step FINDING_GENERATION runs predating
+        Sprint 5) is a no-op.
+        """
+        next_step = next(
+            (s for s in run.steps if s.step_order == completed_step.step_order + 1), None
+        )
+        if next_step is None or next_step.status != StepStatus.PENDING:
+            return
+        self._c.job_queue.enqueue(
+            Job(
+                job_type=_JOB_TYPE_WORKFLOW_STEP,
+                idempotency_key=f"{run.id}:{next_step.step_name}",
+                payload={
+                    "workflow_run_id": str(run.id),
+                    "step_id": str(next_step.id),
+                    "step_name": next_step.step_name,
+                    "application_id": str(application_id),
+                    "tenant_id": str(tenant_id),
+                    "correlation_id": correlation_id,
+                    "finding_id": str(finding_id),
+                },
+                max_retries=next_step.max_retries,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Failure handling (ADR-008 retry classification)
@@ -439,10 +500,11 @@ def start_finding_generation_workflow(
     """
     registry = container.resolve(ProviderRegistry)
     inference_version = registry.get_inference().version()
+    policy_version = registry.get_policy().version()
 
     evidence_items = EvidenceRepository(session).get_for_application(application_id)
     pinned = PinnedVersions(
-        policy=_POLICY_VERSION_SENTINEL,
+        policy=policy_version,
         extraction=_derive_extraction_version(evidence_items),
         inference=inference_version,
         prompt=_FINDING_PROMPT_VERSION,
@@ -458,7 +520,7 @@ def start_finding_generation_workflow(
         application_id=application_id,
         workflow_type=FINDING_WORKFLOW_TYPE,
         idempotency_key=f"{FINDING_WORKFLOW_TYPE}:{application_id}",
-        step_names=[FINDING_STEP_NAME],
+        step_names=[FINDING_STEP_NAME, _POLICY_STEP_NAME, _REVIEW_STEP_NAME],
         pinned_versions=pinned,
         correlation_id=correlation_id,
     )
@@ -489,6 +551,7 @@ def build_finding_collaborators(session: Session, container: Container) -> Findi
         findings=finding_repository,
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
+        job_queue=container.resolve(JobQueue),
     )
 
 

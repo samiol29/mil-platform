@@ -39,6 +39,7 @@ from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.providers.extraction import ExtractionProvider
 from mil.kernel.providers.inference import InferenceProvider
 from mil.kernel.providers.ocr import OCRProvider
+from mil.kernel.providers.policy import PolicyProvider
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.providers.storage import StorageProvider
 
@@ -212,6 +213,10 @@ def build_container(settings: Settings) -> Container:
         lambda: container.resolve(ProviderRegistry).get_inference(),
     )
     container.register_singleton(
+        PolicyProvider,  # type: ignore[type-abstract]
+        lambda: container.resolve(ProviderRegistry).get_policy(),
+    )
+    container.register_singleton(
         StorageProvider,  # type: ignore[type-abstract]
         lambda: container.resolve(ProviderRegistry).get_storage(),
     )
@@ -232,6 +237,7 @@ def _build_provider_registry(settings: Settings) -> ProviderRegistry:
     from providers.extraction.mock_extraction import MockExtractionProvider
     from providers.inference.mock_inference import MockInferenceProvider
     from providers.ocr.mock_ocr import MockOCRProvider
+    from providers.policy.mock_policy import MockPolicyProvider
     from providers.storage.local_storage import LocalStorageProvider
 
     local_storage_path = pathlib.Path(tempfile.gettempdir()) / "mil-local-storage"
@@ -240,6 +246,7 @@ def _build_provider_registry(settings: Settings) -> ProviderRegistry:
     registry.register_ocr(MockOCRProvider())
     registry.register_extraction(MockExtractionProvider())
     registry.register_inference(MockInferenceProvider())
+    registry.register_policy(MockPolicyProvider())
     registry.register_storage(LocalStorageProvider(base_path=local_storage_path))
     # LOSAdapter is optional — register only when an integration is configured.
 

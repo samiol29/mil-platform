@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from mil.kernel.providers.inference import InferenceProvider
     from mil.kernel.providers.los_adapter import LOSAdapter
     from mil.kernel.providers.ocr import OCRProvider
+    from mil.kernel.providers.policy import PolicyProvider
     from mil.kernel.providers.storage import StorageProvider
 
 _T = TypeVar("_T")
@@ -41,12 +42,13 @@ _T = TypeVar("_T")
 _KEY_OCR = "ocr"
 _KEY_EXTRACTION = "extraction"
 _KEY_INFERENCE = "inference"
+_KEY_POLICY = "policy"
 _KEY_STORAGE = "storage"
 _KEY_LOS_ADAPTER = "los_adapter"
 
 # Providers that must be registered before the platform starts.
 _REQUIRED_PROVIDERS: frozenset[str] = frozenset(
-    {_KEY_OCR, _KEY_EXTRACTION, _KEY_INFERENCE, _KEY_STORAGE}
+    {_KEY_OCR, _KEY_EXTRACTION, _KEY_INFERENCE, _KEY_POLICY, _KEY_STORAGE}
 )
 # _KEY_LOS_ADAPTER is optional — some deployments do not use a LOS integration.
 
@@ -93,6 +95,10 @@ class ProviderRegistry:
         """Register the active ``InferenceProvider`` implementation."""
         self._providers[_KEY_INFERENCE] = provider
 
+    def register_policy(self, provider: PolicyProvider) -> None:
+        """Register the active ``PolicyProvider`` implementation."""
+        self._providers[_KEY_POLICY] = provider
+
     def register_storage(self, provider: StorageProvider) -> None:
         """Register the active ``StorageProvider`` implementation."""
         self._providers[_KEY_STORAGE] = provider
@@ -135,6 +141,17 @@ class ProviderRegistry:
         from mil.kernel.providers.inference import InferenceProvider
 
         return self._get(_KEY_INFERENCE, InferenceProvider)  # type: ignore[type-abstract]
+
+    def get_policy(self) -> PolicyProvider:
+        """
+        Resolve the registered ``PolicyProvider``.
+
+        Raises:
+            ProviderRegistryError: If no ``PolicyProvider`` is registered.
+        """
+        from mil.kernel.providers.policy import PolicyProvider
+
+        return self._get(_KEY_POLICY, PolicyProvider)  # type: ignore[type-abstract]
 
     def get_storage(self) -> StorageProvider:
         """

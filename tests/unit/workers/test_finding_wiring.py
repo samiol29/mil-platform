@@ -53,6 +53,7 @@ class TestBuildCollaborators:
         assert collaborators.findings is not None
         assert collaborators.workflows is not None
         assert collaborators.outbox is not None
+        assert collaborators.job_queue is not None
 
 
 class TestMakeFindingHandler:
@@ -123,13 +124,13 @@ class TestStartFindingGenerationWorkflow:
         assert run.workflow_type == FINDING_WORKFLOW_TYPE
         assert run.status == WorkflowStatus.RUNNING
 
-    def test_plans_the_finding_step(self) -> None:
+    def test_plans_the_finding_policy_and_review_steps(self) -> None:
         session = _mock_session()
         container, _ = self._container_with_job_queue()
         run = start_finding_generation_workflow(
             session, container, application_id=uuid4(), tenant_id=uuid4()
         )
-        assert [s.step_name for s in run.steps] == [FINDING_STEP_NAME]
+        assert [s.step_name for s in run.steps] == [FINDING_STEP_NAME, "POLICY", "REVIEW"]
 
     def test_pins_the_live_inference_provider_version(self) -> None:
         session = _mock_session()
@@ -140,13 +141,14 @@ class TestStartFindingGenerationWorkflow:
         )
         assert run.pinned_versions.inference == registry.get_inference().version()
 
-    def test_pins_policy_sentinel_since_policy_pack_does_not_exist(self) -> None:
+    def test_pins_the_live_policy_provider_version(self) -> None:
         session = _mock_session()
         container, _ = self._container_with_job_queue()
+        registry = container.resolve(ProviderRegistry)
         run = start_finding_generation_workflow(
             session, container, application_id=uuid4(), tenant_id=uuid4()
         )
-        assert run.pinned_versions.policy == "n/a"
+        assert run.pinned_versions.policy == registry.get_policy().version()
 
     def test_extraction_version_is_na_when_no_evidence(self) -> None:
         session = _mock_session()
