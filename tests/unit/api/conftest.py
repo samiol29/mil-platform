@@ -34,7 +34,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import create_app
-from mil.api.deps import get_application_service, get_current_user, get_document_service
+from mil.api.deps import (
+    FindingTrigger,
+    get_application_service,
+    get_current_user,
+    get_document_service,
+    get_finding_trigger,
+)
 from mil.application.models import ApplicationStatus, MortgageApplication, Party, PartyType
 from mil.application.service import ApplicationService
 from mil.document.models import Document
@@ -148,10 +154,17 @@ def mock_doc_service() -> MagicMock:
 
 
 @pytest.fixture()
+def mock_finding_trigger() -> MagicMock:
+    """Mocked FindingTrigger (the DRAFT -> SUBMITTED composition root, ADR-009)."""
+    return MagicMock(spec=FindingTrigger)
+
+
+@pytest.fixture()
 def client(
     current_user: AuthenticatedUser,
     mock_app_service: MagicMock,
     mock_doc_service: MagicMock,
+    mock_finding_trigger: MagicMock,
 ) -> TestClient:
     """
     Return a synchronous TestClient with all service and auth deps overridden.
@@ -162,4 +175,5 @@ def client(
     app.dependency_overrides[get_current_user] = lambda: current_user
     app.dependency_overrides[get_application_service] = lambda: mock_app_service
     app.dependency_overrides[get_document_service] = lambda: mock_doc_service
+    app.dependency_overrides[get_finding_trigger] = lambda: mock_finding_trigger
     return TestClient(app, raise_server_exceptions=True)

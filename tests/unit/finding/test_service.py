@@ -1,0 +1,221 @@
+"""Unit tests for mil.finding.service — FindingService."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
+
+from mil.finding.service import FindingService
+from mil.kernel.providers.inference import InferenceResult
+
+if TYPE_CHECKING:
+    from mil.finding.models import Finding
+
+
+@dataclass
+class _FakeEvidenceItem:
+    evidence_type: str
+    value_text: str
+    extraction_confidence: Decimal
+    id: UUID = field(default_factory=uuid4)
+    document_id: UUID = field(default_factory=uuid4)
+    page_number: int = 1
+
+
+def _evidence_items() -> list[_FakeEvidenceItem]:
+    return [
+        _FakeEvidenceItem("gross_monthly_income", "5000.00", Decimal("0.850")),
+        _FakeEvidenceItem("net_monthly_income", "4200.00", Decimal("0.950")),
+    ]
+
+
+def _inference_result(**overrides: object) -> InferenceResult:
+    defaults: dict[str, object] = {
+        "content": "Evidence is consistent with the declared income.",
+        "model_version": "mock-inference-1.0.0",
+        "prompt_version": "finding-generation-prompt-v1",
+        "evidence_citations": (),
+    }
+    defaults.update(overrides)
+    return InferenceResult(**defaults)  # type: ignore[arg-type]
+
+
+class FakeFindingRepository:
+    def __init__(self) -> None:
+        self.saved: list[Finding] = []
+
+    def save(self, finding: Finding) -> None:
+        self.saved.append(finding)
+
+
+class FakeAuditWriter:
+    def __init__(self) -> None:
+        self.records: list[dict[str, object]] = []
+
+    def record(self, **kwargs: object) -> object:
+        self.records.append(kwargs)
+        return object()
+
+
+def _make_service() -> tuple[FindingService, FakeFindingRepository, FakeAuditWriter]:
+    repo = FakeFindingRepository()
+    audit = FakeAuditWriter()
+    return FindingService(repo, audit), repo, audit  # type: ignore[arg-type]
+
+
+class TestGenerateFinding:
+    def test_creates_one_finding(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert len(repo.saved) == 1
+
+    def test_confidence_score_is_mean_of_evidence(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        # mean(0.850, 0.950) == 0.900
+        assert repo.saved[0].confidence_score == Decimal("0.900")
+
+    def test_confidence_label_derived_from_score(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert repo.saved[0].confidence_label == "HIGH"
+
+    def test_rationale_is_inference_content(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(content="Custom rationale text."),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert repo.saved[0].rationale == "Custom rationale text."
+
+    def test_records_model_and_prompt_version_from_result(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(model_version="m9", prompt_version="p9"),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert repo.saved[0].model_version == "m9"
+        assert repo.saved[0].prompt_version == "p9"
+
+    def test_records_extraction_version(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="custom-extraction-version",
+        )
+        assert repo.saved[0].extraction_version == "custom-extraction-version"
+
+    def test_records_supporting_evidence_ids(self) -> None:
+        service, repo, _ = _make_service()
+        items = _evidence_items()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=items,  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert set(repo.saved[0].evidence_item_ids) == {str(item.id) for item in items}
+
+    def test_default_finding_type(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert repo.saved[0].finding_type == "AI_GENERATED_ASSESSMENT"
+
+    def test_custom_finding_type(self) -> None:
+        service, repo, _ = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+            finding_type="INCOME_VERIFICATION",
+        )
+        assert repo.saved[0].finding_type == "INCOME_VERIFICATION"
+
+    def test_emits_finding_generated_audit_event(self) -> None:
+        service, _, audit = _make_service()
+        service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert len(audit.records) == 1
+        assert audit.records[0]["event_type"] == "FINDING_GENERATED"
+        assert audit.records[0]["entity_type"] == "FINDING"
+
+    def test_audit_event_carries_tenant_and_application(self) -> None:
+        service, _, audit = _make_service()
+        app_id, tenant_id = uuid4(), uuid4()
+        service.generate_finding(
+            application_id=app_id,
+            tenant_id=tenant_id,
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert audit.records[0]["tenant_id"] == tenant_id
+        assert audit.records[0]["application_id"] == app_id
+
+    def test_links_finding_to_application_and_run(self) -> None:
+        service, repo, _ = _make_service()
+        app_id, run_id = uuid4(), uuid4()
+        service.generate_finding(
+            application_id=app_id,
+            tenant_id=uuid4(),
+            workflow_run_id=run_id,
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert repo.saved[0].application_id == app_id
+        assert repo.saved[0].workflow_run_id == run_id

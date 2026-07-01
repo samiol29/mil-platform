@@ -25,11 +25,19 @@ Dependency graph::
     get_db                    -- yields a synchronous SQLAlchemy Session
     get_application_service   -- builds ApplicationService from session
     get_document_service      -- builds DocumentService from session + container
+    get_finding_trigger       -- builds FindingTrigger from session + container
 
 Override any dependency in tests via ``app.dependency_overrides``.
 
 Dependency rule: imports from ``mil.kernel``, ``mil.application``,
 ``mil.document``, ``mil.audit``, and the Python standard library only.
+
+``get_finding_trigger`` is the one exception: it composes the Application and
+Finding/Orchestrator bounded contexts for the single DRAFT -> SUBMITTED
+composition point (ADR-009), mirroring how ``workers/*.py`` composition roots
+wire multiple bounded contexts together for job-triggered flows. This module
+is the sanctioned place for that composition for HTTP-triggered flows; no
+bounded-context module itself gains a new cross-context dependency.
 """
 
 from __future__ import annotations
@@ -55,7 +63,9 @@ from mil.kernel.types import TenantId, UserId
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from mil.application.models import MortgageApplication
     from mil.kernel.container import Container
+    from mil.orchestrator.models import WorkflowRun
 
 log = logging.getLogger(__name__)
 
@@ -243,5 +253,57 @@ def get_document_service(
     return DocumentService(repo, storage, event_bus)
 
 
+class FindingTrigger:
+    """
+    Composition-root wrapper that starts the ``FINDING_GENERATION`` workflow.
+
+    Bound to the request's session and DI container. ``trigger()`` is a thin
+    delegation to ``workers.finding_pipeline.start_finding_generation_workflow``
+    — this class exists only so ``mil.api.v1.applications`` can depend on a
+    type re-exported from ``mil.api.deps`` (its declared dependency) rather
+    than importing ``workers.finding_pipeline`` or any bounded-context module
+    directly.
+    """
+
+    def __init__(self, *, session: Session, container: Container) -> None:
+        self._session = session
+        self._container = container
+
+    def trigger(self, application: MortgageApplication) -> WorkflowRun:
+        """Start (or return the existing) FINDING_GENERATION workflow run."""
+        from workers.finding_pipeline import start_finding_generation_workflow
+
+        return start_finding_generation_workflow(
+            self._session,
+            self._container,
+            application_id=application.id,
+            tenant_id=application.tenant_id,
+        )
+
+
+def get_finding_trigger(
+    session: DbSession,
+    container: Annotated[object, Depends(get_container)],
+) -> FindingTrigger:
+    """
+    Build and return a ``FindingTrigger`` wired to the request session and the
+    platform DI container.
+
+    Per ADR-009, Finding generation is triggered by the application's
+    DRAFT -> SUBMITTED transition and evaluates all of its evidence, never per
+    document. ``FindingTrigger`` composes the Orchestrator, Evidence, and
+    Finding contexts for that single trigger point, bound to the same session
+    as the submit request so the workflow run and its dispatch commit in the
+    same transaction as the application's state change.
+    """
+    from mil.kernel.container import Container
+
+    c = container
+    if not isinstance(c, Container):
+        raise RuntimeError("DI container not available on app state.")
+    return FindingTrigger(session=session, container=c)
+
+
 AppService = Annotated[ApplicationService, Depends(get_application_service)]
 DocService = Annotated[DocumentService, Depends(get_document_service)]
+FindingTriggerDep = Annotated[FindingTrigger, Depends(get_finding_trigger)]
