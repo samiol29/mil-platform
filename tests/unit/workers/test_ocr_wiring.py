@@ -44,6 +44,7 @@ class TestBuildCollaborators:
         assert collaborators.workflows is not None
         assert collaborators.outbox is not None
         assert collaborators.documents is not None
+        assert collaborators.job_queue is not None
 
 
 class TestMakeOcrHandler:

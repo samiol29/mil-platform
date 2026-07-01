@@ -26,6 +26,12 @@ to the bus.
 
 Provider resolution is exclusively through the DI container (``ProviderRegistry``).
 Concrete provider classes are never imported or instantiated here.
+
+On successful completion, this worker also dispatches the next planned
+``WorkflowStep`` (the Extraction stage, US2 Sprint 3) as a job on the
+``JobQueue``, carrying the OCR provider version and page count so the
+Extraction worker can load the persisted ``OCRResultRecord`` without needing
+the ``OCRProvider`` itself. If no further step is planned, dispatch is a no-op.
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from mil.document.service import DocumentService
 from mil.kernel.errors import NotFoundError, ProviderError, ProviderVersionMissingError
 from mil.kernel.event_bus import EventBus
 from mil.kernel.events import OCRCompleted, WorkflowStepFailed
+from mil.kernel.job_queue import Job, JobQueue
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, DocumentId, TenantId, WorkflowRunId
 from mil.orchestrator.models import StepStatus, WorkflowRun, WorkflowStep
@@ -60,13 +67,15 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from mil.kernel.container import Container
-    from mil.kernel.job_queue import Job
     from mil.kernel.providers.ocr import OCRProvider, OCRResult
     from mil.kernel.providers.storage import StorageProvider
     from workers.bootstrap import JobHandler, WorkerContext
 
 # OCR step label dispatched by the orchestrator for the DOCUMENT_INGESTION workflow.
 OCR_STEP_NAME = "OCR"
+
+# Job type for every dispatched WorkflowStep job (orchestrator convention).
+_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
 
 
 class OCRProcessingOutcome(enum.StrEnum):
@@ -99,6 +108,7 @@ class OCRCollaborators:
     workflows: WorkflowRepository
     outbox: OutboxRepository
     documents: DocumentService
+    job_queue: JobQueue
 
 
 class OCRJobProcessor:
@@ -194,7 +204,61 @@ class OCRJobProcessor:
                 correlation_id=correlation_id,
             )
         )
+        self._dispatch_next_step(
+            run=run,
+            completed_step=step,
+            document_id=document_id,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            correlation_id=correlation_id,
+            ocr_provider_version=provider_version,
+            page_count=result.page_count,
+        )
         return OCRProcessingOutcome.COMPLETED
+
+    def _dispatch_next_step(
+        self,
+        *,
+        run: WorkflowRun,
+        completed_step: WorkflowStep,
+        document_id: UUID,
+        application_id: UUID,
+        tenant_id: UUID,
+        correlation_id: str,
+        ocr_provider_version: str,
+        page_count: int,
+    ) -> None:
+        """
+        Enqueue the job for the next planned step (the Extraction stage), if any.
+
+        Mirrors ``IntelligenceOrchestrator.start_workflow``'s first-step
+        dispatch: same job type, same idempotency-key derivation. A run with no
+        further planned steps (e.g. OCR-only workflows in earlier sprints) is
+        a no-op.
+        """
+        next_step = next(
+            (s for s in run.steps if s.step_order == completed_step.step_order + 1), None
+        )
+        if next_step is None or next_step.status != StepStatus.PENDING:
+            return
+        self._c.job_queue.enqueue(
+            Job(
+                job_type=_JOB_TYPE_WORKFLOW_STEP,
+                idempotency_key=f"{run.id}:{next_step.step_name}",
+                payload={
+                    "workflow_run_id": str(run.id),
+                    "step_id": str(next_step.id),
+                    "step_name": next_step.step_name,
+                    "document_id": str(document_id),
+                    "application_id": str(application_id),
+                    "tenant_id": str(tenant_id),
+                    "correlation_id": correlation_id,
+                    "ocr_provider_version": ocr_provider_version,
+                    "page_count": page_count,
+                },
+                max_retries=next_step.max_retries,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Failure handling (ADR-008 retry classification)
@@ -292,6 +356,7 @@ def build_ocr_collaborators(session: Session, container: Container) -> OCRCollab
     ocr_provider = registry.get_ocr()
     storage = registry.get_storage()
     event_bus = container.resolve(EventBus)  # type: ignore[type-abstract]
+    job_queue = container.resolve(JobQueue)
 
     audit = AuditWriter(session)
     document_service = DocumentService(DocumentRepository(session, audit), storage, event_bus)
@@ -302,6 +367,7 @@ def build_ocr_collaborators(session: Session, container: Container) -> OCRCollab
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
         documents=document_service,
+        job_queue=job_queue,
     )
 
 
