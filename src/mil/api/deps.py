@@ -49,8 +49,6 @@ no bounded-context module itself (including ``mil.copilot.service`` and
 
 from __future__ import annotations
 
-import base64
-import json
 import logging
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
@@ -75,9 +73,15 @@ from mil.document.repository import DocumentRepository
 from mil.document.service import DocumentService
 from mil.evidence.repository import EvidenceRepository
 from mil.finding.repository import FindingRepository
+from mil.identity.provider import (
+    DevBearerIdentityProvider,
+    IdentityProvider,
+    populate_authenticated_user,
+)
+from mil.kernel.config import Settings
 from mil.kernel.errors import AuthenticationError
-from mil.kernel.security import AuthenticatedUser, Role
-from mil.kernel.types import TenantId, UserId
+from mil.kernel.security import AuthenticatedUser
+from mil.kernel.types import UserId
 from mil.policy.repository import PolicyRepository
 from mil.review.repository import ReviewRepository
 
@@ -85,65 +89,46 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from mil.application.models import MortgageApplication
+    from mil.identity.provider import TokenClaims
     from mil.kernel.container import Container
     from mil.orchestrator.models import WorkflowRun
 
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Dev-mode default user (accepted only when MIL_ENV=development)
-# ---------------------------------------------------------------------------
-
-_DEV_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
-_DEV_TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
-
-_DEV_USER = AuthenticatedUser(
-    user_id=UserId(_DEV_USER_ID),
-    tenant_id=TenantId(_DEV_TENANT_ID),
-    roles=frozenset({Role.ADMIN}),
-    email="dev@mil.local",
-    display_name="Dev Admin",
-)
-
-
-def _decode_bearer_token(token: str) -> AuthenticatedUser:
-    """
-    Decode a Base64URL-encoded JSON bearer token into an ``AuthenticatedUser``.
-
-    The token payload must contain ``user_id``, ``tenant_id``, and ``roles``
-    keys.  ``email`` and ``display_name`` are optional.
-
-    Raises:
-        AuthenticationError: If the token is malformed or missing required keys.
-    """
-    try:
-        # Re-add Base64 padding that callers may have stripped.
-        padded = token + "=" * (-len(token) % 4)
-        raw = base64.urlsafe_b64decode(padded)
-        payload: dict[str, object] = json.loads(raw)
-    except Exception as exc:
-        raise AuthenticationError("Invalid bearer token: cannot decode.") from exc
-
-    try:
-        user_id = UUID(str(payload["user_id"]))
-        tenant_id = UUID(str(payload["tenant_id"]))
-        raw_roles = payload.get("roles", [])
-        roles = frozenset(str(r) for r in (raw_roles if isinstance(raw_roles, list) else []))
-    except (KeyError, ValueError) as exc:
-        raise AuthenticationError("Invalid bearer token: missing required field.") from exc
-
-    return AuthenticatedUser(
-        user_id=UserId(user_id),
-        tenant_id=TenantId(tenant_id),
-        roles=roles,
-        email=str(payload.get("email", "")),
-        display_name=str(payload.get("display_name", "")),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Authentication dependency
 # ---------------------------------------------------------------------------
+
+# Fallback provider used ONLY when no DI container is bound to the app (e.g. a
+# TestClient constructed without triggering the ASGI lifespan). A deployed
+# process always binds a container at startup, and ``build_container`` refuses
+# to start a non-development process without a real ``IdentityProvider``
+# registered — so this development fallback is never reachable in a running
+# staging/production deployment (Backend Freeze Patch v1.0).
+_FALLBACK_DEV_IDENTITY_PROVIDER = DevBearerIdentityProvider()
+
+
+def _resolve_identity_provider(request: Request) -> IdentityProvider:
+    """
+    Resolve the active ``IdentityProvider`` for this request from the DI
+    container, falling back to the development provider only when no container
+    is bound (see ``_FALLBACK_DEV_IDENTITY_PROVIDER``).
+    """
+    from mil.kernel.container import Container
+
+    container = getattr(request.app.state, "container", None)
+    if isinstance(container, Container) and container.is_registered(IdentityProvider):
+        return container.resolve(IdentityProvider)  # type: ignore[type-abstract]
+    return _FALLBACK_DEV_IDENTITY_PROVIDER
+
+
+def _authenticated_user_from_claims(claims: TokenClaims) -> AuthenticatedUser:
+    """Map normalised ``TokenClaims`` onto the request principal."""
+    try:
+        user_id = UserId(UUID(claims.subject))
+    except (ValueError, AttributeError) as exc:
+        raise AuthenticationError("Invalid bearer token: subject is not a valid user id.") from exc
+    return populate_authenticated_user(claims, user_id=user_id)
 
 
 def get_current_user(
@@ -154,8 +139,11 @@ def get_current_user(
     Verify the ``Authorization: Bearer <token>`` header and return the
     authenticated principal.
 
-    In development mode (``MIL_ENV=development``), the literal token ``"dev"``
-    resolves to a built-in ADMIN user for local testing.
+    Token verification is delegated to the ``IdentityProvider`` resolved from
+    the DI container (Backend Freeze Patch v1.0). In development this is the
+    ``DevBearerIdentityProvider`` (the literal ``"dev"`` token and Base64URL
+    JSON tokens are accepted); staging/production register a signature-
+    verifying provider, and ``build_container`` refuses to start without one.
 
     Raises:
         HTTPException(401): If the header is absent or the token is invalid.
@@ -179,15 +167,10 @@ def get_current_user(
             },
         )
 
-    # Dev shortcut — only available in development environment.
-    settings = getattr(request.app.state, "settings", None)
-    mil_env = getattr(settings, "mil_env", "development") if settings else "development"
-    if token == "dev" and mil_env == "development":
-        _bind_user_to_log_context(_DEV_USER)
-        return _DEV_USER
-
+    provider = _resolve_identity_provider(request)
     try:
-        user = _decode_bearer_token(token)
+        claims = provider.validate_token(token)
+        user = _authenticated_user_from_claims(claims)
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=401,
@@ -250,12 +233,30 @@ def get_container(request: Request) -> Container:
     return request.app.state.container  # type: ignore[no-any-return]
 
 
+def get_app_settings(request: Request) -> Settings:
+    """
+    Return the active platform ``Settings``.
+
+    Reads the settings bound to ``app.state`` by the lifespan handler; falls
+    back to ``get_settings()`` when no lifespan ran (e.g. a TestClient built
+    without the ASGI lifespan). Used by route handlers that need configuration
+    values such as the maximum upload size.
+    """
+    from mil.kernel.config import get_settings
+
+    settings = getattr(request.app.state, "settings", None)
+    if settings is not None:
+        return settings  # type: ignore[no-any-return]
+    return get_settings()
+
+
 # ---------------------------------------------------------------------------
 # Service dependencies
 # ---------------------------------------------------------------------------
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
 DbSession = Annotated[Session, Depends(get_db)]
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
 def get_application_service(session: DbSession) -> ApplicationService:

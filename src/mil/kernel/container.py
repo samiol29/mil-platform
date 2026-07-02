@@ -163,22 +163,62 @@ class Container:
 # ---------------------------------------------------------------------------
 
 
+class ProductionReadinessError(RuntimeError):
+    """
+    Raised when a non-development process is assembled with a configuration
+    that cannot safely serve production traffic.
+
+    Backend Freeze Patch v1.0 makes these failures explicit at startup rather
+    than allowing a process to run with development-only wiring (mock
+    providers, ephemeral local storage, or the single-process in-memory
+    message queue/bus) in a staging or production environment.
+    """
+
+
+# Class names that are only ever valid in development. A staging/production
+# process that has any of these registered is misconfigured and must not start.
+_DEVELOPMENT_ONLY_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "MockOCRProvider",
+        "MockExtractionProvider",
+        "MockInferenceProvider",
+        "MockPolicyProvider",
+        "MockLOSAdapter",
+        "LocalStorageProvider",
+    }
+)
+
+
 def build_container(settings: Settings) -> Container:
     """
     Assemble and return the platform dependency injection container.
 
     This function is called once at application startup (in the FastAPI
-    ``lifespan`` handler).
+    ``lifespan`` handler and in the worker bootstrap).
 
-    Provider implementations registered here are the development defaults.
-    Production deployments replace these with cloud-backed implementations
-    by updating the relevant ``registry.register_*`` calls.
+    Provider selection is governed by ``settings.mil_env``:
+
+    - **development** — mock providers and the filesystem-backed
+      ``LocalStorageProvider`` are registered for zero-configuration local use.
+    - **staging / production** — mock and local development providers are
+      forbidden. Real cloud-backed implementations must be wired in
+      ``_register_production_providers``; none ship in this freeze, so a
+      non-development process fails fast here (missing required providers, or
+      a rejected development provider) rather than silently serving traffic
+      with mock intelligence (Backend Freeze Patch v1.0, fixes 2 & 3).
 
     Bounded context code resolves providers through ``ProviderRegistry``
     rather than importing concrete classes::
 
         registry = container.resolve(ProviderRegistry)
         ocr = registry.get_ocr()
+
+    Raises:
+        ProviderRegistryError: If a required provider is missing.
+        ProductionReadinessError: If a non-development process is wired with a
+            development-only provider, or with the in-process message queue/bus
+            that cannot deliver work across the platform's separate worker
+            processes.
     """
     container = Container()
 
@@ -196,9 +236,11 @@ def build_container(settings: Settings) -> Container:
     # Job queue — in-process for development; broker-backed in production.
     container.register_singleton(JobQueue, InProcessJobQueue)
 
-    # Provider registry — build with development implementations.
-    # Replace individual register_* calls to switch to cloud providers.
+    # Provider registry — selected by environment.
     registry = _build_provider_registry(settings)
+    if not settings.is_development():
+        _reject_development_providers(registry)
+    registry.validate()
     container.register_instance(ProviderRegistry, registry)
 
     # Individual provider bindings — resolved through the registry so
@@ -224,16 +266,40 @@ def build_container(settings: Settings) -> Container:
         lambda: container.resolve(ProviderRegistry).get_storage(),
     )
 
+    # Reject the development-only in-process message queue/bus outside
+    # development. The platform's supported non-development topology is
+    # multi-process (API + worker processes); the in-memory JobQueue/EventBus
+    # cannot deliver work across processes, so a staging/production process
+    # wired with them is unsupported and must not start (ADR-007/008; the
+    # broker-backed implementation is not part of this freeze).
+    if not settings.is_development():
+        _reject_in_process_messaging(container)
+
     return container
 
 
 def _build_provider_registry(settings: Settings) -> ProviderRegistry:
     """
-    Construct and validate the ProviderRegistry with development providers.
+    Construct the ``ProviderRegistry`` for the active environment.
 
-    Separated from ``build_container`` so that tests can call this function
-    directly to obtain a registry without a full container assembly.
+    Development registers mock/local providers. Staging and production must
+    wire real providers via ``_register_production_providers``. The registry is
+    returned unvalidated; ``build_container`` validates it (and, outside
+    development, rejects any development-only provider) so the failure path is
+    a single, explicit place.
+
+    Separated from ``build_container`` so tests can obtain a registry directly.
     """
+    registry = ProviderRegistry()
+    if settings.is_development():
+        _register_development_providers(registry)
+    else:
+        _register_production_providers(registry, settings)
+    return registry
+
+
+def _register_development_providers(registry: ProviderRegistry) -> None:
+    """Register the mock/local development providers (development only)."""
     import pathlib
     import tempfile
 
@@ -245,7 +311,6 @@ def _build_provider_registry(settings: Settings) -> ProviderRegistry:
 
     local_storage_path = pathlib.Path(tempfile.gettempdir()) / "mil-local-storage"
 
-    registry = ProviderRegistry()
     registry.register_ocr(MockOCRProvider())
     registry.register_extraction(MockExtractionProvider())
     registry.register_inference(MockInferenceProvider())
@@ -253,5 +318,60 @@ def _build_provider_registry(settings: Settings) -> ProviderRegistry:
     registry.register_storage(LocalStorageProvider(base_path=local_storage_path))
     # LOSAdapter is optional — register only when an integration is configured.
 
-    registry.validate()
-    return registry
+
+def _register_production_providers(registry: ProviderRegistry, settings: Settings) -> None:
+    """
+    Register real, cloud-backed providers for staging/production.
+
+    No production provider implementations ship in this freeze. This function
+    is the single, documented seam where they are wired; until they exist it
+    registers nothing, so ``registry.validate()`` in ``build_container`` fails
+    fast with a clear "required providers not registered" error rather than a
+    process starting with mock intelligence. Mock/local providers MUST NOT be
+    registered here (see ``_reject_development_providers``).
+    """
+    # Intentionally empty — see docstring. Real providers are wired here.
+
+
+def _reject_development_providers(registry: ProviderRegistry) -> None:
+    """
+    Fail fast if any development-only provider is registered.
+
+    Defence-in-depth for non-development environments: even if a future change
+    wired a mock or ``LocalStorageProvider`` into the production path, startup
+    is refused (Backend Freeze Patch v1.0, fix 2).
+    """
+    offending = {
+        key: name
+        for key, name in registry.registered_providers().items()
+        if name in _DEVELOPMENT_ONLY_PROVIDERS
+    }
+    if offending:
+        detail = ", ".join(f"{key}={name}" for key, name in sorted(offending.items()))
+        raise ProductionReadinessError(
+            "Development-only providers are not permitted outside development: "
+            f"{detail}. Register production-grade providers in "
+            "_register_production_providers()."
+        )
+
+
+def _reject_in_process_messaging(container: Container) -> None:
+    """
+    Fail fast if the in-process ``JobQueue``/``EventBus`` are registered outside
+    development.
+
+    These deliver only within a single process; the platform's supported
+    non-development deployment runs the API and workers as separate processes,
+    so in-memory messaging cannot coordinate them (ADR-007/008). A broker-backed
+    implementation is out of scope for this freeze — the honest behaviour is to
+    refuse to start rather than appear to work (Backend Freeze Patch v1.0, fix 3).
+    """
+    job_queue = container.resolve(JobQueue)
+    event_bus = container.resolve(EventBus)  # type: ignore[type-abstract]
+    if isinstance(job_queue, InProcessJobQueue) or isinstance(event_bus, InProcessEventBus):
+        raise ProductionReadinessError(
+            "The in-process JobQueue/EventBus cannot deliver work across the "
+            "platform's separate worker processes and must not be used outside "
+            "development. Register a broker-backed JobQueue and EventBus for "
+            "staging/production (not part of Backend Freeze Patch v1.0)."
+        )

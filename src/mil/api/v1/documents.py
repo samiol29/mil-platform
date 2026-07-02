@@ -34,9 +34,9 @@ from __future__ import annotations
 
 from uuid import UUID  # noqa: TC003
 
-from fastapi import APIRouter, Form, Query, UploadFile, status
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, status
 
-from mil.api.deps import CurrentUser, DocService  # noqa: TC001
+from mil.api.deps import CurrentUser, DocService, SettingsDep  # noqa: TC001
 from mil.api.v1.schemas import DocumentResponse
 from mil.kernel.types import ApplicationId
 
@@ -44,6 +44,40 @@ router = APIRouter(
     prefix="/v1/applications/{application_id}/documents",
     tags=["Documents"],
 )
+
+# Read the upload in bounded chunks so an oversized (or hostile) body is
+# rejected before the whole file is buffered in memory.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+async def _read_upload_within_limit(file: UploadFile, max_bytes: int) -> bytes:
+    """
+    Read ``file`` fully, rejecting it once it exceeds ``max_bytes``.
+
+    Returns the file bytes. Raises ``HTTPException(413)`` as soon as the
+    accumulated size exceeds the configured maximum, so memory use is bounded
+    to roughly ``max_bytes`` regardless of the declared or actual body size
+    (Backend Freeze Patch v1.0 — upload safety).
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,  # Content Too Large
+                detail={
+                    "code": "PAYLOAD_TOO_LARGE",
+                    "message": (
+                        f"Uploaded file exceeds the maximum allowed size of {max_bytes} bytes."
+                    ),
+                },
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.post(
@@ -66,6 +100,7 @@ router = APIRouter(
     responses={
         401: {"description": "Authentication required"},
         403: {"description": "Insufficient permissions"},
+        413: {"description": "Uploaded file exceeds the maximum allowed size"},
         422: {"description": "Empty file or missing document_type"},
     },
 )
@@ -73,6 +108,7 @@ async def upload_document(
     application_id: UUID,
     user: CurrentUser,
     service: DocService,
+    settings: SettingsDep,
     file: UploadFile,
     document_type: str = Form(
         description=(
@@ -86,7 +122,7 @@ async def upload_document(
     ),
 ) -> DocumentResponse:
     """Accept a file upload and ingest the document into the platform."""
-    content = await file.read()
+    content = await _read_upload_within_limit(file, settings.mil_max_upload_bytes)
     original_filename = file.filename or "unknown"
 
     doc = service.ingest_document(

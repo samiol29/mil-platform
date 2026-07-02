@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     worker_concurrency: int = 4
     worker_job_timeout: int = 120
 
+    # ---- Upload limits -----------------------------------------------------
+    # Maximum accepted size, in bytes, for a single document upload. Requests
+    # whose body exceeds this are rejected with HTTP 413 before the whole file
+    # is buffered in memory (Backend Freeze Patch v1.0 — upload safety).
+    mil_max_upload_bytes: int = Field(default=25 * 1024 * 1024, gt=0)
+
     # ---- Derived URLs (read-only properties) -------------------------------
 
     @property

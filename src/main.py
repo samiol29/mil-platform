@@ -35,8 +35,9 @@ from mil.api.v1.copilot import application_copilot_router
 from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
 from mil.api.v1.ops import router as ops_router
+from mil.identity.provider import DevBearerIdentityProvider, IdentityProvider
 from mil.kernel.config import Settings, get_settings
-from mil.kernel.container import build_container
+from mil.kernel.container import Container, ProductionReadinessError, build_container
 from mil.kernel.observability import configure_logging
 
 
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings: Settings = get_settings()
     configure_logging(log_level=settings.mil_log_level, service_name=settings.otel_service_name)
     container = build_container(settings)
+    _register_identity_provider(container, settings)
     engine = create_engine(settings.database_sync_url)
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
@@ -78,6 +80,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     engine.dispose()
+
+
+def _register_identity_provider(container: Container, settings: Settings) -> None:
+    """
+    Register the request-authentication ``IdentityProvider`` in the container.
+
+    Development registers ``DevBearerIdentityProvider`` (the existing local
+    development authentication, now resolved through DI). Staging and
+    production require a signature-verifying provider; none ships in this
+    freeze, so a non-development process fails to start rather than accept
+    unsigned tokens (Backend Freeze Patch v1.0, fix 1).
+    """
+    if settings.is_development():
+        container.register_singleton(
+            IdentityProvider,  # type: ignore[type-abstract]
+            DevBearerIdentityProvider,
+        )
+        return
+
+    if not container.is_registered(IdentityProvider):
+        raise ProductionReadinessError(
+            "No IdentityProvider is registered for a non-development environment "
+            f"(MIL_ENV={settings.mil_env}). Register a signature-verifying "
+            "(e.g. OIDC/JWKS) IdentityProvider before serving traffic — unsigned "
+            "development tokens are refused outside development."
+        )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

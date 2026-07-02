@@ -6,10 +6,23 @@ and the production readiness checklist. It complements `ARCHITECTURE.md`
 
 ---
 
-## 1. Processes
+## 1. Processes and supported deployment model
 
-The platform is a modular monolith that runs as **six independent
-processes**, all built from the same installed package:
+> **Supported deployment model (Backend Freeze Patch v1.0).** The
+> multi-process topology below is the platform's **target** design. It
+> requires a broker-backed `JobQueue` / `EventBus` so the API and worker
+> processes can exchange jobs and events. Only the in-process (single-process,
+> in-memory) implementations exist today; a broker-backed implementation is
+> **not** part of this freeze. Accordingly, the platform is runnable and
+> **supported only in development** (`MIL_ENV=development`, single process,
+> in-memory queue/bus). A non-development process is **deliberately refused at
+> startup** while it would be wired with development-only messaging or
+> providers — see §6. Do not run this build as a distributed production
+> deployment: the workers cannot receive jobs from the API until a broker
+> `JobQueue`/`EventBus` is implemented and registered.
+
+The platform is a modular monolith whose **target** topology runs as **six
+independent processes**, all built from the same installed package:
 
 | Process | Entry point | Role |
 |---|---|---|
@@ -23,7 +36,9 @@ processes**, all built from the same installed package:
 All six read the same environment configuration (below) and connect to the
 same PostgreSQL database, object store, and message broker. There is no
 separate "worker image" — the Dockerfile at the repository root builds one
-image; which process runs is just the container's command.
+image; which process runs is just the container's command. **This topology is
+not runnable until a broker-backed `JobQueue`/`EventBus` is added** (ADR-007/008
+always scoped the in-process implementations as development-only).
 
 ---
 
@@ -72,9 +87,10 @@ application startup immediately with a clear validation error.
 | `REDIS_HOST` / `PORT` / `DB` / `PASSWORD` | Message broker | Yes |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` | Observability export target | No |
 | `WORKER_CONCURRENCY` / `WORKER_JOB_TIMEOUT` | Worker tuning | No |
+| `MIL_MAX_UPLOAD_BYTES` | Max accepted document upload size (bytes) | No (defaults to 25 MiB) |
 
-**Fail-fast guarantees already enforced at startup** (`Settings` model
-validators and `ProviderRegistry.validate()`):
+**Fail-fast guarantees enforced at startup** (`Settings` model validators,
+`build_container`, and `ProviderRegistry.validate()`):
 
 - `MIL_SECRET_KEY` and `POSTGRES_PASSWORD` **must not** be left at their
   placeholder default values when `MIL_ENV=production` — the process
@@ -83,6 +99,15 @@ validators and `ProviderRegistry.validate()`):
   must be registered exactly once — a missing provider raises
   `ProviderRegistryError` at startup; a duplicate registration (a
   configuration bug, not a runtime condition) also raises immediately.
+- **(Backend Freeze Patch v1.0)** Outside development, `build_container`
+  refuses to start a process that is wired with development-only providers
+  (`Mock*`, `LocalStorageProvider`) or with the in-process `JobQueue`/
+  `EventBus` (`ProductionReadinessError`), and the API refuses to start
+  without a signature-verifying `IdentityProvider` registered. Because no
+  production providers/IdP ship in this freeze, a non-development process
+  fails fast by design — this is the honest signal that real providers, a
+  real identity provider, and a broker-backed queue/bus must be wired before
+  production use.
 
 ---
 

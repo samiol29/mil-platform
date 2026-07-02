@@ -363,3 +363,58 @@ Every log record (`mil.kernel.observability.MILJsonFormatter`) carries
 `Strict-Transport-Security` when the request arrived over HTTPS. This does
 not change the authentication model (still bearer-token, `mil.api.deps`) —
 it is response-header hardening only.
+
+## 15. Backend Freeze Patch v1.0 (production-readiness guards)
+
+The backend is feature-complete. This patch closes verified production risks
+without redesigning any bounded context, provider, or ADR contract.
+
+### 15.1 Authentication resolves through the DI container
+
+`get_current_user` (`mil.api.deps`) no longer decodes bearer tokens with a
+hard-coded, unsigned function. It resolves an `IdentityProvider`
+(`mil.identity.provider`) from the DI container and delegates token
+validation to it. Development registers `DevBearerIdentityProvider` — the
+existing local development authentication (literal `dev` token and Base64URL
+JSON tokens), unchanged. Staging/production require a signature-verifying
+(e.g. OIDC/JWKS) `IdentityProvider`; none ships in this freeze, so a
+non-development process **fails to start** rather than accept self-asserted
+tokens (`main._register_identity_provider`).
+
+### 15.2 Environment-selected providers, fail-fast in production
+
+`build_container` (`mil.kernel.container`) selects providers by
+`settings.mil_env`. Development registers the mock/local providers.
+Staging/production wire real providers in `_register_production_providers`
+(empty in this freeze). Two guards enforce the boundary:
+`_reject_development_providers` refuses any `Mock*` / `LocalStorageProvider`
+outside development, and `ProviderRegistry.validate()` refuses a process with
+required providers missing. A production process therefore cannot start with
+mock intelligence or ephemeral local storage.
+
+### 15.3 Supported deployment model (honest topology)
+
+Cross-process job/event delivery requires a broker-backed `JobQueue` /
+`EventBus`; only the in-process implementations exist (ADR-007/008 always
+scoped these as development-only). Until a broker implementation lands, the
+**supported runnable topology is single-process development**. To make this
+explicit rather than silently broken, `_reject_in_process_messaging` refuses
+to start a non-development process wired with `InProcessJobQueue` /
+`InProcessEventBus`. The multi-process API+workers topology remains the target
+design (see `docs/deployment/README.md`); it is not runnable in this freeze.
+
+### 15.4 Correlation-id propagation (pure ASGI middleware)
+
+`TelemetryMiddleware` is now a pure-ASGI middleware. A `BaseHTTPMiddleware`
+binds context variables in a task separate from the endpoint, so the
+`request_id`/`correlation_id` did not reach handler/service logs. The ASGI
+form binds the `LogContext` in the same task that awaits the downstream app,
+so the correlation fields are visible to the handler (and to sync handlers
+dispatched to the threadpool). Logging fields and header echo are unchanged.
+
+### 15.5 Upload size limits
+
+Document uploads are bounded by `MIL_MAX_UPLOAD_BYTES` (default 25 MiB).
+`mil.api.v1.documents` reads the body in chunks and rejects an oversized
+upload with HTTP 413 before the whole file is buffered, capping per-request
+memory. Storage and custody (ADR-006) are unchanged.
