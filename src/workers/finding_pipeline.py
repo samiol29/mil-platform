@@ -61,7 +61,7 @@ Concrete provider classes are never imported or instantiated here.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -77,6 +77,8 @@ from mil.kernel.errors import (
 )
 from mil.kernel.events import FindingGenerated, WorkflowStepFailed
 from mil.kernel.job_queue import Job, JobQueue
+from mil.kernel.metrics import MetricName
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.providers.inference import EvidenceEntry, InferenceContext
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, FindingId, TenantId, WorkflowRunId
@@ -166,6 +168,7 @@ class FindingCollaborators:
     workflows: WorkflowRepository
     outbox: OutboxRepository
     job_queue: JobQueue
+    metrics: MetricEmitter = field(default_factory=NoOpMetricEmitter)
 
 
 class FindingJobProcessor:
@@ -353,6 +356,7 @@ class FindingJobProcessor:
         if decision is RetryDecision.RETRIES_EXHAUSTED:
             self._dead_letter.record(job, exc)
 
+        self._c.metrics.increment(MetricName.PROVIDER_FAILURES_TOTAL)
         step.record_retry(job.retry_count)
         step.mark_failed(error_code=exc.code, error_message=exc.message)
         run.mark_failed()
@@ -540,8 +544,9 @@ def build_finding_collaborators(session: Session, container: Container) -> Findi
     """
     registry = container.resolve(ProviderRegistry)
     inference_provider = registry.get_inference()
+    metrics = container.resolve(MetricEmitter)  # type: ignore[type-abstract]
 
-    audit = AuditWriter(session)
+    audit = AuditWriter(session, metrics=metrics)
     finding_repository = FindingRepository(session)
     finding_service = FindingService(finding_repository, audit)
     return FindingCollaborators(
@@ -552,6 +557,7 @@ def build_finding_collaborators(session: Session, container: Container) -> Findi
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
         job_queue=container.resolve(JobQueue),
+        metrics=metrics,
     )
 
 

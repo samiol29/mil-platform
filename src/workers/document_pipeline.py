@@ -37,7 +37,7 @@ the ``OCRProvider`` itself. If no further step is planned, dispatch is a no-op.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -50,6 +50,8 @@ from mil.kernel.errors import NotFoundError, ProviderError, ProviderVersionMissi
 from mil.kernel.event_bus import EventBus
 from mil.kernel.events import OCRCompleted, WorkflowStepFailed
 from mil.kernel.job_queue import Job, JobQueue
+from mil.kernel.metrics import MetricName
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, DocumentId, TenantId, WorkflowRunId
 from mil.orchestrator.models import StepStatus, WorkflowRun, WorkflowStep
@@ -109,6 +111,7 @@ class OCRCollaborators:
     outbox: OutboxRepository
     documents: DocumentService
     job_queue: JobQueue
+    metrics: MetricEmitter = field(default_factory=NoOpMetricEmitter)
 
 
 class OCRJobProcessor:
@@ -214,6 +217,7 @@ class OCRJobProcessor:
             ocr_provider_version=provider_version,
             page_count=result.page_count,
         )
+        self._c.metrics.increment(MetricName.OCR_JOBS_TOTAL)
         return OCRProcessingOutcome.COMPLETED
 
     def _dispatch_next_step(
@@ -287,6 +291,7 @@ class OCRJobProcessor:
         if decision is RetryDecision.RETRIES_EXHAUSTED:
             self._dead_letter.record(job, exc)
 
+        self._c.metrics.increment(MetricName.PROVIDER_FAILURES_TOTAL)
         step.record_retry(job.retry_count)
         step.mark_failed(error_code=exc.code, error_message=exc.message)
         run.mark_failed()
@@ -357,8 +362,9 @@ def build_ocr_collaborators(session: Session, container: Container) -> OCRCollab
     storage = registry.get_storage()
     event_bus = container.resolve(EventBus)  # type: ignore[type-abstract]
     job_queue = container.resolve(JobQueue)
+    metrics = container.resolve(MetricEmitter)  # type: ignore[type-abstract]
 
-    audit = AuditWriter(session)
+    audit = AuditWriter(session, metrics=metrics)
     document_service = DocumentService(DocumentRepository(session, audit), storage, event_bus)
     return OCRCollaborators(
         ocr_provider=ocr_provider,
@@ -368,6 +374,7 @@ def build_ocr_collaborators(session: Session, container: Container) -> OCRCollab
         outbox=OutboxRepository(session),
         documents=document_service,
         job_queue=job_queue,
+        metrics=metrics,
     )
 
 

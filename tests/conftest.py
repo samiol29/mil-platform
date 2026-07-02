@@ -39,6 +39,33 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Auto-marking by directory (Sprint 8 — Production Hardening)
+#
+# No individual test module applies ``@pytest.mark.unit`` etc. by hand — the
+# category is entirely determined by which top-level directory under
+# ``tests/`` a test lives in. Without this hook, ``pytest -m unit`` (used by
+# ``make test-unit`` and CI) silently collected zero tests, which is exactly
+# the kind of "CI reports success but validated nothing" failure mode Sprint
+# 8 is meant to close.
+# ---------------------------------------------------------------------------
+
+_DIRECTORY_MARKERS = {
+    "unit": "unit",
+    "integration": "integration",
+    "contract": "contract",
+    "providers": "providers",
+}
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Apply the marker matching each test's top-level directory under tests/."""
+    for item in items:
+        parts = item.path.relative_to(config.rootpath / "tests").parts
+        if parts and parts[0] in _DIRECTORY_MARKERS:
+            item.add_marker(getattr(pytest.mark, _DIRECTORY_MARKERS[parts[0]]))
+
+
+# ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 

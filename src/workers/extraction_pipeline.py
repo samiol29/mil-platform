@@ -47,7 +47,7 @@ Concrete provider classes are never imported or instantiated here.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -57,6 +57,8 @@ from mil.evidence.repository import EvidenceRepository
 from mil.evidence.service import EvidenceService
 from mil.kernel.errors import NotFoundError, ProviderError, ProviderVersionMissingError
 from mil.kernel.events import EvidenceExtracted, WorkflowStepFailed
+from mil.kernel.metrics import MetricName
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import (
     ApplicationId,
@@ -122,6 +124,7 @@ class ExtractionCollaborators:
     evidence_items: EvidenceRepository
     workflows: WorkflowRepository
     outbox: OutboxRepository
+    metrics: MetricEmitter = field(default_factory=NoOpMetricEmitter)
 
 
 class ExtractionJobProcessor:
@@ -256,6 +259,7 @@ class ExtractionJobProcessor:
         if decision is RetryDecision.RETRIES_EXHAUSTED:
             self._dead_letter.record(job, exc)
 
+        self._c.metrics.increment(MetricName.PROVIDER_FAILURES_TOTAL)
         step.record_retry(job.retry_count)
         step.mark_failed(error_code=exc.code, error_message=exc.message)
         run.mark_failed()
@@ -342,8 +346,9 @@ def build_extraction_collaborators(
     """
     registry = container.resolve(ProviderRegistry)
     extraction_provider = registry.get_extraction()
+    metrics = container.resolve(MetricEmitter)  # type: ignore[type-abstract]
 
-    audit = AuditWriter(session)
+    audit = AuditWriter(session, metrics=metrics)
     evidence_repository = EvidenceRepository(session)
     evidence_service = EvidenceService(evidence_repository, audit)
     return ExtractionCollaborators(
@@ -353,6 +358,7 @@ def build_extraction_collaborators(
         evidence_items=evidence_repository,
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
+        metrics=metrics,
     )
 
 

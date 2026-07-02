@@ -203,6 +203,45 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "1.0.0"
     environment: str = "development"
+    uptime_seconds: float = 0.0
+
+
+class ReadinessCheck(BaseModel):
+    """One dependency check performed by GET /v1/ready."""
+
+    name: str
+    status: str = Field(description="'ok' or 'fail'.")
+    detail: str | None = None
+
+
+class ReadinessResponse(BaseModel):
+    """Response for GET /v1/ready."""
+
+    status: str = Field(description="'ready' or 'not_ready'.")
+    checks: list[ReadinessCheck]
+
+
+class LivenessResponse(BaseModel):
+    """Response for GET /v1/live."""
+
+    status: str = "alive"
+
+
+class HistogramMetric(BaseModel):
+    """Aggregate statistics for one histogram metric."""
+
+    count: int
+    sum: float
+    average: float
+    minimum: float
+    maximum: float
+
+
+class MetricsResponse(BaseModel):
+    """Response for GET /v1/metrics."""
+
+    counters: dict[str, float]
+    histograms: dict[str, HistogramMetric]
 
 
 # ---------------------------------------------------------------------------

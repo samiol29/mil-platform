@@ -35,7 +35,8 @@ from mil.kernel.config import Settings
 from mil.kernel.errors import DependencyNotRegisteredError
 from mil.kernel.event_bus import EventBus, InProcessEventBus
 from mil.kernel.job_queue import InProcessJobQueue, JobQueue
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.metrics import InMemoryMetricEmitter
+from mil.kernel.observability import MetricEmitter
 from mil.kernel.providers.extraction import ExtractionProvider
 from mil.kernel.providers.inference import InferenceProvider
 from mil.kernel.providers.ocr import OCRProvider
@@ -184,8 +185,10 @@ def build_container(settings: Settings) -> Container:
     # Platform settings — always available.
     container.register_instance(Settings, settings)
 
-    # Metric emitter — no-op in development; OTel-backed in production.
-    container.register_instance(MetricEmitter, NoOpMetricEmitter())  # type: ignore[type-abstract]
+    # Metric emitter — in-process counters/histograms by default (Sprint 8:
+    # exposed via GET /v1/metrics). Production deployments that need
+    # cross-process aggregation register a different MetricEmitter here.
+    container.register_instance(MetricEmitter, InMemoryMetricEmitter())  # type: ignore[type-abstract]
 
     # Event bus — in-process for development; broker-backed in production.
     container.register_singleton(EventBus, InProcessEventBus)  # type: ignore[type-abstract]

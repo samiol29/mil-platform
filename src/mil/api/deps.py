@@ -183,15 +183,34 @@ def get_current_user(
     settings = getattr(request.app.state, "settings", None)
     mil_env = getattr(settings, "mil_env", "development") if settings else "development"
     if token == "dev" and mil_env == "development":
+        _bind_user_to_log_context(_DEV_USER)
         return _DEV_USER
 
     try:
-        return _decode_bearer_token(token)
+        user = _decode_bearer_token(token)
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=401,
             detail={"code": "AUTHENTICATION_REQUIRED", "message": exc.message},
         ) from exc
+    _bind_user_to_log_context(user)
+    return user
+
+
+def _bind_user_to_log_context(user: AuthenticatedUser) -> None:
+    """
+    Merge the authenticated caller's identity into the structured log context.
+
+    Sprint 8 (Production Hardening): every log line emitted while handling
+    this request should carry ``tenant_id`` and ``user_id`` alongside the
+    ``request_id``/``correlation_id`` the telemetry middleware already set.
+    """
+    from dataclasses import replace
+
+    from mil.kernel.observability import get_log_context, set_log_context
+
+    current = get_log_context()
+    set_log_context(replace(current, tenant_id=str(user.tenant_id), user_id=str(user.user_id)))
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +280,7 @@ def get_document_service(
     """
     from mil.kernel.container import Container
     from mil.kernel.event_bus import EventBus
+    from mil.kernel.observability import MetricEmitter
     from mil.kernel.providers.storage import StorageProvider
 
     c = container
@@ -269,7 +289,8 @@ def get_document_service(
 
     storage = c.resolve(StorageProvider)  # type: ignore[type-abstract]
     event_bus = c.resolve(EventBus)  # type: ignore[type-abstract]
-    audit = AuditWriter(session)
+    metrics = c.resolve(MetricEmitter)  # type: ignore[type-abstract]
+    audit = AuditWriter(session, metrics=metrics)
     repo = DocumentRepository(session, audit)
     return DocumentService(repo, storage, event_bus)
 
@@ -342,6 +363,7 @@ def get_copilot_service(
     of the repository types constructed here.
     """
     from mil.kernel.container import Container
+    from mil.kernel.observability import MetricEmitter
     from mil.kernel.providers.inference import InferenceProvider
 
     c = container
@@ -349,7 +371,8 @@ def get_copilot_service(
         raise RuntimeError("DI container not available on app state.")
 
     inference = c.resolve(InferenceProvider)  # type: ignore[type-abstract]
-    audit = AuditWriter(session)
+    metrics = c.resolve(MetricEmitter)  # type: ignore[type-abstract]
+    audit = AuditWriter(session, metrics=metrics)
     repo = CopilotRepository(session)
 
     return CopilotService(

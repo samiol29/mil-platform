@@ -50,13 +50,15 @@ dependency — no concrete provider classes exist to import here.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from mil.audit.writer import AuditWriter
 from mil.kernel.errors import NotFoundError
 from mil.kernel.events import ReviewCompleted, ReviewStarted, WorkflowCompleted
+from mil.kernel.metrics import MetricName
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.types import ApplicationId, FindingId, ReviewSessionId, TenantId, WorkflowRunId
 from mil.orchestrator.models import StepStatus
 from mil.orchestrator.repository import WorkflowRepository
@@ -100,6 +102,7 @@ class ReviewCollaborators:
     reviews: ReviewRepository
     workflows: WorkflowRepository
     outbox: OutboxRepository
+    metrics: MetricEmitter = field(default_factory=NoOpMetricEmitter)
 
 
 class ReviewJobProcessor:
@@ -194,6 +197,7 @@ class ReviewJobProcessor:
                     correlation_id=correlation_id,
                 )
             )
+            self._c.metrics.increment(MetricName.WORKFLOW_EXECUTIONS_TOTAL)
         return ReviewProcessingOutcome.COMPLETED
 
 
@@ -226,12 +230,12 @@ def build_review_collaborators(session: Session, container: Container) -> Review
     """
     Build the session-scoped collaborators for one Review job.
 
-    Unlike the other pipeline workers, Review has no provider to resolve
-    from the DI container — ``container`` is accepted only for interface
-    consistency with the other ``build_*_collaborators`` composition roots.
+    Review has no provider to resolve from the DI container — ``container``
+    is used only to resolve the ``MetricEmitter`` (Sprint 8) for audit-event
+    and workflow-execution metrics.
     """
-    del container  # Review has no provider; kept for interface consistency.
-    audit = AuditWriter(session)
+    metrics = container.resolve(MetricEmitter)  # type: ignore[type-abstract]
+    audit = AuditWriter(session, metrics=metrics)
     review_repository = ReviewRepository(session)
     review_service = ReviewService(review_repository, audit)
     return ReviewCollaborators(
@@ -239,6 +243,7 @@ def build_review_collaborators(session: Session, container: Container) -> Review
         reviews=review_repository,
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
+        metrics=metrics,
     )
 
 

@@ -105,6 +105,25 @@ class TestMILJsonFormatter:
 
             _current_log_context.reset(token)
 
+    def test_context_includes_tenant_correlation_and_component(self) -> None:
+        ctx = LogContext(
+            tenant_id="tenant-001",
+            correlation_id="corr-001",
+            component="finding",
+        )
+        token = set_log_context(ctx)
+        try:
+            formatter = MILJsonFormatter()
+            record = self._make_record("ctx test")
+            data = json.loads(formatter.format(record))
+            assert data["tenant_id"] == "tenant-001"
+            assert data["correlation_id"] == "corr-001"
+            assert data["component"] == "finding"
+        finally:
+            from mil.kernel.observability import _current_log_context
+
+            _current_log_context.reset(token)
+
     def test_event_type_from_extra(self) -> None:
         formatter = MILJsonFormatter()
         record = self._make_record("event", event_type="finding.verified")

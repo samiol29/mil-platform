@@ -302,3 +302,64 @@ Extensions follow this priority order:
 The modular monolith structure means the first milestone of any future
 service-extraction is a clean module boundary, not a rewrite.  Keep those
 boundaries clean.
+
+---
+
+## 14. Production Hardening (US2 Sprint 8)
+
+Every process (the API and each of the five pipeline workers) builds its own
+DI container at startup via `build_container()`. Startup failures are
+**explicit, not degraded operation** — a missing or duplicate provider
+registration, or an invalid/placeholder production secret, raises during
+startup and the process does not begin serving traffic or consuming jobs.
+
+### 14.1 Operational endpoints
+
+| Endpoint | Auth | Checks |
+|---|---|---|
+| `GET /v1/live` | None | Nothing — trivial process liveness |
+| `GET /v1/health` | None | Version, uptime, static status |
+| `GET /v1/ready` | None | Database connectivity, `ProviderRegistry.validate()`, applied-migration-matches-code-head |
+| `GET /v1/metrics` | `read:operational` | In-process counters/histograms (see §14.2) |
+
+`/v1/live` and `/v1/health` never touch the database or a provider — an
+orchestrator's liveness probe must not depend on downstream infrastructure
+being healthy. `/v1/ready` is the only probe that does, and is the correct
+target for a readiness gate before routing traffic to a new instance.
+
+### 14.2 Metrics
+
+`mil.kernel.observability.MetricEmitter` (existing) is the platform's only
+metrics abstraction — bounded contexts and workers depend on the interface,
+never a concrete backend. `mil.kernel.metrics.InMemoryMetricEmitter` is the
+default registered implementation: thread-safe in-process counters and
+histograms (count/sum/min/max, not raw samples, so memory stays bounded),
+exposed read-only via `GET /v1/metrics`. Swapping in a cross-process backend
+(StatsD, CloudWatch, an OTel metrics exporter) is a single registration
+change in `build_container` — no caller changes.
+
+Named metrics (`mil.kernel.metrics.MetricName`): `http.requests.total`,
+`http.request.duration_ms`, `copilot.requests.total`, `ocr.jobs.total`,
+`workflow.executions.total`, `provider.failures.total`,
+`audit.events.total`. This is explicitly **not** distributed tracing — no
+spans are created; `TraceContext` in `observability.py` remains a dormant
+primitive for a future OTel integration.
+
+### 14.3 Structured logging
+
+Every log record (`mil.kernel.observability.MILJsonFormatter`) carries
+`timestamp`, `severity`, `service`, `component`, `request_id`,
+`correlation_id`, `tenant_id`, `user_id`, and `event_type`. `request_id` /
+`correlation_id` are bound per-request by `TelemetryMiddleware`
+(`mil.api.middleware.telemetry`); `tenant_id` / `user_id` are merged in by
+`get_current_user` once the caller is authenticated. Workers bind their own
+`component` via `get_logger(__name__, component="...")`.
+
+### 14.4 Security headers
+
+`SecurityHeadersMiddleware` (`mil.api.middleware.security_headers`) adds
+`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and
+`Cache-Control: no-store` to every response, and
+`Strict-Transport-Security` when the request arrived over HTTPS. This does
+not change the authentication model (still bearer-token, `mil.api.deps`) —
+it is response-header hardening only.

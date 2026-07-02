@@ -13,6 +13,9 @@
 #
 # The application services (mil-api, mil-worker) are started separately via
 # the Makefile (make run-api, make run-worker) to support hot-reload in dev.
+# For a containerised API/worker (e.g. staging, or local parity testing),
+# build the image from the repository's Dockerfile and run it against this
+# same network — see docs/deployment/README.md.
 # ---------------------------------------------------------------------------
 
 services:
