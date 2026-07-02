@@ -26,18 +26,25 @@ Dependency graph::
     get_application_service   -- builds ApplicationService from session
     get_document_service      -- builds DocumentService from session + container
     get_finding_trigger       -- builds FindingTrigger from session + container
+    get_copilot_service       -- builds CopilotService from session + container
 
 Override any dependency in tests via ``app.dependency_overrides``.
 
 Dependency rule: imports from ``mil.kernel``, ``mil.application``,
 ``mil.document``, ``mil.audit``, and the Python standard library only.
 
-``get_finding_trigger`` is the one exception: it composes the Application and
-Finding/Orchestrator bounded contexts for the single DRAFT -> SUBMITTED
-composition point (ADR-009), mirroring how ``workers/*.py`` composition roots
-wire multiple bounded contexts together for job-triggered flows. This module
-is the sanctioned place for that composition for HTTP-triggered flows; no
-bounded-context module itself gains a new cross-context dependency.
+``get_finding_trigger`` and ``get_copilot_service`` are the two exceptions.
+``get_finding_trigger`` composes the Application and Finding/Orchestrator
+bounded contexts for the single DRAFT -> SUBMITTED composition point
+(ADR-009). ``get_copilot_service`` composes the Application, Document,
+Evidence, Finding, Policy, and Review bounded contexts' existing repositories
+into the Copilot bounded context's read-only Query Ports (ADR-010) via
+``mil.copilot.adapters`` — the one module in ``mil.copilot`` permitted to
+reference those repositories. Both mirror how ``workers/*.py`` composition
+roots wire multiple bounded contexts together for job-triggered flows: this
+module is the sanctioned place for that composition for HTTP-triggered flows;
+no bounded-context module itself (including ``mil.copilot.service`` and
+``mil.copilot.ports``) gains a new cross-context dependency.
 """
 
 from __future__ import annotations
@@ -54,11 +61,25 @@ from sqlalchemy.orm import Session, sessionmaker
 from mil.application.repository import ApplicationRepository
 from mil.application.service import ApplicationService
 from mil.audit.writer import AuditWriter
+from mil.copilot.adapters import (
+    ApplicationReaderAdapter,
+    DocumentReaderAdapter,
+    EvidenceReaderAdapter,
+    FindingReaderAdapter,
+    PolicyResultReaderAdapter,
+    ReviewReaderAdapter,
+)
+from mil.copilot.repository import CopilotRepository
+from mil.copilot.service import CopilotService
 from mil.document.repository import DocumentRepository
 from mil.document.service import DocumentService
+from mil.evidence.repository import EvidenceRepository
+from mil.finding.repository import FindingRepository
 from mil.kernel.errors import AuthenticationError
 from mil.kernel.security import AuthenticatedUser, Role
 from mil.kernel.types import TenantId, UserId
+from mil.policy.repository import PolicyRepository
+from mil.review.repository import ReviewRepository
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -304,6 +325,47 @@ def get_finding_trigger(
     return FindingTrigger(session=session, container=c)
 
 
+def get_copilot_service(
+    session: DbSession,
+    container: Annotated[object, Depends(get_container)],
+) -> CopilotService:
+    """
+    Build and return a ``CopilotService`` wired to the request session, the
+    platform's ``InferenceProvider``, and the six read-only Query Port
+    adapters (ADR-010).
+
+    This is the sanctioned composition point for the Copilot bounded
+    context's cross-context reads (see the module docstring). Each adapter
+    wraps an existing repository bound to the same session as the
+    ``CopilotRepository`` and ``AuditWriter``, so a single request reads
+    committed state consistently. ``mil.copilot.service`` never imports any
+    of the repository types constructed here.
+    """
+    from mil.kernel.container import Container
+    from mil.kernel.providers.inference import InferenceProvider
+
+    c = container
+    if not isinstance(c, Container):
+        raise RuntimeError("DI container not available on app state.")
+
+    inference = c.resolve(InferenceProvider)  # type: ignore[type-abstract]
+    audit = AuditWriter(session)
+    repo = CopilotRepository(session)
+
+    return CopilotService(
+        repo,
+        audit,
+        inference=inference,
+        applications=ApplicationReaderAdapter(ApplicationRepository(session, audit)),
+        documents=DocumentReaderAdapter(DocumentRepository(session, audit)),
+        evidence=EvidenceReaderAdapter(EvidenceRepository(session)),
+        findings=FindingReaderAdapter(FindingRepository(session)),
+        policy_results=PolicyResultReaderAdapter(PolicyRepository(session)),
+        reviews=ReviewReaderAdapter(ReviewRepository(session)),
+    )
+
+
 AppService = Annotated[ApplicationService, Depends(get_application_service)]
 DocService = Annotated[DocumentService, Depends(get_document_service)]
 FindingTriggerDep = Annotated[FindingTrigger, Depends(get_finding_trigger)]
+CopilotServiceDep = Annotated[CopilotService, Depends(get_copilot_service)]

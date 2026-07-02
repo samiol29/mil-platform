@@ -29,6 +29,8 @@ from sqlalchemy.orm import sessionmaker
 from mil.api.errors import register_error_handlers
 from mil.api.v1.applications import router as applications_router
 from mil.api.v1.auth import router as auth_router
+from mil.api.v1.copilot import application_copilot_router
+from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
 from mil.kernel.config import Settings, get_settings
 from mil.kernel.container import build_container
@@ -97,6 +99,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(applications_router)
     app.include_router(documents_router)
+    app.include_router(copilot_router)
+    app.include_router(application_copilot_router)
 
     return app
 
