@@ -53,7 +53,8 @@ import logging
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, sessionmaker
 
 from mil.application.repository import ApplicationRepository
@@ -107,6 +108,25 @@ log = logging.getLogger(__name__)
 # staging/production deployment (Backend Freeze Patch v1.0).
 _FALLBACK_DEV_IDENTITY_PROVIDER = DevBearerIdentityProvider()
 
+# Registers an HTTP Bearer security scheme in the OpenAPI document (Backend
+# Freeze Patch v1.0, OpenAPI integration) so Swagger UI renders the
+# "Authorize" button and a lock icon on every endpoint that depends on
+# ``get_current_user``, and sends the entered token as the ``Authorization``
+# header automatically. ``auto_error=False`` so this dependency only *extracts*
+# the credentials — ``get_current_user`` still raises the platform's own
+# ``AUTHENTICATION_REQUIRED`` 401 body for a missing/malformed/invalid token,
+# exactly as before this scheme was introduced.
+bearer_scheme = HTTPBearer(
+    scheme_name="BearerAuth",
+    description=(
+        "Bearer token verified by the platform's IdentityProvider. In "
+        "development, use the literal token `dev` for a built-in ADMIN "
+        "principal, or a Base64URL-encoded JSON object with `user_id`, "
+        "`tenant_id`, and optional `roles`/`email`/`display_name`."
+    ),
+    auto_error=False,
+)
+
 
 def _resolve_identity_provider(request: Request) -> IdentityProvider:
     """
@@ -133,32 +153,27 @@ def _authenticated_user_from_claims(claims: TokenClaims) -> AuthenticatedUser:
 
 def get_current_user(
     request: Request,
-    authorization: Annotated[str | None, Header()] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> AuthenticatedUser:
     """
     Verify the ``Authorization: Bearer <token>`` header and return the
     authenticated principal.
 
-    Token verification is delegated to the ``IdentityProvider`` resolved from
-    the DI container (Backend Freeze Patch v1.0). In development this is the
-    ``DevBearerIdentityProvider`` (the literal ``"dev"`` token and Base64URL
-    JSON tokens are accepted); staging/production register a signature-
-    verifying provider, and ``build_container`` refuses to start without one.
+    The token is extracted by FastAPI's ``HTTPBearer`` security dependency
+    (``bearer_scheme``), which also registers the scheme in the OpenAPI
+    document so Swagger UI shows the "Authorize" button and sends the token
+    automatically. Token verification itself is still delegated to the
+    ``IdentityProvider`` resolved from the DI container (Backend Freeze Patch
+    v1.0). In development this is the ``DevBearerIdentityProvider`` (the
+    literal ``"dev"`` token and Base64URL JSON tokens are accepted);
+    staging/production register a signature-verifying provider, and
+    ``build_container`` refuses to start without one.
 
     Raises:
-        HTTPException(401): If the header is absent or the token is invalid.
+        HTTPException(401): If the header is absent, not a bearer token, or
+            the token itself is invalid.
     """
-    if authorization is None:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "AUTHENTICATION_REQUIRED",
-                "message": "Authorization header is required.",
-            },
-        )
-
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=401,
             detail={
@@ -167,6 +182,7 @@ def get_current_user(
             },
         )
 
+    token = credentials.credentials
     provider = _resolve_identity_provider(request)
     try:
         claims = provider.validate_token(token)

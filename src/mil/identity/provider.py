@@ -273,8 +273,11 @@ def populate_authenticated_user(
 # ---------------------------------------------------------------------------
 
 # Built-in development principal, returned for the literal ``"dev"`` token.
-_DEV_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
-_DEV_TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
+# Public (not module-private) because ``mil.identity.dev_seed`` must seed the
+# exact same identifiers into ``core.users`` — a single source of truth avoids
+# the two drifting apart (Backend Freeze Patch v1.0 — development bootstrap).
+DEV_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+DEV_TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 class DevBearerIdentityProvider(IdentityProvider):
@@ -305,8 +308,8 @@ class DevBearerIdentityProvider(IdentityProvider):
         """Decode a development bearer token into normalised ``TokenClaims``."""
         if token == self._DEV_TOKEN:
             return TokenClaims(
-                subject=str(_DEV_USER_ID),
-                tenant_id=TenantId(_DEV_TENANT_ID),
+                subject=str(DEV_USER_ID),
+                tenant_id=TenantId(DEV_TENANT_ID),
                 roles=frozenset({Role.ADMIN}),
                 email="dev@mil.local",
                 display_name="Dev Admin",

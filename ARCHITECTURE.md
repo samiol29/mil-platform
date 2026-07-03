@@ -418,3 +418,25 @@ Document uploads are bounded by `MIL_MAX_UPLOAD_BYTES` (default 25 MiB).
 `mil.api.v1.documents` reads the body in chunks and rejects an oversized
 upload with HTTP 413 before the whole file is buffered, capping per-request
 memory. Storage and custody (ADR-006) are unchanged.
+
+### 15.6 Development bootstrap seed
+
+`DevBearerIdentityProvider` authenticates a built-in development principal
+(`DEV_USER_ID` in `DEV_TENANT_ID`, see §15.1) without ever touching the
+database. Manual end-to-end testing surfaced the resulting gap: several
+tables carry a foreign key to `core.users.id` (e.g.
+`applications.created_by`), so the first authenticated write against a
+freshly migrated development database failed with a foreign key violation —
+the dev principal had no corresponding row.
+
+`mil.identity.dev_seed.seed_development_identity` closes this by ensuring a
+matching `core.users` row exists, called once from `main.lifespan`
+immediately after the session factory is created and gated on
+`settings.is_development()`. It is idempotent (checked-then-inserted,
+`IntegrityError` on the row already existing is caught and rolled back so a
+concurrent seed cannot crash startup) and introduces no schema change, no
+tenants table, and no new business logic — it seeds one row through the
+existing `User` ORM model. It never runs outside development: staging and
+production authenticate no dev principal in the first place (§15.1), and the
+call site itself is gated on the same `is_development()` predicate used
+throughout this freeze.

@@ -59,7 +59,13 @@ always scoped the in-process implementations as development-only).
    required provider (OCR, Extraction, Inference, Policy, Storage) fails to
    start — it does not start in a degraded state and silently misbehave
    later.** This is deliberate (Sprint 8 — Production Hardening: startup
-   failures must be explicit).
+   failures must be explicit). In development only, the API additionally
+   seeds the built-in `Bearer dev` principal into `core.users`
+   (`mil.identity.dev_seed.seed_development_identity`) so requests
+   authenticated with it satisfy foreign keys (e.g.
+   `applications.created_by`) on a freshly migrated database — see
+   `ARCHITECTURE.md` §15.6. It is idempotent and never runs outside
+   development.
 4. **Confirm readiness.** Poll `GET /v1/ready` until it returns 200 before
    routing traffic to a new API instance (see §5).
 

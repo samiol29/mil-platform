@@ -35,6 +35,7 @@ from mil.api.v1.copilot import application_copilot_router
 from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
 from mil.api.v1.ops import router as ops_router
+from mil.identity.dev_seed import seed_development_identity
 from mil.identity.provider import DevBearerIdentityProvider, IdentityProvider
 from mil.kernel.config import Settings, get_settings
 from mil.kernel.container import Container, ProductionReadinessError, build_container
@@ -55,6 +56,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
           if any required provider is missing — see
           ``mil.kernel.container.build_container``).
         - Create the synchronous SQLAlchemy session factory.
+        - In development only, seed the built-in development user so that
+          requests authenticated with ``Bearer dev`` satisfy foreign keys on
+          a freshly migrated database (see
+          ``mil.identity.dev_seed.seed_development_identity``). Never runs
+          outside development.
         - Store settings, container, and the session factory on
           ``app.state`` for dependency access.
 
@@ -72,6 +78,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _register_identity_provider(container, settings)
     engine = create_engine(settings.database_sync_url)
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    if settings.is_development():
+        seed_development_identity(factory)
 
     app.state.settings = settings
     app.state.container = container
