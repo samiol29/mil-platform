@@ -145,6 +145,17 @@ class InferenceContext:
                          the canonical surface providers should read.  Derived
                          from ``evidence_items`` when not supplied directly.
         max_tokens:      Maximum token budget for the response.
+        temperature:     Sampling temperature for the model.  Defaults to
+                         ``0.0`` — regulated intelligence favours the most
+                         deterministic decoding available (Principle XII).  A
+                         provider MUST clamp/translate this into whatever range
+                         its backend expects; the interface value is engine-agnostic.
+        system_prompt:   Optional caller-supplied system instruction.  When
+                         ``None`` the provider applies its own governed default
+                         (e.g. a "answer only from the supplied grounding and
+                         cite each ref" guardrail).  Kept optional so callers
+                         such as ``CopilotService`` need not author prompt text
+                         to use inference — the provider owns a safe default.
     """
 
     application_id: str
@@ -153,6 +164,8 @@ class InferenceContext:
     evidence_items: tuple[EvidenceEntry, ...] = ()
     grounding_items: tuple[GroundingItem, ...] = ()
     max_tokens: int = 1024
+    temperature: float = 0.0
+    system_prompt: str | None = None
 
     def __post_init__(self) -> None:
         if not self.application_id:
@@ -163,6 +176,8 @@ class InferenceContext:
             raise ValueError("prompt_version cannot be empty")
         if self.max_tokens < 1:
             raise ValueError("max_tokens must be >= 1")
+        if self.temperature < 0.0:
+            raise ValueError("temperature cannot be negative")
         # Backwards-compat bridge: normalise legacy evidence entries into the
         # generalized grounding surface so downstream providers only ever read
         # ``grounding_items``.  A caller that supplies ``grounding_items``

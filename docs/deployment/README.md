@@ -171,9 +171,12 @@ Before routing production traffic:
       are real, non-placeholder secrets from a secret manager (not committed
       to source, not in `.env` in the image).
 - [ ] All five required providers (OCR, Extraction, Inference, Policy,
-      Storage) are registered with production-grade implementations —
-      `MockInferenceProvider` and the other `Mock*` providers under
-      `src/providers/` are for development only and **must not** be
+      Storage) are registered with production-grade implementations. Inference
+      is real in every environment: `GeminiInferenceProvider` is wired via
+      `Settings.inference_provider` (`INFERENCE_PROVIDER=gemini`) and requires
+      `GEMINI_API_KEY` from your secret manager — startup fails fast without it
+      (there is no mock inference). The remaining `Mock*` / `LocalStorage`
+      providers under `src/providers/` are development-only and **must not** be
       registered in a production `build_container`.
 - [ ] Database migrations applied (`alembic upgrade head`); `GET /v1/ready`
       reports `migration_state: ok`.

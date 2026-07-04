@@ -36,6 +36,15 @@ def pytest_configure(config: pytest.Config) -> None:
             "Tests must not run against a production environment (MIL_ENV=production detected).",
             returncode=1,
         )
+    # Inference is now a real provider (Gemini): ``build_container`` wires it in
+    # every environment and fails fast without an API key. Tests that build the
+    # container (worker-wiring tests) never call ``infer`` — they only resolve
+    # collaborators — so a dummy key satisfies the startup guard without any
+    # network access. Set before the first ``get_settings()`` (lru-cached).
+    # A real ``GEMINI_API_KEY`` in the environment is respected and not
+    # overwritten. The GeminiInferenceProvider's HTTP behaviour is exercised
+    # separately against an httpx.MockTransport (tests/providers).
+    os.environ.setdefault("GEMINI_API_KEY", "test-dummy-gemini-key")
 
 
 # ---------------------------------------------------------------------------

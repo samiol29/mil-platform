@@ -169,8 +169,11 @@ Trust precedes autonomy (Principle IV): Copilot expands assurance, not automatio
 - ADR-010 (Query Ports) as a prerequisite. **(Accepted.)**
 - A generalized `InferenceContext` capable of carrying Finding/Policy/Review/Document
   grounding, not evidence only. **(Landed as `GroundingItem`; backwards compatible.)**
-- A real, injection-resistant `InferenceProvider` for staging/production (the mock is
-  dev/test only). *(Separate, tracked delivery.)*
+- A real, injection-resistant `InferenceProvider` for staging/production. **(Landed:
+  `GeminiInferenceProvider` — Google Gemini AI Studio over REST, provider-agnostic via
+  `Settings.inference_provider` + DI, with exponential-backoff retries. The mock
+  inference provider has been removed; inference is real in every environment. See
+  ARCHITECTURE.md §5.1.)**
 - An immutable `copilot` schema (conversations, messages, citations, grounding
   snapshots) and synchronous audit event types. *(Sprint 7.)*
 - A conversation-data retention policy (Principle V data-minimization). *(Governance

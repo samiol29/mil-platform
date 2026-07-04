@@ -119,6 +119,46 @@ Every provider method that produces an AI or ML output **must** return the
 provider's version identifier as part of the response (Engineering Constitution
 Principle XII — Deterministic Intelligence).
 
+### 5.1 Inference provider (Gemini — the first real provider)
+
+`InferenceProvider` is no longer mock-only.  The inference layer is **real** and
+**provider-agnostic**:
+
+```
+API ─▶ CopilotService ─▶ InferenceProvider (interface) ─▶ GeminiInferenceProvider ─▶ Gemini AI Studio
+```
+
+- `GeminiInferenceProvider` (`src/providers/inference/gemini_inference.py`) is the
+  first real implementation.  It calls the Gemini AI Studio `generateContent`
+  REST endpoint over the platform's existing `httpx` dependency — **no vendor
+  SDK**, so no new compile-time dependency and no Gemini types leak into
+  `pyproject.toml`.
+- **Every** Gemini-specific detail (endpoint, request/response JSON, auth
+  header, retry classification) lives **only** inside that module.  Nothing
+  above the interface — `CopilotService`, the API layer, the finding pipeline —
+  knows Gemini exists.  Business logic depends on `InferenceProvider` alone.
+- **Selection is config + DI.**  `Settings.inference_provider` (env
+  `INFERENCE_PROVIDER`) chooses the implementation in
+  `container._build_inference_provider()`.  Adding Claude, OpenAI, Azure OpenAI,
+  vLLM, or Ollama is: implement `InferenceProvider` in
+  `src/providers/inference/` + add one branch there.  No business-logic change.
+- **Secrets.**  The provider never reads the environment.  The API key is read
+  by `Settings` from `GEMINI_API_KEY` and injected at the composition root, and
+  is sent in the `x-goog-api-key` header (never in the URL, so it cannot leak
+  into logs/traces).  Startup **fails fast** if the key is missing — there is no
+  mock inference fallback in any environment.
+- **Supported call parameters:** system prompt (caller-supplied via
+  `InferenceContext.system_prompt`, or the provider's governed default), user
+  prompt (`query`), `temperature` (defaults to `0.0` for regulated
+  determinism), `max_tokens`, and citation passthrough (grounding refs the model
+  echoes are resolved back to citations; `CopilotService` re-validates them).
+- **Robust retries.**  Transient failures (HTTP 429/500/502/503/504, request
+  timeouts, connection errors) are retried with exponential backoff + full
+  jitter, honouring a `Retry-After` header when present.  Failures carry the
+  `ProviderError.retryable` flag so the orchestrator can classify them (ADR-008)
+  without inspecting Gemini internals.  4xx (other than 429) and blocked/empty
+  responses are terminal (`retryable=False`).
+
 ---
 
 ## 6. Dependency Injection Philosophy

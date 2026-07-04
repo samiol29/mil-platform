@@ -41,7 +41,7 @@ from mil.kernel.providers.extraction import ExtractionProvider
 from mil.kernel.providers.inference import InferenceProvider
 from mil.kernel.providers.ocr import OCRProvider
 from mil.kernel.providers.policy import PolicyProvider
-from mil.kernel.providers.registry import ProviderRegistry
+from mil.kernel.providers.registry import ProviderRegistry, ProviderRegistryError
 from mil.kernel.providers.storage import StorageProvider
 
 T = TypeVar("T")
@@ -181,7 +181,6 @@ _DEVELOPMENT_ONLY_PROVIDERS: frozenset[str] = frozenset(
     {
         "MockOCRProvider",
         "MockExtractionProvider",
-        "MockInferenceProvider",
         "MockPolicyProvider",
         "MockLOSAdapter",
         "LocalStorageProvider",
@@ -292,19 +291,72 @@ def _build_provider_registry(settings: Settings) -> ProviderRegistry:
     """
     registry = ProviderRegistry()
     if settings.is_development():
-        _register_development_providers(registry)
+        _register_development_providers(registry, settings)
     else:
         _register_production_providers(registry, settings)
     return registry
 
 
-def _register_development_providers(registry: ProviderRegistry) -> None:
-    """Register the mock/local development providers (development only)."""
+def _build_inference_provider(settings: Settings) -> InferenceProvider:
+    """
+    Construct the configured real ``InferenceProvider``.
+
+    Selection is by ``settings.inference_provider`` — the single, DI-only seam
+    that keeps inference provider-agnostic (ARCHITECTURE.md §5/§6, ADR-011 §3).
+    Adding Claude / OpenAI / Azure OpenAI / vLLM / Ollama is: implement the
+    ``InferenceProvider`` in ``src/providers/inference/`` and add a branch here.
+    No business-logic module changes.
+
+    Gemini is the only implemented provider today. Its API key is read from the
+    environment via ``Settings`` (``GEMINI_API_KEY``) and injected here — the
+    provider never reads the environment itself, and the key is never hardcoded.
+
+    Raises:
+        ProviderRegistryError: If the configured provider name is unknown, or a
+            required secret (the Gemini API key) is missing — fail fast at
+            startup rather than at first Copilot call.
+    """
+    name = settings.inference_provider.strip().lower()
+    if name == "gemini":
+        from providers.inference.gemini_inference import GeminiInferenceProvider
+
+        if settings.gemini_api_key is None or not settings.gemini_api_key.get_secret_value():
+            raise ProviderRegistryError(
+                "GEMINI_API_KEY is required when INFERENCE_PROVIDER='gemini'. "
+                "Set it from your secret manager (see .env.example)."
+            )
+        return GeminiInferenceProvider(
+            api_key=settings.gemini_api_key.get_secret_value(),
+            model=settings.gemini_model,
+            base_url=settings.gemini_base_url,
+            temperature=settings.gemini_temperature,
+            max_output_tokens=settings.gemini_max_output_tokens,
+            timeout_seconds=settings.gemini_timeout_seconds,
+            max_retries=settings.gemini_max_retries,
+        )
+    raise ProviderRegistryError(
+        f"Unknown inference_provider {settings.inference_provider!r}. Implement an "
+        "InferenceProvider in src/providers/inference/ and add a branch to "
+        "_build_inference_provider()."
+    )
+
+
+def _register_development_providers(registry: ProviderRegistry, settings: Settings) -> None:
+    """
+    Register development providers.
+
+    Mock/local implementations are used for OCR, extraction, policy, and
+    storage (zero-configuration local use). Inference is the exception: there
+    is no mock inference any more — the real, configured ``InferenceProvider``
+    (Gemini) is wired even in development, so local Copilot exercises the same
+    inference path as production. Local development therefore requires a valid
+    ``GEMINI_API_KEY`` (or an alternative configured ``inference_provider``);
+    ``_build_inference_provider`` fails fast if it is absent.
+    """
     import pathlib
     import tempfile
 
     from providers.extraction.mock_extraction import MockExtractionProvider
-    from providers.inference.mock_inference import MockInferenceProvider
     from providers.ocr.mock_ocr import MockOCRProvider
     from providers.policy.mock_policy import MockPolicyProvider
     from providers.storage.local_storage import LocalStorageProvider
@@ -313,7 +365,7 @@ def _register_development_providers(registry: ProviderRegistry) -> None:
 
     registry.register_ocr(MockOCRProvider())
     registry.register_extraction(MockExtractionProvider())
-    registry.register_inference(MockInferenceProvider())
+    registry.register_inference(_build_inference_provider(settings))
     registry.register_policy(MockPolicyProvider())
     registry.register_storage(LocalStorageProvider(base_path=local_storage_path))
     # LOSAdapter is optional — register only when an integration is configured.
@@ -323,14 +375,17 @@ def _register_production_providers(registry: ProviderRegistry, settings: Setting
     """
     Register real, cloud-backed providers for staging/production.
 
-    No production provider implementations ship in this freeze. This function
-    is the single, documented seam where they are wired; until they exist it
-    registers nothing, so ``registry.validate()`` in ``build_container`` fails
-    fast with a clear "required providers not registered" error rather than a
-    process starting with mock intelligence. Mock/local providers MUST NOT be
-    registered here (see ``_reject_development_providers``).
+    The inference layer is now real: the configured ``InferenceProvider``
+    (Gemini) is wired here via ``_build_inference_provider``. The remaining
+    cloud-backed providers (OCR, extraction, policy, storage) are not part of
+    this change, so ``registry.validate()`` in ``build_container`` still fails
+    fast for them with a clear "required providers not registered" error rather
+    than a process starting with missing intelligence. Mock/local providers
+    MUST NOT be registered here (see ``_reject_development_providers``).
     """
-    # Intentionally empty — see docstring. Real providers are wired here.
+    registry.register_inference(_build_inference_provider(settings))
+    # OCR / extraction / policy / storage: real implementations wired here as
+    # they land (out of scope for the inference-layer change).
 
 
 def _reject_development_providers(registry: ProviderRegistry) -> None:
