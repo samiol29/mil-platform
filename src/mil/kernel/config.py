@@ -100,6 +100,24 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = Field(default=30.0, gt=0)
     gemini_max_retries: int = Field(default=4, ge=0)
 
+    # ---- Document Intelligence (OCR / Extraction) --------------------------
+    # Which OCRProvider / ExtractionProvider implementation the container
+    # wires. "gemini" (native multimodal document understanding — no
+    # traditional OCR engine) is the only implemented value today. Same DI
+    # seam as inference: add a branch to ``_build_ocr_provider`` /
+    # ``_build_extraction_provider`` for a future engine — no business-logic
+    # change (ARCHITECTURE.md §5).
+    ocr_provider: str = "gemini"
+    extraction_provider: str = "gemini"
+
+    # Gemini can use a lighter/cheaper model per stage than the Copilot
+    # inference model; both default to the same flash model as a sane default.
+    # The API key, base URL, timeout, and retry budget are shared with
+    # inference (``gemini_api_key`` etc. above) — one secret, one retry
+    # policy, three call sites.
+    gemini_ocr_model: str = "gemini-2.5-flash"
+    gemini_extraction_model: str = "gemini-2.5-flash"
+
     # ---- Observability (OpenTelemetry) -------------------------------------
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "mil-api"

@@ -36,7 +36,7 @@ from uuid import UUID  # noqa: TC003
 
 from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, status
 
-from mil.api.deps import CurrentUser, DocService, SettingsDep  # noqa: TC001
+from mil.api.deps import CurrentUser, DocIngestionTriggerDep, DocService, SettingsDep  # noqa: TC001
 from mil.api.v1.schemas import DocumentResponse
 from mil.kernel.types import ApplicationId
 
@@ -109,6 +109,7 @@ async def upload_document(
     user: CurrentUser,
     service: DocService,
     settings: SettingsDep,
+    ingestion_trigger: DocIngestionTriggerDep,
     file: UploadFile,
     document_type: str = Form(
         description=(
@@ -121,7 +122,7 @@ async def upload_document(
         description="Optional party this document belongs to.",
     ),
 ) -> DocumentResponse:
-    """Accept a file upload and ingest the document into the platform."""
+    """Accept a file upload, ingest it, and start the document intelligence pipeline."""
     content = await _read_upload_within_limit(file, settings.mil_max_upload_bytes)
     original_filename = file.filename or "unknown"
 
@@ -135,6 +136,10 @@ async def upload_document(
         mime_type=document_type,
         party_id=party_id,
     )
+    # Start the DOCUMENT_INGESTION workflow (OCR -> Extraction) in the same
+    # transaction as the upload — without this, a document is stored but the
+    # intelligence pipeline never runs and it remains PENDING forever.
+    ingestion_trigger.trigger(doc)
     return DocumentResponse.from_model(doc)
 
 

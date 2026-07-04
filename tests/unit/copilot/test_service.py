@@ -26,7 +26,7 @@ from mil.kernel.types import TenantId, UserId
 
 if TYPE_CHECKING:
     from mil.copilot.models import CopilotQuery, CopilotResponse, CopilotSession
-    from mil.copilot.ports import DocumentView, EvidenceView, ReviewActionView
+    from mil.copilot.ports import DocumentTextView, DocumentView, EvidenceView, ReviewActionView
 
 _MODEL_VERSION = "mock-inference-1.0.0"
 
@@ -128,6 +128,14 @@ class FakeDocumentReader:
         return self._documents
 
 
+class FakeDocumentTextReader:
+    def __init__(self, document_texts: list[DocumentTextView] | None = None) -> None:
+        self._document_texts = document_texts or []
+
+    def get_for_application(self, application_id: object) -> list[DocumentTextView]:
+        return self._document_texts
+
+
 class FakeEvidenceReader:
     def __init__(self, evidence: list[EvidenceView] | None = None) -> None:
         self._evidence = evidence or []
@@ -206,6 +214,7 @@ def _make_service(
     *,
     application: ApplicationView | None = None,
     documents: list[DocumentView] | None = None,
+    document_texts: list[DocumentTextView] | None = None,
     evidence: list[EvidenceView] | None = None,
     findings: list[FindingView] | None = None,
     policy_results: dict[object, list[PolicyResultView]] | None = None,
@@ -222,6 +231,7 @@ def _make_service(
         inference=fake_inference,  # type: ignore[arg-type]
         applications=FakeApplicationReader(application),  # type: ignore[arg-type]
         documents=FakeDocumentReader(documents),  # type: ignore[arg-type]
+        document_texts=FakeDocumentTextReader(document_texts),  # type: ignore[arg-type]
         evidence=FakeEvidenceReader(evidence),  # type: ignore[arg-type]
         findings=FakeFindingReader(findings),  # type: ignore[arg-type]
         policy_results=FakePolicyResultReader(policy_results),  # type: ignore[arg-type]
@@ -769,6 +779,91 @@ class TestGenerateResponseGrounded:
         service.generate_response(user, session, query)
         kinds = {item.kind for item in inference.calls[0].grounding_items}
         assert EVIDENCE in kinds
+
+
+class TestGenerateResponseGroundedInDocumentText:
+    """
+    End-to-end: Copilot answers from a document's raw extracted text (Output 1
+    of the Document Intelligence pipeline), citing it back — this is the path
+    that was previously broken (grounding only ever saw structured Evidence,
+    never the document's actual transcribed content, so free-form questions
+    like "who is the borrower?" had nothing to ground on even when the
+    document plainly contained the answer).
+    """
+
+    def test_document_text_alone_satisfies_the_grounding_gate(self) -> None:
+        """No Evidence/Finding rows exist yet — only raw OCR text — and the
+        service must still proceed to inference rather than returning the
+        safe-failure response."""
+        from mil.copilot.ports import DocumentTextView
+
+        application_id, tenant_id = uuid4(), uuid4()
+        application = _application_view(application_id, tenant_id)
+        doc_text = DocumentTextView(
+            document_id=uuid4(),
+            provider_version="gemini-ocr:gemini-2.5-flash",
+            page_count=1,
+            full_text="Borrower: Jane Doe. Loan Amount: 350000.",
+            processed_at=datetime.now(UTC),
+        )
+        service, repo, _, inference = _make_service(
+            application=application, document_texts=[doc_text]
+        )
+        user = _user(tenant_id)
+        session = service.create_session(
+            user,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            created_by_user_id=uuid4(),
+            correlation_id="c-1",
+        )
+        query = service.submit_query(
+            user, session, question_text="Who is the borrower?", asked_by_user_id=uuid4()
+        )
+        response = service.generate_response(user, session, query)
+
+        assert inference.calls, "inference must be called — document text alone is sufficient"
+        assert response in repo.saved_responses
+        assert response.answer_text != ""
+
+    def test_document_text_grounding_item_is_built_and_citable(self) -> None:
+        from mil.copilot.citations import DOCUMENT_TEXT
+        from mil.copilot.ports import DocumentTextView
+
+        application_id, tenant_id = uuid4(), uuid4()
+        application = _application_view(application_id, tenant_id)
+        doc_id = uuid4()
+        doc_text = DocumentTextView(
+            document_id=doc_id,
+            provider_version="gemini-ocr:gemini-2.5-flash",
+            page_count=2,
+            full_text="Borrower: Jane Doe. Employer: Acme Corp.",
+            processed_at=datetime.now(UTC),
+        )
+        service, _, _, inference = _make_service(application=application, document_texts=[doc_text])
+        user = _user(tenant_id)
+        session = service.create_session(
+            user,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            created_by_user_id=uuid4(),
+            correlation_id="c-1",
+        )
+        query = service.submit_query(
+            user, session, question_text="Who is the borrower?", asked_by_user_id=uuid4()
+        )
+        response = service.generate_response(user, session, query)
+
+        grounding_items = inference.calls[0].grounding_items
+        doc_text_items = [item for item in grounding_items if item.kind == DOCUMENT_TEXT]
+        assert len(doc_text_items) == 1
+        assert doc_text_items[0].ref == f"doctext-{doc_id}"
+        assert "Jane Doe" in doc_text_items[0].summary
+
+        # The default FakeInferenceProvider cites every grounding item's ref,
+        # so the document-text citation must resolve back through the
+        # citation index and appear on the persisted response.
+        assert any(c["kind"] == DOCUMENT_TEXT for c in response.citations)
 
 
 class TestGenerateResponseInsufficientGrounding:

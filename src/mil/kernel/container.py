@@ -341,30 +341,99 @@ def _build_inference_provider(settings: Settings) -> InferenceProvider:
     )
 
 
+def _build_ocr_provider(settings: Settings) -> OCRProvider:
+    """
+    Construct the configured real ``OCRProvider``.
+
+    Selection is by ``settings.ocr_provider`` — the same DI-only seam pattern
+    as ``_build_inference_provider``. Gemini's native multimodal document
+    understanding is the only implemented value today (there is no traditional
+    OCR engine in this platform).
+
+    Raises:
+        ProviderRegistryError: If the configured provider name is unknown, or
+            ``GEMINI_API_KEY`` is missing.
+    """
+    name = settings.ocr_provider.strip().lower()
+    if name == "gemini":
+        from providers.ocr.gemini_ocr import GeminiOCRProvider
+
+        if settings.gemini_api_key is None or not settings.gemini_api_key.get_secret_value():
+            raise ProviderRegistryError(
+                "GEMINI_API_KEY is required when OCR_PROVIDER='gemini'. "
+                "Set it from your secret manager (see .env.example)."
+            )
+        return GeminiOCRProvider(
+            api_key=settings.gemini_api_key.get_secret_value(),
+            model=settings.gemini_ocr_model,
+            base_url=settings.gemini_base_url,
+            timeout_seconds=settings.gemini_timeout_seconds,
+            max_retries=settings.gemini_max_retries,
+        )
+    raise ProviderRegistryError(
+        f"Unknown ocr_provider {settings.ocr_provider!r}. Implement an OCRProvider "
+        "in src/providers/ocr/ and add a branch to _build_ocr_provider()."
+    )
+
+
+def _build_extraction_provider(settings: Settings) -> ExtractionProvider:
+    """
+    Construct the configured real ``ExtractionProvider``.
+
+    Selection is by ``settings.extraction_provider`` — same DI-only seam as
+    inference and OCR. Gemini structured-output extraction over already-OCR'd
+    text is the only implemented value today.
+
+    Raises:
+        ProviderRegistryError: If the configured provider name is unknown, or
+            ``GEMINI_API_KEY`` is missing.
+    """
+    name = settings.extraction_provider.strip().lower()
+    if name == "gemini":
+        from providers.extraction.gemini_extraction import GeminiExtractionProvider
+
+        if settings.gemini_api_key is None or not settings.gemini_api_key.get_secret_value():
+            raise ProviderRegistryError(
+                "GEMINI_API_KEY is required when EXTRACTION_PROVIDER='gemini'. "
+                "Set it from your secret manager (see .env.example)."
+            )
+        return GeminiExtractionProvider(
+            api_key=settings.gemini_api_key.get_secret_value(),
+            model=settings.gemini_extraction_model,
+            base_url=settings.gemini_base_url,
+            timeout_seconds=settings.gemini_timeout_seconds,
+            max_retries=settings.gemini_max_retries,
+        )
+    raise ProviderRegistryError(
+        f"Unknown extraction_provider {settings.extraction_provider!r}. Implement an "
+        "ExtractionProvider in src/providers/extraction/ and add a branch to "
+        "_build_extraction_provider()."
+    )
+
+
 def _register_development_providers(registry: ProviderRegistry, settings: Settings) -> None:
     """
     Register development providers.
 
-    Mock/local implementations are used for OCR, extraction, policy, and
-    storage (zero-configuration local use). Inference is the exception: there
-    is no mock inference any more — the real, configured ``InferenceProvider``
-    (Gemini) is wired even in development, so local Copilot exercises the same
-    inference path as production. Local development therefore requires a valid
-    ``GEMINI_API_KEY`` (or an alternative configured ``inference_provider``);
-    ``_build_inference_provider`` fails fast if it is absent.
+    Policy and storage remain mock/local (zero-configuration local use, out of
+    scope for the document intelligence change). OCR, Extraction, and
+    Inference are now all real in every environment — Gemini native document
+    understanding, Gemini structured extraction, and Gemini inference
+    respectively — so local development exercises the same intelligence path
+    as production. Local development therefore requires a valid
+    ``GEMINI_API_KEY``; the ``_build_*_provider`` functions fail fast if it is
+    absent.
     """
     import pathlib
     import tempfile
 
-    from providers.extraction.mock_extraction import MockExtractionProvider
-    from providers.ocr.mock_ocr import MockOCRProvider
     from providers.policy.mock_policy import MockPolicyProvider
     from providers.storage.local_storage import LocalStorageProvider
 
     local_storage_path = pathlib.Path(tempfile.gettempdir()) / "mil-local-storage"
 
-    registry.register_ocr(MockOCRProvider())
-    registry.register_extraction(MockExtractionProvider())
+    registry.register_ocr(_build_ocr_provider(settings))
+    registry.register_extraction(_build_extraction_provider(settings))
     registry.register_inference(_build_inference_provider(settings))
     registry.register_policy(MockPolicyProvider())
     registry.register_storage(LocalStorageProvider(base_path=local_storage_path))
@@ -375,17 +444,18 @@ def _register_production_providers(registry: ProviderRegistry, settings: Setting
     """
     Register real, cloud-backed providers for staging/production.
 
-    The inference layer is now real: the configured ``InferenceProvider``
-    (Gemini) is wired here via ``_build_inference_provider``. The remaining
-    cloud-backed providers (OCR, extraction, policy, storage) are not part of
-    this change, so ``registry.validate()`` in ``build_container`` still fails
-    fast for them with a clear "required providers not registered" error rather
+    OCR, Extraction, and Inference are wired here via the ``_build_*_provider``
+    functions (all Gemini today). Policy and storage are not part of this
+    change, so ``registry.validate()`` in ``build_container`` still fails fast
+    for them with a clear "required providers not registered" error rather
     than a process starting with missing intelligence. Mock/local providers
     MUST NOT be registered here (see ``_reject_development_providers``).
     """
+    registry.register_ocr(_build_ocr_provider(settings))
+    registry.register_extraction(_build_extraction_provider(settings))
     registry.register_inference(_build_inference_provider(settings))
-    # OCR / extraction / policy / storage: real implementations wired here as
-    # they land (out of scope for the inference-layer change).
+    # Policy / storage: real implementations wired here as they land (out of
+    # scope for the document intelligence change).
 
 
 def _reject_development_providers(registry: ProviderRegistry) -> None:

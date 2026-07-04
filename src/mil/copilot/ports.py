@@ -77,6 +77,26 @@ class DocumentView:
 
 
 @dataclass(frozen=True)
+class DocumentTextView:
+    """
+    Read view of a document's persisted raw extracted text (Output 1 of the
+    Document Intelligence pipeline — the OCR/document-understanding stage).
+
+    Distinct from ``DocumentView`` (upload metadata): this carries the actual
+    transcribed content so Copilot can ground free-form questions (e.g.
+    "summarize this mortgage") that a structured ``EvidenceView`` fact alone
+    cannot answer, while remaining resolvable back to its source document for
+    citation.
+    """
+
+    document_id: UUID
+    provider_version: str
+    page_count: int
+    full_text: str
+    processed_at: datetime
+
+
+@dataclass(frozen=True)
 class EvidenceView:
     """
     Read view of a provenance-bearing evidence fact.
@@ -213,6 +233,12 @@ class ApplicationReader(Protocol):
     """Read port over the Application context."""
 
     def get_by_id(self, application_id: UUID) -> ApplicationView | None: ...
+
+
+class DocumentTextReader(Protocol):
+    """Read port over a document's persisted raw extracted text."""
+
+    def get_for_application(self, application_id: UUID) -> Sequence[DocumentTextView]: ...
 
 
 class DocumentReader(Protocol):

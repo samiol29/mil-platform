@@ -17,6 +17,7 @@ from uuid import uuid4
 from mil.copilot.adapters import (
     ApplicationReaderAdapter,
     DocumentReaderAdapter,
+    DocumentTextReaderAdapter,
     EvidenceReaderAdapter,
     FindingReaderAdapter,
     PolicyResultReaderAdapter,
@@ -47,6 +48,15 @@ class _FakeDocument:
     original_filename: str = "payslip.pdf"
     ingestion_status: str = "COMPLETED"
     uploaded_at: datetime = _NOW
+
+
+@dataclass
+class _FakeOCRResultRecord:
+    document_id: object = field(default_factory=uuid4)
+    provider_version: str = "gemini-ocr:gemini-2.5-flash"
+    page_count: int = 1
+    full_text: str = "Borrower: Jane Doe\nLoan Amount: 350000"
+    processed_at: datetime = _NOW
 
 
 @dataclass
@@ -146,6 +156,14 @@ class _FakeDocumentRepository:
         return self._documents
 
 
+class _FakeOCRResultRepository:
+    def __init__(self, records_by_document: dict[object, list[_FakeOCRResultRecord]]) -> None:
+        self._records_by_document = records_by_document
+
+    def get_for_document(self, document_id: object) -> list[_FakeOCRResultRecord]:
+        return self._records_by_document.get(document_id, [])
+
+
 class _FakeEvidenceRepository:
     def __init__(self, items: list[_FakeEvidenceItem]) -> None:
         self._items = items
@@ -242,6 +260,48 @@ class TestDocumentReaderAdapter:
     def test_empty_list_when_no_documents(self) -> None:
         adapter = DocumentReaderAdapter(_FakeDocumentRepository([]))  # type: ignore[arg-type]
         assert adapter.get_for_application(uuid4()) == ()
+
+
+# ---------------------------------------------------------------------------
+# DocumentTextReaderAdapter
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentTextReaderAdapter:
+    def test_maps_ocr_result_fields(self) -> None:
+        document = _FakeDocument()
+        record = _FakeOCRResultRecord(document_id=document.id, full_text="Borrower: Jane Doe")
+        adapter = DocumentTextReaderAdapter(
+            _FakeDocumentRepository([document]),  # type: ignore[arg-type]
+            _FakeOCRResultRepository({document.id: [record]}),  # type: ignore[arg-type]
+        )
+        views = adapter.get_for_application(document.application_id)
+        assert len(views) == 1
+        assert views[0].document_id == document.id
+        assert views[0].full_text == "Borrower: Jane Doe"
+        assert views[0].provider_version == record.provider_version
+        assert views[0].page_count == record.page_count
+
+    def test_documents_without_ocr_result_are_skipped(self) -> None:
+        """A PENDING document (no OCR result yet) contributes no text — not an error."""
+        document = _FakeDocument()
+        adapter = DocumentTextReaderAdapter(
+            _FakeDocumentRepository([document]),  # type: ignore[arg-type]
+            _FakeOCRResultRepository({}),  # type: ignore[arg-type]
+        )
+        assert adapter.get_for_application(document.application_id) == ()
+
+    def test_most_recent_record_used_when_multiple_exist(self) -> None:
+        """get_for_document orders most-recent-first; the adapter takes records[0]."""
+        document = _FakeDocument()
+        latest = _FakeOCRResultRecord(document_id=document.id, full_text="latest text")
+        older = _FakeOCRResultRecord(document_id=document.id, full_text="older text")
+        adapter = DocumentTextReaderAdapter(
+            _FakeDocumentRepository([document]),  # type: ignore[arg-type]
+            _FakeOCRResultRepository({document.id: [latest, older]}),  # type: ignore[arg-type]
+        )
+        views = adapter.get_for_application(document.application_id)
+        assert views[0].full_text == "latest text"
 
 
 # ---------------------------------------------------------------------------

@@ -35,10 +35,12 @@ from fastapi.testclient import TestClient
 
 from main import create_app
 from mil.api.deps import (
+    DocumentIngestionTrigger,
     FindingTrigger,
     get_application_service,
     get_copilot_service,
     get_current_user,
+    get_document_ingestion_trigger,
     get_document_service,
     get_finding_trigger,
 )
@@ -198,6 +200,12 @@ def mock_doc_service() -> MagicMock:
 
 
 @pytest.fixture()
+def mock_ingestion_trigger() -> MagicMock:
+    """Mocked DocumentIngestionTrigger (the upload -> DOCUMENT_INGESTION composition root)."""
+    return MagicMock(spec=DocumentIngestionTrigger)
+
+
+@pytest.fixture()
 def mock_finding_trigger() -> MagicMock:
     """Mocked FindingTrigger (the DRAFT -> SUBMITTED composition root, ADR-009)."""
     return MagicMock(spec=FindingTrigger)
@@ -214,6 +222,7 @@ def client(
     current_user: AuthenticatedUser,
     mock_app_service: MagicMock,
     mock_doc_service: MagicMock,
+    mock_ingestion_trigger: MagicMock,
     mock_finding_trigger: MagicMock,
     mock_copilot_service: MagicMock,
 ) -> TestClient:
@@ -226,6 +235,7 @@ def client(
     app.dependency_overrides[get_current_user] = lambda: current_user
     app.dependency_overrides[get_application_service] = lambda: mock_app_service
     app.dependency_overrides[get_document_service] = lambda: mock_doc_service
+    app.dependency_overrides[get_document_ingestion_trigger] = lambda: mock_ingestion_trigger
     app.dependency_overrides[get_finding_trigger] = lambda: mock_finding_trigger
     app.dependency_overrides[get_copilot_service] = lambda: mock_copilot_service
     return TestClient(app, raise_server_exceptions=True)

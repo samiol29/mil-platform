@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING
 
 from mil.copilot.ports import (
     ApplicationView,
+    DocumentTextView,
     DocumentView,
     EvidenceView,
     FindingView,
@@ -65,6 +66,8 @@ if TYPE_CHECKING:
     from mil.application.models import MortgageApplication
     from mil.application.repository import ApplicationRepository
     from mil.document.models import Document
+    from mil.document.ocr_models import OCRResultRecord
+    from mil.document.ocr_repository import OCRResultRepository
     from mil.document.repository import DocumentRepository
     from mil.evidence.models import EvidenceItem
     from mil.evidence.repository import EvidenceRepository
@@ -100,6 +103,16 @@ def _to_document_view(document: Document) -> DocumentView:
         filename=document.original_filename,
         status=document.ingestion_status,
         created_at=document.uploaded_at,
+    )
+
+
+def _to_document_text_view(document_id: UUID, record: OCRResultRecord) -> DocumentTextView:
+    return DocumentTextView(
+        document_id=document_id,
+        provider_version=record.provider_version,
+        page_count=record.page_count,
+        full_text=record.full_text,
+        processed_at=record.processed_at,
     )
 
 
@@ -222,6 +235,35 @@ class DocumentReaderAdapter:
 
     def get_for_application(self, application_id: UUID) -> Sequence[DocumentView]:
         return tuple(_to_document_view(d) for d in self._repo.get_for_application(application_id))
+
+
+class DocumentTextReaderAdapter:
+    """
+    Adapts ``DocumentRepository`` + ``OCRResultRepository`` to the
+    ``DocumentTextReader`` port.
+
+    Unlike the other adapters, this one wraps two repositories: it must first
+    find which documents belong to the application (``DocumentRepository``),
+    then load each document's persisted raw text (``OCRResultRepository``).
+    Documents with no OCR result yet (still PENDING) are silently skipped —
+    Copilot grounds on whatever governed text already exists, never on
+    in-flight or absent extraction.
+    """
+
+    def __init__(self, documents: DocumentRepository, ocr_results: OCRResultRepository) -> None:
+        self._documents = documents
+        self._ocr_results = ocr_results
+
+    def get_for_application(self, application_id: UUID) -> Sequence[DocumentTextView]:
+        views: list[DocumentTextView] = []
+        for document in self._documents.get_for_application(application_id):
+            records = self._ocr_results.get_for_document(document.id)
+            if not records:
+                continue
+            # get_for_document orders most-recent-first; the first row is the
+            # current persisted text for this document.
+            views.append(_to_document_text_view(document.id, records[0]))
+        return tuple(views)
 
 
 class EvidenceReaderAdapter:

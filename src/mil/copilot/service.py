@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING
 from mil.copilot.citations import (
     APPLICATION,
     DOCUMENT,
+    DOCUMENT_TEXT,
     EVIDENCE,
     FINDING,
     POLICY_RESULT,
@@ -85,6 +86,8 @@ if TYPE_CHECKING:
         ApplicationReader,
         ApplicationView,
         DocumentReader,
+        DocumentTextReader,
+        DocumentTextView,
         DocumentView,
         EvidenceReader,
         EvidenceView,
@@ -108,6 +111,12 @@ if TYPE_CHECKING:
 # because it asserts nothing about the application; it is a safe failure,
 # not an ungrounded answer (ADR-011 §6).
 # ---------------------------------------------------------------------------
+
+# Principle V (least-data): a document's full transcribed text can be long;
+# cap what is sent to the model per document rather than passing arbitrarily
+# large content. Chosen generously (~1000 words) since raw text is the primary
+# grounding source for free-form "summarize this document" style questions.
+_DOCUMENT_TEXT_SUMMARY_LIMIT = 6000
 
 _INSUFFICIENT_GROUNDING_MESSAGE = (
     "I don't have enough governed evidence, findings, policy results, or review "
@@ -134,6 +143,7 @@ class GroundingBundle:
     policy_results: tuple[PolicyResultView, ...]
     review_sessions: tuple[ReviewSessionView, ...]
     review_actions: tuple[ReviewActionView, ...] = ()
+    document_texts: tuple[DocumentTextView, ...] = ()
 
 
 class CopilotService:
@@ -156,6 +166,7 @@ class CopilotService:
         inference: InferenceProvider,
         applications: ApplicationReader,
         documents: DocumentReader,
+        document_texts: DocumentTextReader,
         evidence: EvidenceReader,
         findings: FindingReader,
         policy_results: PolicyResultReader,
@@ -166,6 +177,7 @@ class CopilotService:
         self._inference = inference
         self._applications = applications
         self._documents = documents
+        self._document_texts = document_texts
         self._evidence = evidence
         self._findings = findings
         self._policy_results = policy_results
@@ -329,6 +341,7 @@ class CopilotService:
         # exists to cite.
         if not (
             bundle.documents
+            or bundle.document_texts
             or bundle.evidence
             or bundle.findings
             or bundle.policy_results
@@ -592,6 +605,7 @@ class CopilotService:
             )
 
         documents = tuple(self._documents.get_for_application(application_id))
+        document_texts = tuple(self._document_texts.get_for_application(application_id))
         evidence = tuple(self._evidence.get_for_application(application_id))
         findings = tuple(self._findings.get_for_application(application_id))
 
@@ -614,6 +628,7 @@ class CopilotService:
             policy_results=tuple(policy_results),
             review_sessions=tuple(review_sessions),
             review_actions=tuple(review_actions),
+            document_texts=document_texts,
         )
 
 
@@ -653,6 +668,24 @@ def _build_grounding_items(
                     f"{document.document_type} document '{document.filename}' "
                     f"(status={document.status})"
                 ),
+            )
+        )
+
+    for doc_text in bundle.document_texts:
+        summary = doc_text.full_text
+        truncated = len(summary) > _DOCUMENT_TEXT_SUMMARY_LIMIT
+        if truncated:
+            summary = summary[:_DOCUMENT_TEXT_SUMMARY_LIMIT] + " …(truncated)"
+        items.append(
+            GroundingItem(
+                kind=DOCUMENT_TEXT,
+                ref=f"doctext-{doc_text.document_id}",
+                summary=summary,
+                provenance=f"document={doc_text.document_id}#pages={doc_text.page_count}",
+                attributes={
+                    "extraction_version": doc_text.provider_version,
+                    "truncated": "true" if truncated else "false",
+                },
             )
         )
 

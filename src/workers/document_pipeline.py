@@ -54,7 +54,7 @@ from mil.kernel.metrics import MetricName
 from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, DocumentId, TenantId, WorkflowRunId
-from mil.orchestrator.models import StepStatus, WorkflowRun, WorkflowStep
+from mil.orchestrator.models import PinnedVersions, StepStatus, WorkflowRun, WorkflowStep
 from mil.orchestrator.repository import WorkflowRepository
 from mil.orchestrator.retry import (
     DeadLetterSink,
@@ -62,6 +62,7 @@ from mil.orchestrator.retry import (
     RetryDecision,
     RetryPolicy,
 )
+from mil.orchestrator.service import IntelligenceOrchestrator
 from mil.outbox.repository import OutboxRepository
 from workers.bootstrap import build_worker_context, process_next
 
@@ -75,6 +76,20 @@ if TYPE_CHECKING:
 
 # OCR step label dispatched by the orchestrator for the DOCUMENT_INGESTION workflow.
 OCR_STEP_NAME = "OCR"
+
+# Mirrors workers.extraction_pipeline.EXTRACTION_STEP_NAME — duplicated as a
+# literal (not imported) to avoid a cross-worker-module import; both workers
+# already agree on this label via the orchestrator's planned step_names.
+EXTRACTION_STEP_NAME = "EXTRACTION"
+
+# Workflow type coordination label for the document ingestion pipeline
+# (OCR -> EXTRACTION), mirrored from ARCHITECTURE.md / plan.md.
+DOCUMENT_INGESTION_WORKFLOW_TYPE = "DOCUMENT_INGESTION"
+
+# Sentinel for pinned-version dimensions that do not apply to this workflow
+# type (ADR-009: a dimension that is genuinely not applicable is pinned to an
+# explicit sentinel, never left blank).
+_NOT_APPLICABLE_VERSION = "n/a"
 
 # Job type for every dispatched WorkflowStep job (orchestrator convention).
 _JOB_TYPE_WORKFLOW_STEP = "workflow_step"
@@ -343,6 +358,75 @@ def _uuid(payload: dict[str, object], key: str) -> UUID:
 
 def _find_step(run: WorkflowRun, step_name: str) -> WorkflowStep | None:
     return next((s for s in run.steps if s.step_name == step_name), None)
+
+
+# ---------------------------------------------------------------------------
+# Trigger (composition root for the document-upload -> pipeline-start point)
+# ---------------------------------------------------------------------------
+
+
+def start_document_ingestion_workflow(
+    session: Session,
+    container: Container,
+    *,
+    document_id: UUID,
+    application_id: UUID,
+    tenant_id: UUID,
+    correlation_id: str | None = None,
+) -> WorkflowRun:
+    """
+    Start (or return the existing) ``DOCUMENT_INGESTION`` workflow run for a
+    single uploaded document.
+
+    This is the trigger the API layer calls immediately after
+    ``DocumentService.ingest_document`` persists a new ``Document`` — without
+    it, an uploaded document is stored but never advances past PENDING, because
+    nothing else in the platform starts the OCR -> Extraction pipeline
+    (mirrors ``workers.finding_pipeline.start_finding_generation_workflow``,
+    the equivalent trigger for the DRAFT -> SUBMITTED transition; see that
+    function's docstring for the same rationale).
+
+    Per ADR-009, only ``extraction`` is a meaningful pinned-version dimension
+    for this workflow type (this run pins the extraction engine before the
+    Extraction stage runs); ``policy``, ``inference``, and ``prompt`` are
+    genuinely not applicable to document ingestion and are pinned to the
+    explicit ``"n/a"`` sentinel rather than left blank.
+
+    The caller is expected to invoke this within the same database transaction
+    as the document's creation (the request's session), so the ``Document``
+    row, the ``WorkflowRun``, its two planned steps (``OCR``, ``EXTRACTION``),
+    and its ``WorkflowStarted`` outbox event all commit atomically (ADR-007 /
+    ADR-008).
+
+    Idempotent (ADR-008): the idempotency key is deterministic per document, so
+    a repeat call (e.g. a retried request) returns the existing run rather than
+    creating a duplicate or re-dispatching the first job.
+    """
+    registry = container.resolve(ProviderRegistry)
+    extraction_version = registry.get_extraction().version()
+
+    pinned = PinnedVersions(
+        policy=_NOT_APPLICABLE_VERSION,
+        extraction=extraction_version,
+        inference=_NOT_APPLICABLE_VERSION,
+        prompt=_NOT_APPLICABLE_VERSION,
+    )
+
+    orchestrator = IntelligenceOrchestrator(
+        WorkflowRepository(session),
+        OutboxRepository(session),
+        container.resolve(JobQueue),
+    )
+    return orchestrator.start_workflow(
+        tenant_id=tenant_id,
+        application_id=application_id,
+        workflow_type=DOCUMENT_INGESTION_WORKFLOW_TYPE,
+        idempotency_key=f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}",
+        step_names=[OCR_STEP_NAME, EXTRACTION_STEP_NAME],
+        pinned_versions=pinned,
+        correlation_id=correlation_id,
+        job_payload_extra={"document_id": str(document_id)},
+    )
 
 
 # ---------------------------------------------------------------------------
