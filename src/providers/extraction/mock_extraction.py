@@ -1,9 +1,12 @@
 """
-MockExtractionProvider — development extraction provider.
+MockExtractionProvider — deterministic extraction provider, no longer wired by default.
 
-Returns a deterministic list of ``EvidenceAttributes`` objects with all
-seven provenance attributes populated.  Intended for local development,
-unit tests, and conformance test verification.
+``build_container`` no longer registers this provider in any environment —
+``GeminiExtractionProvider`` (structured LLM extraction over real OCR text) is
+the real extraction provider everywhere, including local development (see
+``mil.kernel.container._build_extraction_provider``). Retained only as a
+network-free test fixture and for defence-in-depth coverage of
+``_reject_development_providers``, mirroring ``mock_ocr.py``.
 
 MUST NOT be registered in staging or production containers.
 """

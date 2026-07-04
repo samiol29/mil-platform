@@ -159,6 +159,103 @@ API ─▶ CopilotService ─▶ InferenceProvider (interface) ─▶ GeminiInfe
   without inspecting Gemini internals.  4xx (other than 429) and blocked/empty
   responses are terminal (`retryable=False`).
 
+### 5.2 Document Intelligence pipeline (Gemini OCR + Extraction — real, no mocks)
+
+The full document lifecycle is now real end-to-end:
+
+```
+Upload API ─▶ DocumentService ─▶ DocumentIngestionTrigger ─▶ DOCUMENT_INGESTION workflow
+     │                                                              │
+     ▼                                                              ▼
+StorageProvider (bytes)                                    OCR step ─▶ GeminiOCRProvider
+                                                                    │        (native multimodal
+                                                                    │         document understanding —
+                                                                    │         no traditional OCR engine)
+                                                                    ▼
+                                                          OCRResultRecord (raw text, persisted)
+                                                                    │
+                                                                    ▼
+                                                     Extraction step ─▶ GeminiExtractionProvider
+                                                                    │   (one Gemini call over the
+                                                                    │    already-OCR'd text — never
+                                                                    │    re-reads the document bytes)
+                                                                    ▼
+                                                          EvidenceItem rows (typed, provenance-complete)
+                                                                    │
+                                                                    ▼
+                                          Copilot grounding (raw OCR text + structured Evidence)
+                                                                    │
+                                                                    ▼
+                                                     InferenceProvider ─▶ grounded, cited answer
+```
+
+**The trigger that was missing.** `DocumentService.ingest_document` always
+published a `DocumentIngested` domain event, but nothing ever subscribed to it
+— an uploaded document was stored and then sat at `PENDING` forever; the
+OCR/Extraction pipeline never started. `start_document_ingestion_workflow`
+(`workers/document_pipeline.py`, exposed to the API as
+`DocumentIngestionTrigger` / `get_document_ingestion_trigger` in
+`mil/api/deps.py`) is the trigger: it starts the `DOCUMENT_INGESTION` workflow
+(`OCR` then `EXTRACTION` steps) in the same transaction as the upload,
+mirroring the existing `FindingTrigger` pattern for the DRAFT -> SUBMITTED
+transition (ADR-009). `PinnedVersions.policy` / `.inference` / `.prompt` are
+pinned to the `"n/a"` sentinel for this workflow type — only `extraction` is
+meaningful here.
+
+**Two providers, two Gemini calls, one call each — not a rewritten pipeline.**
+The platform's existing two-stage architecture (separate `OCR` and
+`EXTRACTION` workflow steps, separate persisted tables, separate idempotency
+keys, separate pinned versions) is preserved untouched:
+
+- `GeminiOCRProvider` (`src/providers/ocr/gemini_ocr.py`) satisfies the
+  existing `OCRProvider` interface. It sends the document's raw bytes to
+  Gemini as multimodal `inline_data` (mime type sniffed from magic bytes,
+  since `OCRProvider.process_document` carries none) and requests
+  structured-output JSON (`responseSchema`) preserving reading order, page
+  boundaries, heading hierarchy, and markdown-table structure. This *is* the
+  "no traditional OCR" requirement — Gemini's native document understanding
+  replaces a Tesseract-style engine entirely.
+- `GeminiExtractionProvider` (`src/providers/extraction/gemini_extraction.py`)
+  satisfies the existing `ExtractionProvider` interface. It never re-reads the
+  document bytes — it sends the OCR stage's already-persisted, page-marked
+  text to Gemini once, constrained by a `responseSchema` enum to the
+  canonical mortgage evidence taxonomy (`EVIDENCE_TYPES` in that module:
+  borrower, co-borrower, employer, income, loan amount, interest rate,
+  purchase price, down payment, assets, liabilities, property address,
+  declarations, signatures, dates, document type, …), and maps each returned
+  fact to one provenance-complete `EvidenceAttributes` object.
+- Both share a retry/backoff engine (`src/providers/gemini_client.py`,
+  `GeminiHttpClient`) so the exponential-backoff-with-jitter logic is written
+  and tested once, not duplicated per provider.
+- Selection is the same DI seam as inference: `Settings.ocr_provider` /
+  `Settings.extraction_provider` (env `OCR_PROVIDER` / `EXTRACTION_PROVIDER`)
+  choose the implementation in `container._build_ocr_provider()` /
+  `_build_extraction_provider()`. Adding a different document-intelligence
+  engine is: implement the interface + add one branch. No business-logic
+  change, no orchestrator/worker change.
+- **Known limitation (documented, not hidden):** Gemini's document
+  understanding does not report page pixel/point dimensions the way a
+  rasterising OCR engine would; `PageLayout` uses a fixed US-Letter-equivalent
+  default. No consumer in this codebase reads real page geometry today: If a
+  future consumer needs it, that is a separate, larger feature (rendering the
+  PDF), out of scope here.
+
+**Grounding now includes raw extracted text, not just structured Evidence.**
+Before this change, Copilot's grounding bundle only ever read structured
+`EvidenceView` facts — a free-form question like "summarize this mortgage" or
+"who is the borrower?" had nothing to ground on until a matching typed
+Evidence fact happened to exist. `DocumentTextReader` / `DocumentTextView`
+(`mil/copilot/ports.py`) is a new consumer-owned Query Port (ADR-010) reading
+a document's persisted raw text (`DocumentTextReaderAdapter` in
+`mil/copilot/adapters.py`, wrapping `OCRResultRepository` +
+`DocumentRepository`); `GroundingBundle.document_texts` and a new
+`DOCUMENT_TEXT` citation kind carry it into the same `GroundingItem` /
+citation-resolution machinery every other grounding source already uses — no
+new machinery, no new hallucination-policy exception. Raw text alone (with no
+Evidence or Findings yet) now satisfies the "insufficient grounding" gate in
+`CopilotService.generate_response`, so Copilot can answer from a freshly
+ingested document before any Finding has been generated.
+
 ---
 
 ## 6. Dependency Injection Philosophy

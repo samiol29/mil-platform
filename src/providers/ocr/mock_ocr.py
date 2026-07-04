@@ -1,8 +1,16 @@
 """
-MockOCRProvider — development OCR provider.
+MockOCRProvider — deterministic OCR provider, no longer wired by default.
 
-Returns a deterministic, hard-coded ``OCRResult`` for any input document.
-Intended for local development, unit tests, and conformance test verification.
+``build_container`` no longer registers this provider in any environment —
+``GeminiOCRProvider`` (native multimodal document understanding) is the real
+OCR provider everywhere, including local development (see
+``mil.kernel.container._build_ocr_provider``). This class is retained only as:
+
+  - a fixture for tests that want a deterministic, network-free OCR result
+    without constructing a Gemini provider, and
+  - the subject of ``tests/unit/kernel/test_production_readiness.py``'s
+    defence-in-depth check that ``_reject_development_providers`` correctly
+    classifies it as development-only if it were ever mistakenly registered.
 
 MUST NOT be registered in staging or production containers.
 """
