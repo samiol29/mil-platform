@@ -164,6 +164,20 @@ class FakeOutboxRepository:
         return event
 
 
+class FakeDocumentService:
+    def __init__(self) -> None:
+        self.completed: list[tuple[UUID, int, int]] = []
+        self.failed: list[tuple[UUID, str]] = []
+
+    def complete_processing(
+        self, *, document_id: UUID, page_count: int, evidence_item_count: int
+    ) -> None:
+        self.completed.append((document_id, page_count, evidence_item_count))
+
+    def fail_processing(self, *, document_id: UUID, reason: str) -> None:
+        self.failed.append((document_id, reason))
+
+
 class SpyDeadLetterSink:
     def __init__(self) -> None:
         self.records: list[tuple[object, BaseException]] = []
@@ -221,6 +235,7 @@ class _Harness:
         self.ocr_results = FakeOCRResultRepository(resolved_ocr_record)  # type: ignore[arg-type]
         self.evidence = FakeEvidenceService()
         self.evidence_items = FakeEvidenceRepository()
+        self.documents = FakeDocumentService()
         self.workflows = FakeWorkflowRepository(self.run)
         self.outbox = FakeOutboxRepository()
         self.dead_letter = dead_letter if dead_letter is not None else SpyDeadLetterSink()
@@ -229,6 +244,7 @@ class _Harness:
             ocr_results=self.ocr_results,  # type: ignore[arg-type]
             evidence=self.evidence,  # type: ignore[arg-type]
             evidence_items=self.evidence_items,  # type: ignore[arg-type]
+            documents=self.documents,  # type: ignore[arg-type]
             workflows=self.workflows,  # type: ignore[arg-type]
             outbox=self.outbox,  # type: ignore[arg-type]
         )
@@ -285,6 +301,18 @@ class TestSuccess:
         h = _Harness()
         h.run_processor()
         assert h.step.status == StepStatus.COMPLETED  # type: ignore[attr-defined]
+
+    def test_completes_document_processing(self) -> None:
+        """
+        Extraction succeeding is what actually finishes the DOCUMENT_INGESTION
+        workflow — DocumentService.complete_processing() must be invoked with
+        the document's page count (from the persisted OCR result) and the
+        number of EvidenceItems just created, or ingestion_status never
+        advances past IN_PROGRESS.
+        """
+        h = _Harness()
+        h.run_processor()
+        assert h.documents.completed == [(h.document_id, 1, 1)]
 
     def test_emits_evidence_extracted(self) -> None:
         h = _Harness()
@@ -466,6 +494,15 @@ class TestTerminalFailure:
     def test_marks_run_failed(self) -> None:
         h = self._run()
         assert h.run.status == "FAILED"
+
+    def test_fails_document_processing(self) -> None:
+        """
+        A terminal Extraction failure must invoke DocumentService.fail_processing
+        (previously missing entirely) or a permanently-failed document is left
+        stuck IN_PROGRESS forever instead of transitioning to FAILED.
+        """
+        h = self._run()
+        assert h.documents.failed == [(h.document_id, "bad")]
 
     def test_emits_workflow_step_failed(self) -> None:
         h = self._run()

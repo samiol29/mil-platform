@@ -147,8 +147,11 @@ class DocumentResponse(BaseModel):
     ``document_type`` column will be added in a future sprint migration once
     the business classification taxonomy is finalised.
 
-    ``evidence_item_count`` is always 0 in Sprint 3D (no evidence pipeline yet).
-    ``page_count`` and ``ingestion_completed_at`` are not tracked in Sprint 3D.
+    ``evidence_item_count``, ``page_count``, ``ingestion_completed_at``, and
+    ``ingestion_error`` reflect real pipeline outcome state persisted on
+    ``Document`` by ``DocumentService.complete_processing`` /
+    ``fail_processing`` — they remain at their defaults (``0`` / ``None``)
+    while the document is PENDING or IN_PROGRESS.
     """
 
     id: UUID
@@ -179,6 +182,10 @@ class DocumentResponse(BaseModel):
             content_hash=doc.content_hash,
             uploaded_at=doc.uploaded_at,
             uploaded_by=doc.uploaded_by,
+            evidence_item_count=doc.evidence_item_count,
+            page_count=doc.page_count,
+            ingestion_completed_at=doc.ingestion_completed_at,
+            ingestion_error=doc.ingestion_error,
         )
 
 

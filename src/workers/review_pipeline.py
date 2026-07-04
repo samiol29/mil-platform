@@ -78,6 +78,11 @@ if TYPE_CHECKING:
 # REVIEW step label — the final step of the FINDING_GENERATION workflow.
 REVIEW_STEP_NAME = "REVIEW"
 
+# How long main()'s polling loop blocks on RedisJobQueue.dequeue() waiting for
+# a job before checking again. A long-running worker process, not a one-shot
+# drain — see main()'s docstring.
+_POLL_TIMEOUT_SECONDS = 5.0
+
 
 class ReviewProcessingOutcome(enum.StrEnum):
     """
@@ -280,12 +285,16 @@ def run_drain(ctx: WorkerContext, handler: JobHandler, *, max_iterations: int | 
 
 
 def main() -> None:  # pragma: no cover - process entry point
-    """Entry point for the Review pipeline worker process."""
+    """
+    Entry point for the Review pipeline worker process.
+
+    Runs indefinitely as a long-running service — see
+    ``workers.document_pipeline.main``'s docstring for the same rationale.
+    """
     ctx = build_worker_context()
     handler = make_review_handler(ctx.container)
     while True:
-        if not process_next(ctx, handler):
-            break
+        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=REVIEW_STEP_NAME)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -28,13 +28,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+import redis
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 from mil.kernel.config import Settings
 from mil.kernel.errors import DependencyNotRegisteredError
 from mil.kernel.event_bus import EventBus, InProcessEventBus
-from mil.kernel.job_queue import InProcessJobQueue, JobQueue
+from mil.kernel.job_queue import InProcessJobQueue, JobQueue, RedisJobQueue
 from mil.kernel.metrics import InMemoryMetricEmitter
 from mil.kernel.observability import MetricEmitter
 from mil.kernel.providers.extraction import ExtractionProvider
@@ -232,8 +234,12 @@ def build_container(settings: Settings) -> Container:
     # Event bus — in-process for development; broker-backed in production.
     container.register_singleton(EventBus, InProcessEventBus)  # type: ignore[type-abstract]
 
-    # Job queue — in-process for development; broker-backed in production.
-    container.register_singleton(JobQueue, InProcessJobQueue)
+    # Job queue — Redis-backed in every environment. The API process and every
+    # worker process must observe the same queue state (ADR-007/ADR-008: the
+    # plan's production topology is multi-process — API + worker processes +
+    # broker); InProcessJobQueue cannot deliver work across that boundary and
+    # is never wired here. See _build_job_queue().
+    container.register_singleton(JobQueue, lambda: _build_job_queue(settings))
 
     # Provider registry — selected by environment.
     registry = _build_provider_registry(settings)
@@ -275,6 +281,39 @@ def build_container(settings: Settings) -> Container:
         _reject_in_process_messaging(container)
 
     return container
+
+
+def _build_job_queue(settings: Settings) -> JobQueue:
+    """
+    Construct the platform ``JobQueue`` — ``RedisJobQueue`` in every
+    environment.
+
+    Same DI seam as the intelligence providers (``_build_inference_provider``
+    etc.): the concrete implementation is selected here, and nothing above
+    this function (``IntelligenceOrchestrator``, the worker processors,
+    ``workers/bootstrap.py``) knows or cares that Redis is behind the
+    interface. ``settings.broker_url`` is the existing Redis DSN, constructed
+    from ``REDIS_HOST``/``REDIS_PORT``/``REDIS_DB``/``REDIS_PASSWORD``
+    (``Settings.broker_url``, already used by the docker-compose-provisioned
+    Redis instance documented as "the message broker backing the EventBus and
+    JobQueue").
+
+    The client is constructed lazily (``redis.Redis.from_url`` does not
+    connect until the first command), so building the container never fails
+    or blocks even if Redis is not reachable yet — the same fail-fast-at-use,
+    not-at-construction behaviour as the other provider builders.
+
+    ``socket_timeout`` must exceed the largest ``timeout`` any caller passes to
+    ``JobQueue.dequeue()`` (a worker's polling loop uses
+    ``_POLL_TIMEOUT_SECONDS = 5.0``), or redis-py's socket read timeout fires
+    *before* Redis's own ``BLPOP`` timeout does, surfacing as an unhandled
+    ``redis.exceptions.TimeoutError`` that crashes the worker process instead
+    of ``dequeue`` returning ``None`` for an empty queue (this is a documented
+    redis-py behaviour, not a bug in this platform's queue logic — verified by
+    running a real worker process against it).
+    """
+    client = redis.Redis.from_url(settings.broker_url, decode_responses=True, socket_timeout=30.0)
+    return RedisJobQueue(client)
 
 
 def _build_provider_registry(settings: Settings) -> ProviderRegistry:

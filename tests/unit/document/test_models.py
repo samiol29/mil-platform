@@ -263,13 +263,26 @@ class TestDocumentStatusTransitions:
     def test_mark_completed_from_in_progress(self) -> None:
         doc = _make_document()
         doc.mark_processing()
-        doc.mark_completed()
+        doc.mark_completed(page_count=2, evidence_item_count=5)
         assert doc.ingestion_status == IngestionStatus.COMPLETED
+
+    def test_mark_completed_populates_pipeline_outcome_fields(self) -> None:
+        doc = _make_document()
+        doc.mark_processing()
+        doc.mark_completed(page_count=3, evidence_item_count=7)
+        assert doc.page_count == 3
+        assert doc.evidence_item_count == 7
+        assert doc.ingestion_completed_at is not None
+
+    def test_mark_failed_populates_ingestion_error(self) -> None:
+        doc = _make_document()
+        doc.mark_failed("provider unavailable")
+        assert doc.ingestion_error == "provider unavailable"
 
     def test_mark_completed_from_pending_raises(self) -> None:
         doc = _make_document()
         with pytest.raises(ConflictError):
-            doc.mark_completed()
+            doc.mark_completed(page_count=2, evidence_item_count=5)
 
     def test_mark_failed_from_pending(self) -> None:
         doc = _make_document()
@@ -285,7 +298,7 @@ class TestDocumentStatusTransitions:
     def test_mark_failed_from_completed_raises(self) -> None:
         doc = _make_document()
         doc.mark_processing()
-        doc.mark_completed()
+        doc.mark_completed(page_count=2, evidence_item_count=5)
         with pytest.raises(ConflictError):
             doc.mark_failed("too late")
 
@@ -301,7 +314,7 @@ class TestDocumentStatusTransitions:
         doc = _make_document()
         assert not doc.is_completed
         doc.mark_processing()
-        doc.mark_completed()
+        doc.mark_completed(page_count=2, evidence_item_count=5)
         assert doc.is_completed
 
 

@@ -126,8 +126,10 @@ _REVIEW_STEP_NAME = "REVIEW"
 # transition (ADR-009).
 FINDING_WORKFLOW_TYPE = "FINDING_GENERATION"
 
-# Job type for every dispatched WorkflowStep job (orchestrator convention).
-_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
+# How long main()'s polling loop blocks on RedisJobQueue.dequeue() waiting for
+# a job before checking again. A long-running worker process, not a one-shot
+# drain — see main()'s docstring.
+_POLL_TIMEOUT_SECONDS = 5.0
 
 # Fixed prompt version for this sprint's generic evidence-assessment prompt.
 # No prompt-management system exists yet; this is a passive attribution
@@ -315,7 +317,7 @@ class FindingJobProcessor:
             return
         self._c.job_queue.enqueue(
             Job(
-                job_type=_JOB_TYPE_WORKFLOW_STEP,
+                job_type=next_step.step_name,
                 idempotency_key=f"{run.id}:{next_step.step_name}",
                 payload={
                     "workflow_run_id": str(run.id),
@@ -601,12 +603,16 @@ def run_drain(ctx: WorkerContext, handler: JobHandler, *, max_iterations: int | 
 
 
 def main() -> None:  # pragma: no cover - process entry point
-    """Entry point for the Finding pipeline worker process."""
+    """
+    Entry point for the Finding pipeline worker process.
+
+    Runs indefinitely as a long-running service — see
+    ``workers.document_pipeline.main``'s docstring for the same rationale.
+    """
     ctx = build_worker_context()
     handler = make_finding_handler(ctx.container)
     while True:
-        if not process_next(ctx, handler):
-            break
+        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=FINDING_STEP_NAME)
 
 
 if __name__ == "__main__":  # pragma: no cover

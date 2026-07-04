@@ -27,6 +27,18 @@ loses the correlation id.
 
 Dependency rule: imports only from ``mil.kernel``, the persistence layer, and
 the Python standard library. No bounded context business logic is imported.
+``_register_all_models`` is the one sanctioned exception: it imports every
+bounded context's ``models.py`` purely for the ORM side effect of registering
+its tables with ``Base.metadata`` (never touching business logic), mirroring
+the identical, pre-existing pattern in ``migrations/env.py``. Without it, a
+worker process started standalone (``python -m workers.document_pipeline``)
+only has the tables its own direct imports happen to touch registered, and a
+flush touching a foreign key into an unregistered table (e.g. ``Document``'s
+FK to ``core.parties``) raises ``sqlalchemy.exc.NoReferencedTableError`` — a
+real crash reproduced by running a real worker process, not a hypothetical.
+The API process never hits this because ``main.py``'s router imports happen
+to transitively import every model module; a worker process has no such
+transitive guarantee.
 """
 
 from __future__ import annotations
@@ -48,6 +60,29 @@ if TYPE_CHECKING:
     from mil.kernel.config import Settings
     from mil.kernel.container import Container
     from mil.kernel.job_queue import Job
+
+
+def _register_all_models() -> None:
+    """
+    Import every bounded context's ``models.py`` so its tables are registered
+    on the shared ``Base.metadata`` before any worker performs a flush.
+
+    Import-only side effect — nothing here is called or referenced beyond the
+    import itself. See the module docstring for why this is necessary and why
+    it is a sanctioned exception to this module's own dependency rule.
+    """
+    from mil.application import models as _application_models  # noqa: F401
+    from mil.audit import models as _audit_models  # noqa: F401
+    from mil.copilot import models as _copilot_models  # noqa: F401
+    from mil.document import models as _document_models  # noqa: F401
+    from mil.document import ocr_models as _document_ocr_models  # noqa: F401
+    from mil.evidence import models as _evidence_models  # noqa: F401
+    from mil.finding import models as _finding_models  # noqa: F401
+    from mil.identity import models as _identity_models  # noqa: F401
+    from mil.orchestrator import models as _orchestrator_models  # noqa: F401
+    from mil.outbox import models as _outbox_models  # noqa: F401
+    from mil.policy import models as _policy_models  # noqa: F401
+    from mil.review import models as _review_models  # noqa: F401
 
 
 class JobHandler(Protocol):
@@ -104,6 +139,7 @@ def build_worker_context(
     Returns:
         A fully resolved ``WorkerContext``.
     """
+    _register_all_models()
     resolved_settings = settings if settings is not None else get_settings()
     resolved_container = container if container is not None else build_container(resolved_settings)
 
@@ -121,7 +157,13 @@ def build_worker_context(
     )
 
 
-def process_next(ctx: WorkerContext, handler: JobHandler) -> bool:
+def process_next(
+    ctx: WorkerContext,
+    handler: JobHandler,
+    *,
+    timeout: float = 0.0,
+    job_type: str | None = None,
+) -> bool:
     """
     Claim and process the next available job, if any, in a Unit of Work.
 
@@ -133,15 +175,26 @@ def process_next(ctx: WorkerContext, handler: JobHandler) -> bool:
          On failure: roll back, reject (requeue within the retry budget), and
          re-raise so the caller is aware.
 
+    Args:
+        timeout:  Forwarded to ``JobQueue.dequeue``. ``0.0`` (default) returns
+                  immediately if the queue is empty — used by ``run_drain`` and
+                  tests. A worker's long-running ``main()`` loop passes a
+                  positive value so a broker-backed queue (``RedisJobQueue``)
+                  blocks efficiently between polls instead of busy-looping.
+        job_type: Forwarded to ``JobQueue.dequeue``. Every real worker MUST
+                  pass its own step name here — multiple distinct worker types
+                  share one physical queue, and without this a worker can
+                  dequeue and mishandle a job meant for a different step.
+
     Returns:
         ``True`` if a job was claimed and processed (the harness handled it),
-        ``False`` if the queue was empty.
+        ``False`` if the queue was empty (or the timeout elapsed with no job).
 
     The handler must not commit; the transaction boundary belongs to this
     harness so that the business write, any workflow/step state, and any outbox
     rows commit together (ADR-007 / ADR-008).
     """
-    job = ctx.job_queue.dequeue()
+    job = ctx.job_queue.dequeue(timeout=timeout, job_type=job_type)
     if job is None:
         return False
 

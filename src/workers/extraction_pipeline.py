@@ -53,9 +53,12 @@ from uuid import UUID
 
 from mil.audit.writer import AuditWriter
 from mil.document.ocr_repository import OCRResultRepository
+from mil.document.repository import DocumentRepository
+from mil.document.service import DocumentService
 from mil.evidence.repository import EvidenceRepository
 from mil.evidence.service import EvidenceService
 from mil.kernel.errors import NotFoundError, ProviderError, ProviderVersionMissingError
+from mil.kernel.event_bus import EventBus
 from mil.kernel.events import EvidenceExtracted, WorkflowStepFailed
 from mil.kernel.metrics import MetricName
 from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
@@ -84,14 +87,17 @@ if TYPE_CHECKING:
     from mil.kernel.container import Container
     from mil.kernel.job_queue import Job
     from mil.kernel.providers.extraction import ExtractionProvider
+    from mil.kernel.providers.storage import StorageProvider
     from workers.bootstrap import JobHandler, WorkerContext
 
 # Extraction step label dispatched by the OCR worker for the
 # DOCUMENT_INGESTION workflow.
 EXTRACTION_STEP_NAME = "EXTRACTION"
 
-# Job type for every dispatched WorkflowStep job (orchestrator convention).
-_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
+# How long main()'s polling loop blocks on RedisJobQueue.dequeue() waiting for
+# a job before checking again. A long-running worker process, not a one-shot
+# drain — see main()'s docstring.
+_POLL_TIMEOUT_SECONDS = 5.0
 
 
 class ExtractionProcessingOutcome(enum.StrEnum):
@@ -122,6 +128,7 @@ class ExtractionCollaborators:
     ocr_results: OCRResultRepository
     evidence: EvidenceService
     evidence_items: EvidenceRepository
+    documents: DocumentService
     workflows: WorkflowRepository
     outbox: OutboxRepository
     metrics: MetricEmitter = field(default_factory=NoOpMetricEmitter)
@@ -204,6 +211,7 @@ class ExtractionJobProcessor:
             return self._handle_failure(
                 run=run,
                 step=step,
+                document_id=document_id,
                 workflow_run_id=workflow_run_id,
                 tenant_id=tenant_id,
                 correlation_id=correlation_id,
@@ -221,6 +229,15 @@ class ExtractionJobProcessor:
         )
         step.mark_completed()
         self._c.workflows.save(run)
+        # DOCUMENT_INGESTION reaches its terminal success state here: the
+        # Extraction stage is the final planned step (OCR -> EXTRACTION), so
+        # completing it completes the document (ADR-006: DocumentService is
+        # the sole owner of Document status mutation).
+        self._c.documents.complete_processing(
+            document_id=document_id,
+            page_count=ocr_record.page_count,
+            evidence_item_count=len(created),
+        )
         self._c.outbox.add(
             EvidenceExtracted(
                 tenant_id=TenantId(tenant_id),
@@ -242,6 +259,7 @@ class ExtractionJobProcessor:
         *,
         run: WorkflowRun,
         step: WorkflowStep,
+        document_id: UUID,
         workflow_run_id: UUID,
         tenant_id: UUID,
         correlation_id: str,
@@ -264,6 +282,7 @@ class ExtractionJobProcessor:
         step.mark_failed(error_code=exc.code, error_message=exc.message)
         run.mark_failed()
         self._c.workflows.save(run)
+        self._c.documents.fail_processing(document_id=document_id, reason=exc.message)
         self._c.outbox.add(
             WorkflowStepFailed(
                 tenant_id=TenantId(tenant_id),
@@ -346,16 +365,20 @@ def build_extraction_collaborators(
     """
     registry = container.resolve(ProviderRegistry)
     extraction_provider = registry.get_extraction()
+    storage: StorageProvider = registry.get_storage()
+    event_bus = container.resolve(EventBus)  # type: ignore[type-abstract]
     metrics = container.resolve(MetricEmitter)  # type: ignore[type-abstract]
 
     audit = AuditWriter(session, metrics=metrics)
     evidence_repository = EvidenceRepository(session)
     evidence_service = EvidenceService(evidence_repository, audit)
+    document_service = DocumentService(DocumentRepository(session, audit), storage, event_bus)
     return ExtractionCollaborators(
         extraction_provider=extraction_provider,
         ocr_results=OCRResultRepository(session),
         evidence=evidence_service,
         evidence_items=evidence_repository,
+        documents=document_service,
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
         metrics=metrics,
@@ -402,12 +425,16 @@ def run_drain(ctx: WorkerContext, handler: JobHandler, *, max_iterations: int | 
 
 
 def main() -> None:  # pragma: no cover - process entry point
-    """Entry point for the Extraction document-pipeline worker process."""
+    """
+    Entry point for the Extraction document-pipeline worker process.
+
+    Runs indefinitely as a long-running service — see
+    ``workers.document_pipeline.main``'s docstring for the same rationale.
+    """
     ctx = build_worker_context()
     handler = make_extraction_handler(ctx.container)
     while True:
-        if not process_next(ctx, handler):
-            break
+        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=EXTRACTION_STEP_NAME)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -239,12 +239,21 @@ class DocumentService:
         self._repo.save(document, actor=None)
         return document
 
-    def complete_processing(self, *, document_id: UUID) -> Document:
+    def complete_processing(
+        self, *, document_id: UUID, page_count: int, evidence_item_count: int
+    ) -> Document:
         """
         Transition a document to COMPLETED when the full pipeline finishes.
 
-        Driven by the final pipeline stage (a later sprint). Idempotent: a
-        document already COMPLETED is returned unchanged.
+        Driven by the Extraction stage on success. Idempotent: a document
+        already COMPLETED is returned unchanged (its existing page_count /
+        evidence_item_count / ingestion_completed_at are not overwritten).
+
+        Args:
+            document_id:         The document to complete.
+            page_count:          Page count from the persisted OCR result.
+            evidence_item_count: Number of EvidenceItem rows this document
+                                 produced.
 
         Raises:
             NotFoundError: If the document does not exist.
@@ -255,7 +264,7 @@ class DocumentService:
         document = self.get_for_pipeline(document_id=document_id)
         if document.ingestion_status == IngestionStatus.COMPLETED:
             return document
-        document.mark_completed()
+        document.mark_completed(page_count=page_count, evidence_item_count=evidence_item_count)
         self._repo.save(document, actor=None)
         return document
 

@@ -43,6 +43,11 @@ dependencies = [
 
     # HTTP client (internal service communication, contract tests)
     "httpx>=0.28.0",
+
+    # Message broker client — RedisJobQueue (mil.kernel.job_queue), the
+    # process-safe JobQueue implementation the API process and every worker
+    # process share.
+    "redis>=5.0.0",
 ]
 
 [project.optional-dependencies]

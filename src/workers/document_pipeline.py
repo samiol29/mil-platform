@@ -91,8 +91,10 @@ DOCUMENT_INGESTION_WORKFLOW_TYPE = "DOCUMENT_INGESTION"
 # explicit sentinel, never left blank).
 _NOT_APPLICABLE_VERSION = "n/a"
 
-# Job type for every dispatched WorkflowStep job (orchestrator convention).
-_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
+# How long main()'s polling loop blocks on RedisJobQueue.dequeue() waiting for
+# a job before checking again. A long-running worker process, not a one-shot
+# drain — see main()'s docstring.
+_POLL_TIMEOUT_SECONDS = 5.0
 
 
 class OCRProcessingOutcome(enum.StrEnum):
@@ -262,7 +264,7 @@ class OCRJobProcessor:
             return
         self._c.job_queue.enqueue(
             Job(
-                job_type=_JOB_TYPE_WORKFLOW_STEP,
+                job_type=next_step.step_name,
                 idempotency_key=f"{run.id}:{next_step.step_name}",
                 payload={
                     "workflow_run_id": str(run.id),
@@ -502,12 +504,21 @@ def run_drain(ctx: WorkerContext, handler: JobHandler, *, max_iterations: int | 
 
 
 def main() -> None:  # pragma: no cover - process entry point
-    """Entry point for the OCR document-pipeline worker process."""
+    """
+    Entry point for the OCR document-pipeline worker process.
+
+    Runs indefinitely as a long-running service: each iteration blocks on
+    ``RedisJobQueue.dequeue()`` for up to ``_POLL_TIMEOUT_SECONDS`` waiting for
+    a job rather than exiting when the queue is momentarily empty (a worker
+    process is expected to be started once and left running — the previous
+    "process one batch then exit" loop meant a worker launched before any
+    document had been uploaded would exit immediately and never see later
+    work).
+    """
     ctx = build_worker_context()
     handler = make_ocr_handler(ctx.container)
     while True:
-        if not process_next(ctx, handler):
-            break
+        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=OCR_STEP_NAME)
 
 
 if __name__ == "__main__":  # pragma: no cover

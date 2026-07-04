@@ -101,8 +101,10 @@ POLICY_STEP_NAME = "POLICY"
 # workers agree on this job-payload contract, not on shared code.
 _REVIEW_STEP_NAME = "REVIEW"
 
-# Job type for every dispatched WorkflowStep job (orchestrator convention).
-_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
+# How long main()'s polling loop blocks on RedisJobQueue.dequeue() waiting for
+# a job before checking again. A long-running worker process, not a one-shot
+# drain — see main()'s docstring.
+_POLL_TIMEOUT_SECONDS = 5.0
 
 
 class PolicyProcessingOutcome(enum.StrEnum):
@@ -289,7 +291,7 @@ class PolicyJobProcessor:
             return
         self._c.job_queue.enqueue(
             Job(
-                job_type=_JOB_TYPE_WORKFLOW_STEP,
+                job_type=next_step.step_name,
                 idempotency_key=f"{run.id}:{next_step.step_name}",
                 payload={
                     "workflow_run_id": str(run.id),
@@ -498,12 +500,16 @@ def run_drain(ctx: WorkerContext, handler: JobHandler, *, max_iterations: int | 
 
 
 def main() -> None:  # pragma: no cover - process entry point
-    """Entry point for the Policy pipeline worker process."""
+    """
+    Entry point for the Policy pipeline worker process.
+
+    Runs indefinitely as a long-running service — see
+    ``workers.document_pipeline.main``'s docstring for the same rationale.
+    """
     ctx = build_worker_context()
     handler = make_policy_handler(ctx.container)
     while True:
-        if not process_next(ctx, handler):
-            break
+        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=POLICY_STEP_NAME)
 
 
 if __name__ == "__main__":  # pragma: no cover

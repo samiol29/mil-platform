@@ -320,7 +320,10 @@ class TestNextStepDispatch:
         h.run_processor()
         assert len(h.job_queue.enqueued) == 1
         job = h.job_queue.enqueued[0]
-        assert job.job_type == "workflow_step"
+        # job_type is the step name itself, not a generic label — multiple
+        # distinct worker types share one physical queue, and each dequeues
+        # only jobs of its own type.
+        assert job.job_type == "POLICY"
         assert job.payload["step_name"] == "POLICY"
         assert job.payload["application_id"] == str(h.application_id)
         assert job.payload["workflow_run_id"] == str(h.run.id)
