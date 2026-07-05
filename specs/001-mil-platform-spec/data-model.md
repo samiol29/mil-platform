@@ -78,6 +78,7 @@ ACCESS_DENIED
 | `id` | UUID | PK | Application identifier |
 | `tenant_id` | UUID | NOT NULL | Reserved for multi-tenancy |
 | `los_reference` | VARCHAR(255) | NULLABLE | External LOS application identifier |
+| `loan_number` | VARCHAR(255) | NULLABLE | Lender loan identifier, distinct from `los_reference` |
 | `status` | VARCHAR(50) | NOT NULL | Current application lifecycle status |
 | `active_policy_pack_id` | UUID | FK → `core.policy_packs.id` | Policy Pack applied to this application |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |

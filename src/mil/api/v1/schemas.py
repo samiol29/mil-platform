@@ -54,6 +54,11 @@ class CreateApplicationRequest(BaseModel):
         description="External LOS application identifier; may be provided later.",
         max_length=255,
     )
+    loan_number: str | None = Field(
+        default=None,
+        description="Lender loan identifier, distinct from los_reference; may be provided later.",
+        max_length=255,
+    )
 
 
 class ApplicationResponse(BaseModel):
@@ -61,6 +66,7 @@ class ApplicationResponse(BaseModel):
 
     id: UUID
     los_reference: str | None = None
+    loan_number: str | None = None
     status: str
     active_policy_pack_id: UUID | None = None
     party_count: int
@@ -75,6 +81,7 @@ class ApplicationResponse(BaseModel):
         return cls(
             id=app.id,
             los_reference=app.los_reference,
+            loan_number=app.loan_number,
             status=app.status,
             active_policy_pack_id=app.active_policy_pack_id,
             party_count=len(parties),

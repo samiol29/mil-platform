@@ -54,7 +54,9 @@ router = APIRouter(prefix="/v1/applications", tags=["Applications"])
     description=(
         "Register a new mortgage application in MIL in DRAFT state. "
         "Optionally supply a ``los_reference`` to associate this record with "
-        "an existing Loan Origination System application. "
+        "an existing Loan Origination System application, and/or a "
+        "``loan_number`` (the lender's own loan identifier, distinct from "
+        "``los_reference``). "
         "Requires ``write:application`` permission."
     ),
     response_model=ApplicationResponse,
@@ -75,6 +77,7 @@ def create_application(
         user,
         tenant_id=TenantId(user.tenant_id),
         los_reference=body.los_reference,
+        loan_number=body.loan_number,
     )
     return ApplicationResponse.from_model(app)
 

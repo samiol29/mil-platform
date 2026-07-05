@@ -40,3 +40,58 @@ jobs:
 
       - name: Byte-compile source, migrations, and tests
         run: python -m compileall -q src migrations tests
+
+  frontend:
+    name: Frontend — lint, type-check, test, Storybook (a11y gate), build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Prettier format check
+        working-directory: frontend
+        run: npm run format:check
+
+      - name: Type check
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Unit + component tests (Vitest)
+        working-directory: frontend
+        run: npm run test
+
+      - name: Storybook tests (includes the a11y hard gate — see .storybook/preview.tsx)
+        working-directory: frontend
+        run: npm run test:storybook
+
+      - name: Build Storybook
+        working-directory: frontend
+        run: npm run build-storybook
+
+      - name: Build production bundle
+        working-directory: frontend
+        run: npm run build
+
+      - name: End-to-end tests (Playwright)
+        working-directory: frontend
+        run: npm run test:e2e

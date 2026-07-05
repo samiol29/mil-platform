@@ -70,6 +70,7 @@ class ApplicationService:
         *,
         tenant_id: TenantId | UUID,
         los_reference: str | None = None,
+        loan_number: str | None = None,
     ) -> MortgageApplication:
         """
         Create a new mortgage application in DRAFT state.
@@ -85,6 +86,7 @@ class ApplicationService:
             user: The authenticated principal performing the action.
             tenant_id: The institution the application belongs to.
             los_reference: Optional LOS application identifier.
+            loan_number: Optional lender loan identifier.
 
         Returns:
             The newly created ``MortgageApplication`` in DRAFT state.
@@ -98,6 +100,7 @@ class ApplicationService:
             tenant_id=tenant_id,
             created_by=user.user_id,
             los_reference=los_reference,
+            loan_number=loan_number,
         )
         self._repo.save(application, actor=user)
         return application

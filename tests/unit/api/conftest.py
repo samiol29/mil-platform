@@ -89,12 +89,14 @@ def make_application(
     app_id=None,
     status: str = ApplicationStatus.DRAFT,
     los_reference: str | None = "LOS-001",
+    loan_number: str | None = "LN-0001",
 ) -> MortgageApplication:
     """Return a MortgageApplication domain object with test-friendly defaults."""
     app = MortgageApplication.create(
         tenant_id=TEST_TENANT_ID,
         created_by=TEST_USER_ID,
         los_reference=los_reference,
+        loan_number=loan_number,
     )
     if app_id is not None:
         object.__setattr__(app, "id", app_id)

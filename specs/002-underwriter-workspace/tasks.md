@@ -24,17 +24,17 @@ Per `plan.md`'s Structure Decision (Option 2 — web application): the existing 
 
 **Purpose**: Replace the legacy scaffold and initialize the real project tooling. No product/domain code yet.
 
-- [ ] T001 Remove obsolete legacy scaffold contents (`frontend/src/App.jsx`, `frontend/src/pages/CustomerRegistrationPage.jsx`, `frontend/src/pages/CustomerSearchPage.jsx`, `frontend/src/pages/LoginPage.jsx`, `frontend/src/pages/RegisterPage.jsx`, `frontend/src/context/AuthContext.jsx`, `frontend/src/components/DashboardLayout.jsx`, `frontend/src/components/ProtectedRoute.jsx`, `frontend/src/api/client.js`) and create the new directory skeleton (`frontend/src/{app,design-system/tokens,design-system/components,entities,features,routes,shared,test}`) per `plan.md`
-- [ ] T002 Initialize TypeScript strict-mode configuration in `frontend/tsconfig.json`
-- [ ] T003 [P] Configure ESLint with TypeScript and `jsx-a11y` rule sets, replacing `oxlint`, in `frontend/eslint.config.ts` (see `research.md`: CI/CD Tooling decision)
-- [ ] T004 [P] Configure a formatting tool (Prettier or equivalent) in `frontend/.prettierrc`
-- [ ] T005 [P] Update `frontend/vite.config.ts` for TypeScript, path aliases (`@app`, `@design-system`, `@entities`, `@features`, `@routes`, `@shared`), and a same-origin dev proxy to the local API (see `plan.md` Deployment Strategy)
-- [ ] T006 [P] Update `frontend/package.json` dependencies: `react@19`, `@tanstack/react-router`, `@tanstack/react-query`, `@tanstack/react-table`, `@tanstack/react-virtual`, `zustand`, `react-hook-form`, `zod`, `axios`, `pdfjs-dist` (see `research.md`)
-- [ ] T007 [P] Configure Vitest + React Testing Library in `frontend/vitest.config.ts` and `frontend/src/test/setup.ts`
-- [ ] T008 [P] Initialize Storybook with the `a11y` addon in `frontend/.storybook/`
-- [ ] T009 [P] Initialize Playwright (with `@axe-core/playwright`) in `frontend/e2e/playwright.config.ts`
-- [ ] T010 [P] Add a parallel frontend job (lint → typecheck → test → Storybook build+a11y gate → Vite build → Playwright) to `.github/workflows/ci.yml`, mirroring the backend's existing `make ci` gate structure (see `research.md`)
-- [ ] T126 [P] Create a deterministic 100,000+-application seed/fixture-generation script (realistic borrower names, loan numbers, LOS references, status distribution, SLA ages) in `scripts/seed_large_dataset.py`, runnable standalone and reusable by both Playwright E2E (T081, T082, T108) and manual QA — resolves post-analysis finding G1; required before User Story 2's checkpoint, not before Setup/Foundational/US1
+- [X] T001 Remove obsolete legacy scaffold contents (`frontend/src/App.jsx`, `frontend/src/pages/CustomerRegistrationPage.jsx`, `frontend/src/pages/CustomerSearchPage.jsx`, `frontend/src/pages/LoginPage.jsx`, `frontend/src/pages/RegisterPage.jsx`, `frontend/src/context/AuthContext.jsx`, `frontend/src/components/DashboardLayout.jsx`, `frontend/src/components/ProtectedRoute.jsx`, `frontend/src/api/client.js`) and create the new directory skeleton (`frontend/src/{app,design-system/tokens,design-system/components,entities,features,routes,shared,test}`) per `plan.md`
+- [X] T002 Initialize TypeScript strict-mode configuration in `frontend/tsconfig.json`
+- [X] T003 [P] Configure ESLint with TypeScript and `jsx-a11y` rule sets, replacing `oxlint`, in `frontend/eslint.config.ts` (see `research.md`: CI/CD Tooling decision)
+- [X] T004 [P] Configure a formatting tool (Prettier or equivalent) in `frontend/.prettierrc`
+- [X] T005 [P] Update `frontend/vite.config.ts` for TypeScript, path aliases (`@app`, `@design-system`, `@entities`, `@features`, `@routes`, `@shared`), and a same-origin dev proxy to the local API (see `plan.md` Deployment Strategy)
+- [X] T006 [P] Update `frontend/package.json` dependencies: `react@19`, `@tanstack/react-router`, `@tanstack/react-query`, `@tanstack/react-table`, `@tanstack/react-virtual`, `zustand`, `react-hook-form`, `zod`, `axios`, `pdfjs-dist` (see `research.md`)
+- [X] T007 [P] Configure Vitest + React Testing Library in `frontend/vitest.config.ts` and `frontend/src/test/setup.ts`
+- [X] T008 [P] Initialize Storybook with the `a11y` addon in `frontend/.storybook/`
+- [X] T009 [P] Initialize Playwright (with `@axe-core/playwright`) in `frontend/e2e/playwright.config.ts`
+- [X] T010 [P] Add a parallel frontend job (lint → typecheck → test → Storybook build+a11y gate → Vite build → Playwright) to `.github/workflows/ci.yml`, mirroring the backend's existing `make ci` gate structure (see `research.md`)
+- [X] T126 [P] Create a deterministic 100,000+-application seed/fixture-generation script (realistic borrower names, loan numbers, LOS references, status distribution, SLA ages) in `scripts/seed_large_dataset.py`, runnable standalone and reusable by both Playwright E2E (T081, T082, T108) and manual QA — resolves post-analysis finding G1
 
 **Checkpoint**: Tooling in place; no product code exists yet.
 

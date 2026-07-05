@@ -51,6 +51,19 @@ class TestCreateApplication:
         call_kwargs = mock_app_service.create_application.call_args.kwargs
         assert call_kwargs["los_reference"] == "LOS-999"
 
+    def test_passes_loan_number(self, client: TestClient, mock_app_service: MagicMock) -> None:
+        app = make_application(loan_number="LN-999")
+        mock_app_service.create_application.return_value = app
+        client.post("/v1/applications", json={"loan_number": "LN-999"})
+        call_kwargs = mock_app_service.create_application.call_args.kwargs
+        assert call_kwargs["loan_number"] == "LN-999"
+
+    def test_returns_loan_number(self, client: TestClient, mock_app_service: MagicMock) -> None:
+        app = make_application(loan_number="LN-999")
+        mock_app_service.create_application.return_value = app
+        data = client.post("/v1/applications", json={"loan_number": "LN-999"}).json()
+        assert data["loan_number"] == "LN-999"
+
     def test_tenant_id_comes_from_authenticated_user(
         self, client: TestClient, mock_app_service: MagicMock, current_user: AuthenticatedUser
     ) -> None:

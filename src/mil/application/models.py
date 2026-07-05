@@ -164,6 +164,12 @@ class MortgageApplication(Base):
     Origination System. It is nullable because MIL can receive a document
     before the LOS application has been formally registered.
 
+    ``loan_number`` is the lender's own loan identifier — distinct from
+    ``los_reference`` — and one of the three mandatory, equally-weighted
+    identifiers underwriters use to locate an application (alongside borrower
+    name and LOS reference; spec 002). Nullable for the same reason as
+    ``los_reference``: it may not yet be assigned when the MIL record is created.
+
     ``created_by`` refers to the authenticated user who initiated the MIL
     application record. In automated integrations this may be a service account.
     """
@@ -174,6 +180,7 @@ class MortgageApplication(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(nullable=False)
     los_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    loan_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default=ApplicationStatus.DRAFT)
     active_policy_pack_id: Mapped[UUID | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -209,6 +216,7 @@ class MortgageApplication(Base):
         tenant_id: UUID,
         created_by: UUID,
         los_reference: str | None = None,
+        loan_number: str | None = None,
     ) -> MortgageApplication:
         """
         Create a new mortgage application in DRAFT state.
@@ -223,6 +231,7 @@ class MortgageApplication(Base):
                 the application record in MIL.
             los_reference: The application's identifier in the upstream LOS,
                 if already known.
+            loan_number: The lender's own loan identifier, if already known.
         """
         now = datetime.now(UTC)
         app = cls(
@@ -231,6 +240,7 @@ class MortgageApplication(Base):
             created_by=created_by,
             status=ApplicationStatus.DRAFT,
             los_reference=los_reference,
+            loan_number=loan_number,
             created_at=now,
             updated_at=now,
         )
@@ -242,6 +252,7 @@ class MortgageApplication(Base):
                 "data": {
                     "status": ApplicationStatus.DRAFT,
                     "los_reference": los_reference,
+                    "loan_number": loan_number,
                 },
             }
         )

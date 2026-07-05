@@ -156,6 +156,9 @@ components:
         los_reference:
           type: string
           description: External LOS application identifier
+        loan_number:
+          type: string
+          description: Lender loan identifier, distinct from los_reference
 
     Application:
       type: object
@@ -168,6 +171,9 @@ components:
           type: string
           format: uuid
         los_reference:
+          type: string
+          nullable: true
+        loan_number:
           type: string
           nullable: true
         status:

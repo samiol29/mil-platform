@@ -84,6 +84,12 @@ class TestCreateApplication:
         app = service.create_application(user, tenant_id=uuid4(), los_reference="LOS-001")
         assert app.los_reference == "LOS-001"
 
+    def test_create_stores_loan_number(self) -> None:
+        service, _ = _make_service()
+        user = _make_admin()
+        app = service.create_application(user, tenant_id=uuid4(), loan_number="LN-001")
+        assert app.loan_number == "LN-001"
+
     def test_create_requires_write_application_permission(self) -> None:
         service, _ = _make_service()
         # AUDIT_TEAM has read:application but not write:application
