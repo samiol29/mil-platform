@@ -50,9 +50,6 @@ if TYPE_CHECKING:
     from mil.orchestrator.repository import WorkflowRepository
     from mil.outbox.repository import OutboxRepository
 
-# Job type label for steps dispatched by the orchestrator.
-_JOB_TYPE_WORKFLOW_STEP = "workflow_step"
-
 
 class IntelligenceOrchestrator:
     """
@@ -171,7 +168,11 @@ class IntelligenceOrchestrator:
         )
         self._queue.enqueue(
             Job(
-                job_type=_JOB_TYPE_WORKFLOW_STEP,
+                # job_type = the step name, not a generic label: multiple
+                # distinct worker types share one physical queue, and each
+                # must only ever dequeue jobs for its own step (JobQueue's
+                # docstring / ADR-008 note explain why this matters).
+                job_type=first_step.step_name,
                 idempotency_key=self._step_idempotency_key(run.id, first_step.step_name),
                 payload=payload,
                 max_retries=max_retries,

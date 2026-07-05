@@ -71,7 +71,7 @@ class TestStartProcessing:
     def test_terminal_document_raises(self) -> None:
         doc = _make_document()
         doc.mark_processing()
-        doc.mark_completed()
+        doc.mark_completed(page_count=1, evidence_item_count=1)
         service, _ = _make_service(doc)
         with pytest.raises(ConflictError):
             service.start_processing(document_id=doc.id)
@@ -88,16 +88,21 @@ class TestCompleteProcessing:
         doc.mark_processing()
         doc.collect_pending_events()
         service, _ = _make_service(doc)
-        result = service.complete_processing(document_id=doc.id)
+        result = service.complete_processing(
+            document_id=doc.id, page_count=4, evidence_item_count=9
+        )
         assert result.ingestion_status == IngestionStatus.COMPLETED
+        assert result.page_count == 4
+        assert result.evidence_item_count == 9
+        assert result.ingestion_completed_at is not None
 
     def test_idempotent_when_already_completed(self) -> None:
         doc = _make_document()
         doc.mark_processing()
-        doc.mark_completed()
+        doc.mark_completed(page_count=1, evidence_item_count=1)
         doc.collect_pending_events()
         service, repo = _make_service(doc)
-        service.complete_processing(document_id=doc.id)
+        service.complete_processing(document_id=doc.id, page_count=99, evidence_item_count=99)
         repo.save.assert_not_called()
 
 

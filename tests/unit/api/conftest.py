@@ -34,9 +34,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import create_app
-from mil.api.deps import get_application_service, get_current_user, get_document_service
+from mil.api.deps import (
+    DocumentIngestionTrigger,
+    FindingTrigger,
+    get_application_service,
+    get_copilot_service,
+    get_current_user,
+    get_document_ingestion_trigger,
+    get_document_service,
+    get_finding_trigger,
+)
 from mil.application.models import ApplicationStatus, MortgageApplication, Party, PartyType
 from mil.application.service import ApplicationService
+from mil.copilot.service import CopilotService
 from mil.document.models import Document
 from mil.document.service import DocumentService
 from mil.kernel.security import AuthenticatedUser, Role
@@ -106,6 +116,48 @@ def make_party(application_id=None) -> Party:
     return party
 
 
+def make_copilot_session(*, application_id=None, session_id=None, tenant_id=None):
+    """Return a CopilotSession domain object with test-friendly defaults."""
+    from mil.copilot.models import CopilotSession
+
+    session = CopilotSession.create(
+        application_id=application_id or TEST_APP_ID,
+        tenant_id=tenant_id or TEST_TENANT_ID,
+        created_by_user_id=TEST_USER_ID,
+        correlation_id="test-correlation-id",
+    )
+    if session_id is not None:
+        object.__setattr__(session, "id", session_id)
+    return session
+
+
+def make_copilot_query(*, session_id=None, query_id=None, question_text="Why was this flagged?"):
+    """Return a CopilotQuery domain object with test-friendly defaults."""
+    from mil.copilot.models import CopilotQuery
+
+    query = CopilotQuery.create(
+        session_id=session_id or TEST_APP_ID,
+        asked_by_user_id=TEST_USER_ID,
+        question_text=question_text,
+    )
+    if query_id is not None:
+        object.__setattr__(query, "id", query_id)
+    return query
+
+
+def make_copilot_response(*, query_id=None, citations=()):
+    """Return a CopilotResponse domain object with test-friendly defaults."""
+    from mil.copilot.models import CopilotResponse
+
+    return CopilotResponse.create(
+        query_id=query_id or uuid4(),
+        answer_text="Grounded answer citing all supplied records.",
+        prompt_version="freeform-question-v1",
+        model_version="mock-inference-1.0.0",
+        citations=citations,
+    )
+
+
 def make_document(application_id=None, doc_id=None) -> Document:
     """Return a Document domain object with test-friendly defaults."""
     doc = Document.create(
@@ -148,10 +200,31 @@ def mock_doc_service() -> MagicMock:
 
 
 @pytest.fixture()
+def mock_ingestion_trigger() -> MagicMock:
+    """Mocked DocumentIngestionTrigger (the upload -> DOCUMENT_INGESTION composition root)."""
+    return MagicMock(spec=DocumentIngestionTrigger)
+
+
+@pytest.fixture()
+def mock_finding_trigger() -> MagicMock:
+    """Mocked FindingTrigger (the DRAFT -> SUBMITTED composition root, ADR-009)."""
+    return MagicMock(spec=FindingTrigger)
+
+
+@pytest.fixture()
+def mock_copilot_service() -> MagicMock:
+    """Mocked CopilotService."""
+    return MagicMock(spec=CopilotService)
+
+
+@pytest.fixture()
 def client(
     current_user: AuthenticatedUser,
     mock_app_service: MagicMock,
     mock_doc_service: MagicMock,
+    mock_ingestion_trigger: MagicMock,
+    mock_finding_trigger: MagicMock,
+    mock_copilot_service: MagicMock,
 ) -> TestClient:
     """
     Return a synchronous TestClient with all service and auth deps overridden.
@@ -162,4 +235,7 @@ def client(
     app.dependency_overrides[get_current_user] = lambda: current_user
     app.dependency_overrides[get_application_service] = lambda: mock_app_service
     app.dependency_overrides[get_document_service] = lambda: mock_doc_service
+    app.dependency_overrides[get_document_ingestion_trigger] = lambda: mock_ingestion_trigger
+    app.dependency_overrides[get_finding_trigger] = lambda: mock_finding_trigger
+    app.dependency_overrides[get_copilot_service] = lambda: mock_copilot_service
     return TestClient(app, raise_server_exceptions=True)

@@ -51,7 +51,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from mil.kernel.errors import AuthenticationError
-from mil.kernel.security import AuthenticatedUser
+from mil.kernel.security import AuthenticatedUser, Role
 from mil.kernel.types import TenantId, UserId
 
 # ---------------------------------------------------------------------------
@@ -265,3 +265,77 @@ def populate_authenticated_user(
         email=claims.email,
         display_name=claims.display_name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Development bearer provider — the API's current dev authentication, expressed
+# through the IdentityProvider abstraction (Backend Freeze Patch v1.0)
+# ---------------------------------------------------------------------------
+
+# Built-in development principal, returned for the literal ``"dev"`` token.
+# Public (not module-private) because ``mil.identity.dev_seed`` must seed the
+# exact same identifiers into ``core.users`` — a single source of truth avoids
+# the two drifting apart (Backend Freeze Patch v1.0 — development bootstrap).
+DEV_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+DEV_TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
+
+
+class DevBearerIdentityProvider(IdentityProvider):
+    """
+    Development ``IdentityProvider`` for the platform's REST API.
+
+    This reproduces exactly the development authentication the API has always
+    accepted, now expressed through the ``IdentityProvider`` abstraction so
+    that ``mil.api.deps.get_current_user`` resolves its verifier from the DI
+    container rather than hard-coding an unsigned token decode. It accepts:
+
+    - the literal token ``"dev"`` — resolves to a built-in ADMIN development
+      principal, for zero-configuration local use; and
+    - a Base64URL-encoded JSON object carrying ``user_id``, ``tenant_id`` and
+      optionally ``roles``/``email``/``display_name`` — the format the API
+      test-suite and local tooling already produce.
+
+    **No cryptographic signature is verified.** This provider is a development
+    convenience and MUST NOT be registered in staging or production. Non-dev
+    environments require a signature-verifying (e.g. OIDC/JWKS) implementation;
+    ``build_container`` refuses to start a non-development process that has no
+    such provider registered (Backend Freeze Patch v1.0).
+    """
+
+    _DEV_TOKEN = "dev"  # sentinel token, not a credential
+
+    def validate_token(self, token: str) -> TokenClaims:
+        """Decode a development bearer token into normalised ``TokenClaims``."""
+        if token == self._DEV_TOKEN:
+            return TokenClaims(
+                subject=str(DEV_USER_ID),
+                tenant_id=TenantId(DEV_TENANT_ID),
+                roles=frozenset({Role.ADMIN}),
+                email="dev@mil.local",
+                display_name="Dev Admin",
+            )
+
+        try:
+            # Re-add Base64 padding that callers may have stripped.
+            padded = token + "=" * (-len(token) % 4)
+            raw = base64.urlsafe_b64decode(padded)
+            payload: dict[str, object] = json.loads(raw)
+        except Exception as exc:
+            raise AuthenticationError("Invalid bearer token: cannot decode.") from exc
+
+        try:
+            user_id = UUID(str(payload["user_id"]))
+            tenant_id = UUID(str(payload["tenant_id"]))
+        except (KeyError, ValueError) as exc:
+            raise AuthenticationError("Invalid bearer token: missing required field.") from exc
+
+        raw_roles = payload.get("roles", [])
+        roles = frozenset(str(r) for r in (raw_roles if isinstance(raw_roles, list) else []))
+
+        return TokenClaims(
+            subject=str(user_id),
+            tenant_id=TenantId(tenant_id),
+            roles=roles,
+            email=str(payload.get("email", "")),
+            display_name=str(payload.get("display_name", "")),
+        )

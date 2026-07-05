@@ -156,6 +156,14 @@ class SpyDeadLetterSink:
         self.records.append((job, error))
 
 
+class FakeJobQueue:
+    def __init__(self) -> None:
+        self.enqueued: list[Job] = []
+
+    def enqueue(self, job: Job) -> None:
+        self.enqueued.append(job)
+
+
 # ---------------------------------------------------------------------------
 # Harness
 # ---------------------------------------------------------------------------
@@ -210,6 +218,7 @@ class _Harness:
         self.workflows = FakeWorkflowRepository(self.run)
         self.outbox = FakeOutboxRepository()
         self.documents = FakeDocumentService(self.document)
+        self.job_queue = FakeJobQueue()
         self.dead_letter = dead_letter if dead_letter is not None else SpyDeadLetterSink()
         collaborators = OCRCollaborators(
             ocr_provider=self.provider,  # type: ignore[arg-type]
@@ -218,6 +227,7 @@ class _Harness:
             workflows=self.workflows,  # type: ignore[arg-type]
             outbox=self.outbox,  # type: ignore[arg-type]
             documents=self.documents,  # type: ignore[arg-type]
+            job_queue=self.job_queue,  # type: ignore[arg-type]
         )
         self.processor = OCRJobProcessor(
             collaborators, retry_policy=retry_policy, dead_letter=self.dead_letter
@@ -305,6 +315,48 @@ class TestSuccess:
         h = _Harness()
         h.run_processor()
         assert h.documents.failed == []
+
+    def test_no_next_step_dispatches_no_job(self) -> None:
+        """A run with only an OCR step (no EXTRACTION step planned) is a no-op."""
+        h = _Harness()
+        h.run_processor()
+        assert h.job_queue.enqueued == []
+
+
+# ---------------------------------------------------------------------------
+# Next-step dispatch (US2 Sprint 3 — Extraction stage)
+# ---------------------------------------------------------------------------
+
+
+class TestNextStepDispatch:
+    def test_dispatches_extraction_job(self) -> None:
+        h = _Harness()
+        h.run.plan_step(step_name="EXTRACTION", step_order=1)
+        h.run_processor()
+        assert len(h.job_queue.enqueued) == 1
+        job = h.job_queue.enqueued[0]
+        # job_type is the step name itself, not a generic label — multiple
+        # distinct worker types share one physical queue, and each dequeues
+        # only jobs of its own type.
+        assert job.job_type == "EXTRACTION"
+        assert job.payload["step_name"] == "EXTRACTION"
+        assert job.payload["document_id"] == str(h.document.id)
+        assert job.payload["workflow_run_id"] == str(h.run.id)
+        assert job.payload["ocr_provider_version"] == _PROVIDER_VERSION
+        assert job.payload["page_count"] == 2
+
+    def test_extraction_job_idempotency_key_is_deterministic(self) -> None:
+        h = _Harness()
+        h.run.plan_step(step_name="EXTRACTION", step_order=1)
+        h.run_processor()
+        job = h.job_queue.enqueued[0]
+        assert job.idempotency_key == f"{h.run.id}:EXTRACTION"
+
+    def test_terminal_failure_does_not_dispatch_next_step(self) -> None:
+        h = _Harness(provider=FakeOCRProvider(raises=ProviderError("boom", retryable=False)))
+        h.run.plan_step(step_name="EXTRACTION", step_order=1)
+        h.run_processor()
+        assert h.job_queue.enqueued == []
 
 
 # ---------------------------------------------------------------------------

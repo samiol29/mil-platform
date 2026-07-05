@@ -75,8 +75,11 @@ _RESERVED_LOG_ATTRS: frozenset[str] = frozenset(
         "severity",
         "service",
         "request_id",
+        "correlation_id",
         "application_id",
+        "tenant_id",
         "user_id",
+        "component",
         "event_type",
         "logger",
     }
@@ -100,8 +103,11 @@ class LogContext:
 
     service: str = "mil-api"
     request_id: str = ""
+    correlation_id: str = ""
     application_id: str = ""
+    tenant_id: str = ""
     user_id: str = ""
+    component: str = ""
 
 
 _current_log_context: contextvars.ContextVar[LogContext | None] = contextvars.ContextVar(
@@ -126,6 +132,11 @@ def get_log_context() -> LogContext:
     return ctx if ctx is not None else LogContext()
 
 
+def reset_log_context(token: contextvars.Token[LogContext | None]) -> None:
+    """Restore the log context to its value before the matching ``set_log_context`` call."""
+    _current_log_context.reset(token)
+
+
 # ---------------------------------------------------------------------------
 # JSON log formatter
 # ---------------------------------------------------------------------------
@@ -147,8 +158,11 @@ class MILJsonFormatter(logging.Formatter):
             "timestamp": datetime.now(UTC).isoformat(),
             "severity": record.levelname,
             "service": ctx.service,
+            "component": ctx.component,
             "request_id": ctx.request_id,
+            "correlation_id": ctx.correlation_id,
             "application_id": ctx.application_id,
+            "tenant_id": ctx.tenant_id,
             "user_id": ctx.user_id,
             "event_type": str(getattr(record, "event_type", "")),
             "message": record.getMessage(),

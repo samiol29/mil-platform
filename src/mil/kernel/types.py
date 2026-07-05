@@ -40,6 +40,7 @@ EvidenceItemId = NewType("EvidenceItemId", UUID)
 FindingId = NewType("FindingId", UUID)
 VerificationId = NewType("VerificationId", UUID)
 PolicyPackId = NewType("PolicyPackId", UUID)
+ReviewSessionId = NewType("ReviewSessionId", UUID)
 AuditEventId = NewType("AuditEventId", UUID)
 WorkflowRunId = NewType("WorkflowRunId", UUID)
 TenantId = NewType("TenantId", UUID)
@@ -80,6 +81,11 @@ def new_verification_id() -> VerificationId:
 def new_policy_pack_id() -> PolicyPackId:
     """Return a new random PolicyPackId."""
     return PolicyPackId(uuid4())
+
+
+def new_review_session_id() -> ReviewSessionId:
+    """Return a new random ReviewSessionId."""
+    return ReviewSessionId(uuid4())
 
 
 def new_audit_event_id() -> AuditEventId:

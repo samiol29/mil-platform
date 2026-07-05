@@ -81,6 +81,43 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: SecretStr | None = None
 
+    # ---- Inference (AI Copilot / Findings) ---------------------------------
+    # Which InferenceProvider implementation the container wires (ADR-011 §3,
+    # provider-agnostic inference). "gemini" is the only implemented provider
+    # today; add "claude" / "openai" / "azure_openai" / "vllm" / "ollama" here
+    # (and a branch in ``mil.kernel.container._build_inference_provider``) as
+    # each provider class lands — business logic never changes.
+    inference_provider: str = "gemini"
+
+    # Google Gemini AI Studio. The API key is a secret read from GEMINI_API_KEY
+    # and injected into ``GeminiInferenceProvider`` by the container — it is
+    # never hardcoded and never sent in a URL (see the provider's auth header).
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    gemini_max_output_tokens: int = Field(default=1024, gt=0)
+    gemini_timeout_seconds: float = Field(default=30.0, gt=0)
+    gemini_max_retries: int = Field(default=4, ge=0)
+
+    # ---- Document Intelligence (OCR / Extraction) --------------------------
+    # Which OCRProvider / ExtractionProvider implementation the container
+    # wires. "gemini" (native multimodal document understanding — no
+    # traditional OCR engine) is the only implemented value today. Same DI
+    # seam as inference: add a branch to ``_build_ocr_provider`` /
+    # ``_build_extraction_provider`` for a future engine — no business-logic
+    # change (ARCHITECTURE.md §5).
+    ocr_provider: str = "gemini"
+    extraction_provider: str = "gemini"
+
+    # Gemini can use a lighter/cheaper model per stage than the Copilot
+    # inference model; both default to the same flash model as a sane default.
+    # The API key, base URL, timeout, and retry budget are shared with
+    # inference (``gemini_api_key`` etc. above) — one secret, one retry
+    # policy, three call sites.
+    gemini_ocr_model: str = "gemini-2.5-flash"
+    gemini_extraction_model: str = "gemini-2.5-flash"
+
     # ---- Observability (OpenTelemetry) -------------------------------------
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "mil-api"
@@ -88,6 +125,12 @@ class Settings(BaseSettings):
     # ---- Worker ------------------------------------------------------------
     worker_concurrency: int = 4
     worker_job_timeout: int = 120
+
+    # ---- Upload limits -----------------------------------------------------
+    # Maximum accepted size, in bytes, for a single document upload. Requests
+    # whose body exceeds this are rejected with HTTP 413 before the whole file
+    # is buffered in memory (Backend Freeze Patch v1.0 — upload safety).
+    mil_max_upload_bytes: int = Field(default=25 * 1024 * 1024, gt=0)
 
     # ---- Derived URLs (read-only properties) -------------------------------
 

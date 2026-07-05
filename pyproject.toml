@@ -43,6 +43,11 @@ dependencies = [
 
     # HTTP client (internal service communication, contract tests)
     "httpx>=0.28.0",
+
+    # Message broker client — RedisJobQueue (mil.kernel.job_queue), the
+    # process-safe JobQueue implementation the API process and every worker
+    # process share.
+    "redis>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +79,14 @@ packages = ["src/mil", "src/workers", "src/providers"]
 
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
+
+# ``main.py`` is the ASGI entry point (``uvicorn main:app``) but lives at the
+# top of src/ as a standalone module, not inside one of the packages above —
+# hatchling's ``packages`` only ships directories, so without this it is
+# silently absent from a real (non-editable) install (Sprint 8 finding: a
+# production `pip install .` could not serve the app at all).
+[tool.hatch.build.targets.wheel.force-include]
+"src/main.py" = "main.py"
 
 # ---------------------------------------------------------------------------
 # pytest

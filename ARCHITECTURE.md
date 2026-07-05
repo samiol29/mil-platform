@@ -48,7 +48,16 @@ applications.  Human reviewers retain decision authority at every stage.
    `mil/kernel/providers/` but are never imported by `mil/kernel/` itself.
    They are wired together only in `container.py`.
 4. Domain events defined in `mil/kernel/events.py` are the only cross-context
-   communication channel.  Bounded contexts must not call each other directly.
+   channel for **writes and state-changing coordination**.  Bounded contexts
+   must not call each other's services directly to change state, and must not
+   import each other's internal modules.
+   **Read-side exception (ADR-010):** synchronous, read-only cross-context
+   access is permitted through **Query Ports** — consumer-owned, read-only
+   interfaces satisfied by adapters wired only in the composition root.  Query
+   Ports MUST NEVER be used for transactional business logic; they exist solely
+   for synchronous read-side concerns such as explainability, reporting, and AI
+   assistants.  Any state change must continue to flow through domain services
+   and Domain Events.  See §7 and ADR-010.
 
 ---
 
@@ -110,6 +119,143 @@ Every provider method that produces an AI or ML output **must** return the
 provider's version identifier as part of the response (Engineering Constitution
 Principle XII — Deterministic Intelligence).
 
+### 5.1 Inference provider (Gemini — the first real provider)
+
+`InferenceProvider` is no longer mock-only.  The inference layer is **real** and
+**provider-agnostic**:
+
+```
+API ─▶ CopilotService ─▶ InferenceProvider (interface) ─▶ GeminiInferenceProvider ─▶ Gemini AI Studio
+```
+
+- `GeminiInferenceProvider` (`src/providers/inference/gemini_inference.py`) is the
+  first real implementation.  It calls the Gemini AI Studio `generateContent`
+  REST endpoint over the platform's existing `httpx` dependency — **no vendor
+  SDK**, so no new compile-time dependency and no Gemini types leak into
+  `pyproject.toml`.
+- **Every** Gemini-specific detail (endpoint, request/response JSON, auth
+  header, retry classification) lives **only** inside that module.  Nothing
+  above the interface — `CopilotService`, the API layer, the finding pipeline —
+  knows Gemini exists.  Business logic depends on `InferenceProvider` alone.
+- **Selection is config + DI.**  `Settings.inference_provider` (env
+  `INFERENCE_PROVIDER`) chooses the implementation in
+  `container._build_inference_provider()`.  Adding Claude, OpenAI, Azure OpenAI,
+  vLLM, or Ollama is: implement `InferenceProvider` in
+  `src/providers/inference/` + add one branch there.  No business-logic change.
+- **Secrets.**  The provider never reads the environment.  The API key is read
+  by `Settings` from `GEMINI_API_KEY` and injected at the composition root, and
+  is sent in the `x-goog-api-key` header (never in the URL, so it cannot leak
+  into logs/traces).  Startup **fails fast** if the key is missing — there is no
+  mock inference fallback in any environment.
+- **Supported call parameters:** system prompt (caller-supplied via
+  `InferenceContext.system_prompt`, or the provider's governed default), user
+  prompt (`query`), `temperature` (defaults to `0.0` for regulated
+  determinism), `max_tokens`, and citation passthrough (grounding refs the model
+  echoes are resolved back to citations; `CopilotService` re-validates them).
+- **Robust retries.**  Transient failures (HTTP 429/500/502/503/504, request
+  timeouts, connection errors) are retried with exponential backoff + full
+  jitter, honouring a `Retry-After` header when present.  Failures carry the
+  `ProviderError.retryable` flag so the orchestrator can classify them (ADR-008)
+  without inspecting Gemini internals.  4xx (other than 429) and blocked/empty
+  responses are terminal (`retryable=False`).
+
+### 5.2 Document Intelligence pipeline (Gemini OCR + Extraction — real, no mocks)
+
+The full document lifecycle is now real end-to-end:
+
+```
+Upload API ─▶ DocumentService ─▶ DocumentIngestionTrigger ─▶ DOCUMENT_INGESTION workflow
+     │                                                              │
+     ▼                                                              ▼
+StorageProvider (bytes)                                    OCR step ─▶ GeminiOCRProvider
+                                                                    │        (native multimodal
+                                                                    │         document understanding —
+                                                                    │         no traditional OCR engine)
+                                                                    ▼
+                                                          OCRResultRecord (raw text, persisted)
+                                                                    │
+                                                                    ▼
+                                                     Extraction step ─▶ GeminiExtractionProvider
+                                                                    │   (one Gemini call over the
+                                                                    │    already-OCR'd text — never
+                                                                    │    re-reads the document bytes)
+                                                                    ▼
+                                                          EvidenceItem rows (typed, provenance-complete)
+                                                                    │
+                                                                    ▼
+                                          Copilot grounding (raw OCR text + structured Evidence)
+                                                                    │
+                                                                    ▼
+                                                     InferenceProvider ─▶ grounded, cited answer
+```
+
+**The trigger that was missing.** `DocumentService.ingest_document` always
+published a `DocumentIngested` domain event, but nothing ever subscribed to it
+— an uploaded document was stored and then sat at `PENDING` forever; the
+OCR/Extraction pipeline never started. `start_document_ingestion_workflow`
+(`workers/document_pipeline.py`, exposed to the API as
+`DocumentIngestionTrigger` / `get_document_ingestion_trigger` in
+`mil/api/deps.py`) is the trigger: it starts the `DOCUMENT_INGESTION` workflow
+(`OCR` then `EXTRACTION` steps) in the same transaction as the upload,
+mirroring the existing `FindingTrigger` pattern for the DRAFT -> SUBMITTED
+transition (ADR-009). `PinnedVersions.policy` / `.inference` / `.prompt` are
+pinned to the `"n/a"` sentinel for this workflow type — only `extraction` is
+meaningful here.
+
+**Two providers, two Gemini calls, one call each — not a rewritten pipeline.**
+The platform's existing two-stage architecture (separate `OCR` and
+`EXTRACTION` workflow steps, separate persisted tables, separate idempotency
+keys, separate pinned versions) is preserved untouched:
+
+- `GeminiOCRProvider` (`src/providers/ocr/gemini_ocr.py`) satisfies the
+  existing `OCRProvider` interface. It sends the document's raw bytes to
+  Gemini as multimodal `inline_data` (mime type sniffed from magic bytes,
+  since `OCRProvider.process_document` carries none) and requests
+  structured-output JSON (`responseSchema`) preserving reading order, page
+  boundaries, heading hierarchy, and markdown-table structure. This *is* the
+  "no traditional OCR" requirement — Gemini's native document understanding
+  replaces a Tesseract-style engine entirely.
+- `GeminiExtractionProvider` (`src/providers/extraction/gemini_extraction.py`)
+  satisfies the existing `ExtractionProvider` interface. It never re-reads the
+  document bytes — it sends the OCR stage's already-persisted, page-marked
+  text to Gemini once, constrained by a `responseSchema` enum to the
+  canonical mortgage evidence taxonomy (`EVIDENCE_TYPES` in that module:
+  borrower, co-borrower, employer, income, loan amount, interest rate,
+  purchase price, down payment, assets, liabilities, property address,
+  declarations, signatures, dates, document type, …), and maps each returned
+  fact to one provenance-complete `EvidenceAttributes` object.
+- Both share a retry/backoff engine (`src/providers/gemini_client.py`,
+  `GeminiHttpClient`) so the exponential-backoff-with-jitter logic is written
+  and tested once, not duplicated per provider.
+- Selection is the same DI seam as inference: `Settings.ocr_provider` /
+  `Settings.extraction_provider` (env `OCR_PROVIDER` / `EXTRACTION_PROVIDER`)
+  choose the implementation in `container._build_ocr_provider()` /
+  `_build_extraction_provider()`. Adding a different document-intelligence
+  engine is: implement the interface + add one branch. No business-logic
+  change, no orchestrator/worker change.
+- **Known limitation (documented, not hidden):** Gemini's document
+  understanding does not report page pixel/point dimensions the way a
+  rasterising OCR engine would; `PageLayout` uses a fixed US-Letter-equivalent
+  default. No consumer in this codebase reads real page geometry today: If a
+  future consumer needs it, that is a separate, larger feature (rendering the
+  PDF), out of scope here.
+
+**Grounding now includes raw extracted text, not just structured Evidence.**
+Before this change, Copilot's grounding bundle only ever read structured
+`EvidenceView` facts — a free-form question like "summarize this mortgage" or
+"who is the borrower?" had nothing to ground on until a matching typed
+Evidence fact happened to exist. `DocumentTextReader` / `DocumentTextView`
+(`mil/copilot/ports.py`) is a new consumer-owned Query Port (ADR-010) reading
+a document's persisted raw text (`DocumentTextReaderAdapter` in
+`mil/copilot/adapters.py`, wrapping `OCRResultRepository` +
+`DocumentRepository`); `GroundingBundle.document_texts` and a new
+`DOCUMENT_TEXT` citation kind carry it into the same `GroundingItem` /
+citation-resolution machinery every other grounding source already uses — no
+new machinery, no new hallucination-policy exception. Raw text alone (with no
+Evidence or Findings yet) now satisfies the "insufficient grounding" gate in
+`CopilotService.generate_response`, so Copilot can answer from a freshly
+ingested document before any Finding has been generated.
+
 ---
 
 ## 6. Dependency Injection Philosophy
@@ -155,6 +301,42 @@ and test.  Production deployments register a broker-backed implementation
 - Events carry all data subscribers need to act — no follow-up queries.
 - Events record `tenant_id`, `event_id`, `occurred_at`, and `correlation_id`.
 - Events are always serialisable to plain JSON.
+
+### 7.1 Synchronous Read Access via Query Ports (ADR-010)
+
+Domain events are the write-side coordination channel; they are asynchronous and
+fire-and-forget, and cannot answer a synchronous, request-scoped question such as
+"explain why this Finding was generated" (which must read Application, Documents,
+Evidence, Findings, PolicyResults, Review history, and Audit *at once, now*).
+
+For this **read-only** need, the platform sanctions **Query Ports** as an official,
+narrowly-scoped exception to the events-only rule:
+
+```
+   consumer.service ──depends-on──▶ consumer.ports.SomeReader   (abstraction, in consumer)
+                                              ▲  implements
+                          consumer adapter (SomeReaderAdapter) ──wraps──▶ producing.Repository
+                                              ▲  constructed in
+                                     composition root (container / deps)
+```
+
+Rules:
+
+- **Read-only, always.** A Query Port exposes only read methods.  It never mutates
+  state, emits an event, or writes to the outbox.
+- **Query Ports MUST NEVER be used for transactional business logic.** They exist
+  solely for synchronous read-side concerns such as explainability, reporting, and AI
+  assistants.  Any state change must continue to flow through domain services and
+  Domain Events.
+- **Consumer-owned.** The port interface is declared inside the *consuming* context,
+  expressing exactly the reads it needs.  Producing contexts stay unaware of consumers.
+- **No cross-context internal imports in consumer code.** The consumer depends only on
+  its own port abstractions.  Adapters that wrap a producing context's read repository
+  are constructed only in the composition root — never imported into consumer code.
+- **Committed reads only.** A read-only aggregation runs in its own read transaction and
+  never joins a producing context's write unit of work.
+
+The first Query Ports are the Copilot read interfaces in `src/mil/copilot/ports.py`.
 
 ---
 
@@ -227,7 +409,7 @@ and test.  Production deployments register a broker-backed implementation
 | Anti-pattern | Why it is wrong |
 |---|---|
 | Importing a concrete provider class in a bounded context | Breaks replaceability; couples the context to an implementation detail |
-| Calling another bounded context's service directly | Creates hidden coupling; use domain events instead |
+| Calling another bounded context's service directly to change state | Creates hidden coupling; use domain events instead. (Synchronous *read-only* access is allowed only through Query Ports — §7.1, ADR-010.) |
 | Adding mortgage business logic to `mil/kernel/` | Violates the domain-agnostic kernel invariant |
 | Storing credentials in source code or config files | Violates Engineering Constitution Principle V; use the secret management layer |
 | Returning AI output without a version identifier | Violates Principle XII; every finding must be reproducible |
@@ -257,3 +439,141 @@ Extensions follow this priority order:
 The modular monolith structure means the first milestone of any future
 service-extraction is a clean module boundary, not a rewrite.  Keep those
 boundaries clean.
+
+---
+
+## 14. Production Hardening (US2 Sprint 8)
+
+Every process (the API and each of the five pipeline workers) builds its own
+DI container at startup via `build_container()`. Startup failures are
+**explicit, not degraded operation** — a missing or duplicate provider
+registration, or an invalid/placeholder production secret, raises during
+startup and the process does not begin serving traffic or consuming jobs.
+
+### 14.1 Operational endpoints
+
+| Endpoint | Auth | Checks |
+|---|---|---|
+| `GET /v1/live` | None | Nothing — trivial process liveness |
+| `GET /v1/health` | None | Version, uptime, static status |
+| `GET /v1/ready` | None | Database connectivity, `ProviderRegistry.validate()`, applied-migration-matches-code-head |
+| `GET /v1/metrics` | `read:operational` | In-process counters/histograms (see §14.2) |
+
+`/v1/live` and `/v1/health` never touch the database or a provider — an
+orchestrator's liveness probe must not depend on downstream infrastructure
+being healthy. `/v1/ready` is the only probe that does, and is the correct
+target for a readiness gate before routing traffic to a new instance.
+
+### 14.2 Metrics
+
+`mil.kernel.observability.MetricEmitter` (existing) is the platform's only
+metrics abstraction — bounded contexts and workers depend on the interface,
+never a concrete backend. `mil.kernel.metrics.InMemoryMetricEmitter` is the
+default registered implementation: thread-safe in-process counters and
+histograms (count/sum/min/max, not raw samples, so memory stays bounded),
+exposed read-only via `GET /v1/metrics`. Swapping in a cross-process backend
+(StatsD, CloudWatch, an OTel metrics exporter) is a single registration
+change in `build_container` — no caller changes.
+
+Named metrics (`mil.kernel.metrics.MetricName`): `http.requests.total`,
+`http.request.duration_ms`, `copilot.requests.total`, `ocr.jobs.total`,
+`workflow.executions.total`, `provider.failures.total`,
+`audit.events.total`. This is explicitly **not** distributed tracing — no
+spans are created; `TraceContext` in `observability.py` remains a dormant
+primitive for a future OTel integration.
+
+### 14.3 Structured logging
+
+Every log record (`mil.kernel.observability.MILJsonFormatter`) carries
+`timestamp`, `severity`, `service`, `component`, `request_id`,
+`correlation_id`, `tenant_id`, `user_id`, and `event_type`. `request_id` /
+`correlation_id` are bound per-request by `TelemetryMiddleware`
+(`mil.api.middleware.telemetry`); `tenant_id` / `user_id` are merged in by
+`get_current_user` once the caller is authenticated. Workers bind their own
+`component` via `get_logger(__name__, component="...")`.
+
+### 14.4 Security headers
+
+`SecurityHeadersMiddleware` (`mil.api.middleware.security_headers`) adds
+`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and
+`Cache-Control: no-store` to every response, and
+`Strict-Transport-Security` when the request arrived over HTTPS. This does
+not change the authentication model (still bearer-token, `mil.api.deps`) —
+it is response-header hardening only.
+
+## 15. Backend Freeze Patch v1.0 (production-readiness guards)
+
+The backend is feature-complete. This patch closes verified production risks
+without redesigning any bounded context, provider, or ADR contract.
+
+### 15.1 Authentication resolves through the DI container
+
+`get_current_user` (`mil.api.deps`) no longer decodes bearer tokens with a
+hard-coded, unsigned function. It resolves an `IdentityProvider`
+(`mil.identity.provider`) from the DI container and delegates token
+validation to it. Development registers `DevBearerIdentityProvider` — the
+existing local development authentication (literal `dev` token and Base64URL
+JSON tokens), unchanged. Staging/production require a signature-verifying
+(e.g. OIDC/JWKS) `IdentityProvider`; none ships in this freeze, so a
+non-development process **fails to start** rather than accept self-asserted
+tokens (`main._register_identity_provider`).
+
+### 15.2 Environment-selected providers, fail-fast in production
+
+`build_container` (`mil.kernel.container`) selects providers by
+`settings.mil_env`. Development registers the mock/local providers.
+Staging/production wire real providers in `_register_production_providers`
+(empty in this freeze). Two guards enforce the boundary:
+`_reject_development_providers` refuses any `Mock*` / `LocalStorageProvider`
+outside development, and `ProviderRegistry.validate()` refuses a process with
+required providers missing. A production process therefore cannot start with
+mock intelligence or ephemeral local storage.
+
+### 15.3 Supported deployment model (honest topology)
+
+Cross-process job/event delivery requires a broker-backed `JobQueue` /
+`EventBus`; only the in-process implementations exist (ADR-007/008 always
+scoped these as development-only). Until a broker implementation lands, the
+**supported runnable topology is single-process development**. To make this
+explicit rather than silently broken, `_reject_in_process_messaging` refuses
+to start a non-development process wired with `InProcessJobQueue` /
+`InProcessEventBus`. The multi-process API+workers topology remains the target
+design (see `docs/deployment/README.md`); it is not runnable in this freeze.
+
+### 15.4 Correlation-id propagation (pure ASGI middleware)
+
+`TelemetryMiddleware` is now a pure-ASGI middleware. A `BaseHTTPMiddleware`
+binds context variables in a task separate from the endpoint, so the
+`request_id`/`correlation_id` did not reach handler/service logs. The ASGI
+form binds the `LogContext` in the same task that awaits the downstream app,
+so the correlation fields are visible to the handler (and to sync handlers
+dispatched to the threadpool). Logging fields and header echo are unchanged.
+
+### 15.5 Upload size limits
+
+Document uploads are bounded by `MIL_MAX_UPLOAD_BYTES` (default 25 MiB).
+`mil.api.v1.documents` reads the body in chunks and rejects an oversized
+upload with HTTP 413 before the whole file is buffered, capping per-request
+memory. Storage and custody (ADR-006) are unchanged.
+
+### 15.6 Development bootstrap seed
+
+`DevBearerIdentityProvider` authenticates a built-in development principal
+(`DEV_USER_ID` in `DEV_TENANT_ID`, see §15.1) without ever touching the
+database. Manual end-to-end testing surfaced the resulting gap: several
+tables carry a foreign key to `core.users.id` (e.g.
+`applications.created_by`), so the first authenticated write against a
+freshly migrated development database failed with a foreign key violation —
+the dev principal had no corresponding row.
+
+`mil.identity.dev_seed.seed_development_identity` closes this by ensuring a
+matching `core.users` row exists, called once from `main.lifespan`
+immediately after the session factory is created and gated on
+`settings.is_development()`. It is idempotent (checked-then-inserted,
+`IntegrityError` on the row already existing is caught and rolled back so a
+concurrent seed cannot crash startup) and introduces no schema change, no
+tenants table, and no new business logic — it seeds one row through the
+existing `User` ORM model. It never runs outside development: staging and
+production authenticate no dev principal in the first place (§15.1), and the
+call site itself is gated on the same `is_development()` predicate used
+throughout this freeze.

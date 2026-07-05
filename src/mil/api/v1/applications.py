@@ -30,7 +30,7 @@ from uuid import UUID  # noqa: TC003
 
 from fastapi import APIRouter, Query, status
 
-from mil.api.deps import AppService, CurrentUser  # noqa: TC001
+from mil.api.deps import AppService, CurrentUser, FindingTriggerDep  # noqa: TC001
 from mil.api.v1.schemas import (
     AddPartyRequest,
     ApplicationListResponse,
@@ -154,6 +154,8 @@ def get_application(
         "the Relationship Manager has completed document upload and the application "
         "is ready for the intelligence review pipeline. "
         "At least one APPLICANT party must be registered before submission. "
+        "Submission starts the Finding Generation workflow, which evaluates "
+        "all evidence collected for the application (ADR-009). "
         "Requires ``write:application`` permission."
     ),
     response_model=ApplicationResponse,
@@ -169,9 +171,11 @@ def submit_application(
     application_id: UUID,
     user: CurrentUser,
     service: AppService,
+    finding_trigger: FindingTriggerDep,
 ) -> ApplicationResponse:
     """Submit an application for intelligence review."""
     app = service.submit_application(user, application_id=ApplicationId(application_id))
+    finding_trigger.trigger(app)
     return ApplicationResponse.from_model(app)
 
 

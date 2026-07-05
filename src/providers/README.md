@@ -9,6 +9,7 @@ providers/
 ├── ocr/        — OCRProvider implementations
 ├── extraction/ — ExtractionProvider implementations
 ├── inference/  — InferenceProvider implementations
+├── policy/     — PolicyProvider implementations
 ├── storage/    — StorageProvider implementations
 └── los/        — LOSAdapter implementations (one module per LOS platform)
 ```

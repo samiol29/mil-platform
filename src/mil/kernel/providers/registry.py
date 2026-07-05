@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from mil.kernel.providers.inference import InferenceProvider
     from mil.kernel.providers.los_adapter import LOSAdapter
     from mil.kernel.providers.ocr import OCRProvider
+    from mil.kernel.providers.policy import PolicyProvider
     from mil.kernel.providers.storage import StorageProvider
 
 _T = TypeVar("_T")
@@ -41,12 +42,13 @@ _T = TypeVar("_T")
 _KEY_OCR = "ocr"
 _KEY_EXTRACTION = "extraction"
 _KEY_INFERENCE = "inference"
+_KEY_POLICY = "policy"
 _KEY_STORAGE = "storage"
 _KEY_LOS_ADAPTER = "los_adapter"
 
 # Providers that must be registered before the platform starts.
 _REQUIRED_PROVIDERS: frozenset[str] = frozenset(
-    {_KEY_OCR, _KEY_EXTRACTION, _KEY_INFERENCE, _KEY_STORAGE}
+    {_KEY_OCR, _KEY_EXTRACTION, _KEY_INFERENCE, _KEY_POLICY, _KEY_STORAGE}
 )
 # _KEY_LOS_ADAPTER is optional — some deployments do not use a LOS integration.
 
@@ -81,25 +83,48 @@ class ProviderRegistry:
 
     # ---- Registration -------------------------------------------------------
 
+    def _register(self, key: str, provider: object) -> None:
+        """
+        Register ``provider`` under ``key``.
+
+        Raises:
+            ProviderRegistryError: If a provider is already registered under
+                ``key``. Silently overwriting a provider registration would
+                hide a configuration bug (e.g. ``build_container`` calling a
+                ``register_*`` method twice) — Sprint 8 (Production
+                Hardening) requires this to fail fast instead.
+        """
+        if key in self._providers:
+            raise ProviderRegistryError(
+                f"Provider already registered for {key!r}: "
+                f"{type(self._providers[key]).__name__}. Duplicate provider "
+                "registration is not permitted."
+            )
+        self._providers[key] = provider
+
     def register_ocr(self, provider: OCRProvider) -> None:
         """Register the active ``OCRProvider`` implementation."""
-        self._providers[_KEY_OCR] = provider
+        self._register(_KEY_OCR, provider)
 
     def register_extraction(self, provider: ExtractionProvider) -> None:
         """Register the active ``ExtractionProvider`` implementation."""
-        self._providers[_KEY_EXTRACTION] = provider
+        self._register(_KEY_EXTRACTION, provider)
 
     def register_inference(self, provider: InferenceProvider) -> None:
         """Register the active ``InferenceProvider`` implementation."""
-        self._providers[_KEY_INFERENCE] = provider
+        self._register(_KEY_INFERENCE, provider)
+
+    def register_policy(self, provider: PolicyProvider) -> None:
+        """Register the active ``PolicyProvider`` implementation."""
+        self._register(_KEY_POLICY, provider)
 
     def register_storage(self, provider: StorageProvider) -> None:
         """Register the active ``StorageProvider`` implementation."""
-        self._providers[_KEY_STORAGE] = provider
+        self._register(_KEY_STORAGE, provider)
 
     def register_los_adapter(self, provider: LOSAdapter) -> None:
         """Register the active ``LOSAdapter`` implementation (optional)."""
-        self._providers[_KEY_LOS_ADAPTER] = provider
+        self._register(_KEY_LOS_ADAPTER, provider)
 
     # ---- Accessors ----------------------------------------------------------
 
@@ -135,6 +160,17 @@ class ProviderRegistry:
         from mil.kernel.providers.inference import InferenceProvider
 
         return self._get(_KEY_INFERENCE, InferenceProvider)  # type: ignore[type-abstract]
+
+    def get_policy(self) -> PolicyProvider:
+        """
+        Resolve the registered ``PolicyProvider``.
+
+        Raises:
+            ProviderRegistryError: If no ``PolicyProvider`` is registered.
+        """
+        from mil.kernel.providers.policy import PolicyProvider
+
+        return self._get(_KEY_POLICY, PolicyProvider)  # type: ignore[type-abstract]
 
     def get_storage(self) -> StorageProvider:
         """

@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from mil.application.models import MortgageApplication, Party
+    from mil.copilot.models import CopilotResponse, CopilotSession
     from mil.document.models import Document
 
 # ---------------------------------------------------------------------------
@@ -146,8 +147,11 @@ class DocumentResponse(BaseModel):
     ``document_type`` column will be added in a future sprint migration once
     the business classification taxonomy is finalised.
 
-    ``evidence_item_count`` is always 0 in Sprint 3D (no evidence pipeline yet).
-    ``page_count`` and ``ingestion_completed_at`` are not tracked in Sprint 3D.
+    ``evidence_item_count``, ``page_count``, ``ingestion_completed_at``, and
+    ``ingestion_error`` reflect real pipeline outcome state persisted on
+    ``Document`` by ``DocumentService.complete_processing`` /
+    ``fail_processing`` — they remain at their defaults (``0`` / ``None``)
+    while the document is PENDING or IN_PROGRESS.
     """
 
     id: UUID
@@ -178,6 +182,10 @@ class DocumentResponse(BaseModel):
             content_hash=doc.content_hash,
             uploaded_at=doc.uploaded_at,
             uploaded_by=doc.uploaded_by,
+            evidence_item_count=doc.evidence_item_count,
+            page_count=doc.page_count,
+            ingestion_completed_at=doc.ingestion_completed_at,
+            ingestion_error=doc.ingestion_error,
         )
 
 
@@ -202,3 +210,145 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "1.0.0"
     environment: str = "development"
+    uptime_seconds: float = 0.0
+
+
+class ReadinessCheck(BaseModel):
+    """One dependency check performed by GET /v1/ready."""
+
+    name: str
+    status: str = Field(description="'ok' or 'fail'.")
+    detail: str | None = None
+
+
+class ReadinessResponse(BaseModel):
+    """Response for GET /v1/ready."""
+
+    status: str = Field(description="'ready' or 'not_ready'.")
+    checks: list[ReadinessCheck]
+
+
+class LivenessResponse(BaseModel):
+    """Response for GET /v1/live."""
+
+    status: str = "alive"
+
+
+class HistogramMetric(BaseModel):
+    """Aggregate statistics for one histogram metric."""
+
+    count: int
+    sum: float
+    average: float
+    minimum: float
+    maximum: float
+
+
+class MetricsResponse(BaseModel):
+    """Response for GET /v1/metrics."""
+
+    counters: dict[str, float]
+    histograms: dict[str, HistogramMetric]
+
+
+# ---------------------------------------------------------------------------
+# Copilot schemas (US2 Sprint 7C)
+# ---------------------------------------------------------------------------
+
+
+class CopilotQueryRequest(BaseModel):
+    """Request body for POST /v1/copilot/query."""
+
+    application_id: UUID
+    session_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Existing Copilot session to resume. Omit to start a new session for this application."
+        ),
+    )
+    question: str = Field(
+        description="The reviewer's natural-language question.",
+        min_length=1,
+        max_length=2000,
+    )
+
+
+class CitationSchema(BaseModel):
+    """A single citation grounding a Copilot response."""
+
+    kind: str = Field(
+        description=("APPLICATION, DOCUMENT, EVIDENCE, FINDING, POLICY_RESULT, or REVIEW_ACTION.")
+    )
+    ref: str = Field(description="Identifier of the cited governed record.")
+    locator: str | None = Field(
+        default=None, description="Optional finer-grained locator (e.g. a page or field)."
+    )
+
+
+class CopilotResponseSchema(BaseModel):
+    """A grounded Copilot response to a single query."""
+
+    id: UUID
+    query_id: UUID
+    session_id: UUID
+    answer: str
+    prompt_version: str
+    model_version: str
+    citations: list[CitationSchema]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=False)
+
+    @classmethod
+    def from_model(cls, response: CopilotResponse, *, session_id: UUID) -> CopilotResponseSchema:
+        return cls(
+            id=response.id,
+            query_id=response.query_id,
+            session_id=session_id,
+            answer=response.answer_text,
+            prompt_version=response.prompt_version,
+            model_version=response.model_version,
+            citations=[CitationSchema(**citation) for citation in response.citations],
+            created_at=response.created_at,
+        )
+
+
+class CopilotSessionResponse(BaseModel):
+    """Copilot session resource representation."""
+
+    id: UUID
+    application_id: UUID
+    tenant_id: UUID
+    created_by_user_id: UUID
+    correlation_id: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=False)
+
+    @classmethod
+    def from_model(cls, session: CopilotSession) -> CopilotSessionResponse:
+        return cls(
+            id=session.id,
+            application_id=session.application_id,
+            tenant_id=session.tenant_id,
+            created_by_user_id=session.created_by_user_id,
+            correlation_id=session.correlation_id,
+            created_at=session.created_at,
+        )
+
+
+class CopilotHistoryItem(BaseModel):
+    """One query paired with its response (if any) in a session's history."""
+
+    query_id: UUID
+    question: str
+    asked_by_user_id: UUID
+    asked_at: datetime
+    response: CopilotResponseSchema | None = None
+
+
+class CopilotHistoryResponse(BaseModel):
+    """Ordered query/response history for a Copilot session."""
+
+    session_id: UUID
+    items: list[CopilotHistoryItem]

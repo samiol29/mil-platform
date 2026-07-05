@@ -7,7 +7,8 @@ import pytest
 from mil.kernel.config import Settings, get_settings
 from mil.kernel.container import Container, build_container
 from mil.kernel.errors import DependencyNotRegisteredError
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.metrics import InMemoryMetricEmitter
+from mil.kernel.observability import MetricEmitter
 
 # ---------------------------------------------------------------------------
 # Container — registration and resolution
@@ -182,11 +183,11 @@ class TestBuildContainer:
         container = build_container(settings)
         assert container.is_registered(MetricEmitter)
 
-    def test_default_metric_emitter_is_noop(self) -> None:
+    def test_default_metric_emitter_is_in_memory(self) -> None:
         settings = Settings()
         container = build_container(settings)
         emitter = container.resolve(MetricEmitter)
-        assert isinstance(emitter, NoOpMetricEmitter)
+        assert isinstance(emitter, InMemoryMetricEmitter)
 
     def test_metric_emitter_is_singleton(self) -> None:
         settings = Settings()

@@ -43,6 +43,8 @@ if TYPE_CHECKING:
         DocumentId,
         EvidenceItemId,
         FindingId,
+        PolicyPackId,
+        ReviewSessionId,
         TenantId,
         WorkflowRunId,
     )
@@ -224,6 +226,31 @@ class FindingStateChanged(DomainEvent):
 
 
 # ---------------------------------------------------------------------------
+# Policy Evaluation events
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class PolicyEvaluated(DomainEvent):
+    """
+    Emitted when a Finding has been evaluated against a Policy Pack and the
+    result has been persisted.
+
+    US2 Sprint 5's minimal additive event (no ``PolicyEvaluated`` existed
+    prior to this sprint). ``policy_pack_id`` and ``policy_version`` record
+    the Policy Pack and provider version the evaluation ran under, required
+    by Principle XII. ``outcome`` is the summary verdict (e.g. ``"PASS"``,
+    ``"FLAGGED"``, ``"REJECTED"``).
+    """
+
+    finding_id: FindingId
+    application_id: ApplicationId
+    policy_pack_id: PolicyPackId
+    policy_version: str
+    outcome: str
+
+
+# ---------------------------------------------------------------------------
 # Review & Verification events
 # ---------------------------------------------------------------------------
 
@@ -247,6 +274,49 @@ class OverrideRecorded(DomainEvent):
     override_reason: str
     previous_value: str = ""
     new_value: str = ""
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class ReviewStarted(DomainEvent):
+    """
+    Emitted when a Review Session is created for a Finding, handing it off
+    for human review (Engineering Constitution Principle I — Human Decision
+    Authority).
+
+    US2 Sprint 6's minimal additive event (no ``ReviewStarted`` existed prior
+    to this sprint). The Review worker emits this immediately after creating
+    the ``ReviewSession`` in response to ``PolicyEvaluated`` — it records that
+    a human handoff occurred, not any decision outcome.
+    """
+
+    review_session_id: ReviewSessionId
+    finding_id: FindingId
+    application_id: ApplicationId
+
+
+@dataclasses.dataclass(frozen=True, eq=False)
+class ReviewCompleted(DomainEvent):
+    """
+    Emitted when the Review stage of the intelligence pipeline has completed
+    its automated portion (the ``ReviewSession`` has been created and handed
+    off) — Review is the final planned step of the ``FINDING_GENERATION``
+    workflow (ADR-009).
+
+    This is distinct from a human rendering a final verdict (approve, reject,
+    override): those are recorded via ``ReviewSession``/``ReviewAction`` rows
+    and, for overrides, via ``OverrideRecorded`` — asynchronously, outside the
+    workflow's step machinery, whenever a reviewer acts. ``status`` reflects
+    the session's status at the moment this event was emitted (``PENDING_REVIEW``
+    unless a reviewer has already acted, e.g. under replay).
+
+    US2 Sprint 6's minimal additive event (no ``ReviewCompleted`` existed
+    prior to this sprint).
+    """
+
+    review_session_id: ReviewSessionId
+    finding_id: FindingId
+    application_id: ApplicationId
+    status: str
 
 
 # ---------------------------------------------------------------------------

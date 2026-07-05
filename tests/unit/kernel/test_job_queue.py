@@ -207,6 +207,53 @@ class TestInProcessJobQueueEnqueueDequeue:
 
 
 # ---------------------------------------------------------------------------
+# InProcessJobQueue — job_type routing
+#
+# Multiple distinct worker types (OCR, EXTRACTION, FINDING, POLICY, REVIEW)
+# share one physical queue. Without type filtering, a worker could dequeue and
+# mishandle a job meant for a different step — this reproduced immediately
+# against a real Redis-backed queue with two concurrent worker processes.
+# ---------------------------------------------------------------------------
+
+
+class TestInProcessJobQueueJobTypeRouting:
+    def test_dequeue_with_job_type_only_returns_matching_type(self) -> None:
+        q = InProcessJobQueue()
+        ocr_job = make_job(job_type="OCR", idempotency_key="k1")
+        extraction_job = make_job(job_type="EXTRACTION", idempotency_key="k2")
+        q.enqueue(ocr_job)
+        q.enqueue(extraction_job)
+
+        result = q.dequeue(job_type="EXTRACTION")
+        assert result is extraction_job
+
+    def test_dequeue_with_job_type_skips_non_matching_preserving_order(self) -> None:
+        q = InProcessJobQueue()
+        ocr_job = make_job(job_type="OCR", idempotency_key="k1")
+        extraction_job_1 = make_job(job_type="EXTRACTION", idempotency_key="k2")
+        extraction_job_2 = make_job(job_type="EXTRACTION", idempotency_key="k3")
+        q.enqueue(ocr_job)
+        q.enqueue(extraction_job_1)
+        q.enqueue(extraction_job_2)
+
+        assert q.dequeue(job_type="EXTRACTION") is extraction_job_1
+        assert q.dequeue(job_type="EXTRACTION") is extraction_job_2
+        # The non-matching job was never disturbed and is still dequeuable.
+        assert q.dequeue(job_type="OCR") is ocr_job
+
+    def test_dequeue_with_job_type_returns_none_when_no_match(self) -> None:
+        q = InProcessJobQueue()
+        q.enqueue(make_job(job_type="OCR"))
+        assert q.dequeue(job_type="EXTRACTION") is None
+
+    def test_dequeue_without_job_type_matches_any(self) -> None:
+        q = InProcessJobQueue()
+        job = make_job(job_type="POLICY")
+        q.enqueue(job)
+        assert q.dequeue() is job
+
+
+# ---------------------------------------------------------------------------
 # InProcessJobQueue — idempotency
 # ---------------------------------------------------------------------------
 

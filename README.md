@@ -263,19 +263,29 @@ These principles govern all platform decisions and may not be overridden by impl
 
 ## Current Project Status
 
-**Phase**: Pre-implementation — specification and architecture complete
+**Phase**: Backend feature-complete and production-hardened (US2 Sprint 8)
 
-The Engineering Constitution, Product Specification, Architecture Plan, Data Model, API Contracts, and Implementation Task List have been ratified. Implementation has not yet begun.
+The backend implements the full mortgage intelligence pipeline end to end —
+Application/Document intake, OCR, Evidence Extraction, Finding Generation,
+Policy Evaluation, Human Review, and the AI Copilot — behind a versioned REST
+API, with health/readiness/liveness probes, basic platform metrics,
+structured logging, and fail-fast startup validation. Frontend, LOS adapter
+implementations, and notification channels are not yet built.
 
-| Artifact | Status |
+| Artifact / Milestone | Status |
 |---|---|
 | Engineering Constitution | Ratified v1.1.0 |
-| Product Specification | Approved |
-| Architecture Plan | Approved |
-| Data Model | Complete |
-| API Contracts | Complete (7 contract files) |
-| Implementation Task List | Complete (117 tasks across 8 phases) |
-| Platform Implementation | Not started |
+| Architecture Decision Records (ADR-005 – ADR-011) | Accepted |
+| Platform Kernel, Provider Framework, Identity & Security | Implemented |
+| Application, Document, OCR, Evidence, Finding, Policy, Review | Implemented |
+| AI Copilot (foundation, inference, API integration) | Implemented |
+| Production Hardening (health, metrics, logging, config validation, CI) | Implemented |
+| Quality gates | ruff clean, mypy clean, `compileall` clean, unit + provider conformance suite passing |
+| Frontend | Not started |
+| LOS adapter implementations | Not started |
+
+See `docs/deployment/README.md` for the startup sequence, environment
+variables, and production checklist.
 
 ---
 
@@ -288,16 +298,8 @@ specs/
     ├── plan.md                  # Architecture and Implementation Plan
     ├── research.md              # Architecture Decision Records
     ├── data-model.md            # PostgreSQL schema and entity model
-    ├── tasks.md                 # Implementation task backlog (117 tasks)
+    ├── tasks.md                 # Implementation task backlog
     ├── quickstart.md            # Validation scenarios and acceptance criteria
-    ├── contracts/               # OpenAPI interface contracts
-    │   ├── applications.yaml    # Application and Party management
-    │   ├── documents.yaml       # Document upload and management
-    │   ├── evidence.yaml        # Evidence retrieval
-    │   ├── findings.yaml        # Finding lifecycle and actions
-    │   ├── copilot.yaml         # Evidence Copilot queries
-    │   ├── audit.yaml           # Audit log and lifecycle reconstruction
-    │   └── operational.yaml     # Operational Intelligence dashboards
     └── checklists/
         └── requirements.md      # Specification quality checklist
 
@@ -305,32 +307,39 @@ specs/
 └── memory/
     └── constitution.md          # Engineering Constitution v1.1.0
 
-src/                             # Platform implementation (not yet started)
-├── mil/
-│   ├── kernel/                  # Platform Core (shared foundation)
-│   │   └── providers/           # Provider interface definitions
-│   ├── orchestrator/            # Intelligence Orchestrator
-│   ├── application/             # Application and Party management
-│   ├── document/                # Document Intelligence
-│   ├── evidence/                # Evidence Fabric
-│   ├── policy/                  # Policy Engine
-│   ├── finding/                 # Finding Engine
-│   ├── review/                  # Review Engine
-│   ├── copilot/                 # Evidence Copilot
-│   ├── audit/                   # Audit and Governance
-│   ├── operational/             # Operational Intelligence
-│   ├── integration/             # Integration Gateway
-│   ├── identity/                # Identity and Access
-│   └── api/                     # REST API layer and middleware
-├── workers/                     # Background pipeline workers
-└── providers/                   # Concrete provider implementations
+docs/
+├── adr/                          # Accepted Architecture Decision Records
+└── deployment/                   # Deployment guide, production checklist
 
-migrations/                      # Database migrations
+src/
+├── main.py                       # ASGI entry point (uvicorn main:app)
+├── mil/
+│   ├── kernel/                   # Platform Core (shared foundation)
+│   │   └── providers/            # Provider interface definitions
+│   ├── orchestrator/              # Intelligence Orchestrator
+│   ├── application/               # Application and Party management
+│   ├── document/                  # Document Intelligence
+│   ├── evidence/                  # Evidence Fabric
+│   ├── policy/                    # Policy Engine
+│   ├── finding/                    # Finding Engine
+│   ├── review/                     # Review Engine
+│   ├── copilot/                    # AI Copilot
+│   ├── audit/                      # Audit and Governance
+│   ├── identity/ (kernel.security) # RBAC/ABAC primitives
+│   └── api/                        # REST API layer, schemas, middleware
+├── workers/                       # Background pipeline workers (one per pipeline step)
+└── providers/                     # Concrete provider implementations (mocks + local storage)
+
+migrations/                       # Alembic database migrations
 tests/
-├── unit/                        # Unit tests
-├── integration/                 # Integration tests
-├── contract/                    # API contract tests
-└── providers/                   # Provider conformance tests
+├── unit/                          # Unit tests (marked `unit`, no external dependencies)
+├── integration/                   # Integration tests (require docker-up)
+├── contract/                      # API contract tests
+└── providers/                     # Provider conformance tests (marked `providers`)
+
+Dockerfile                        # Production container image (API + all workers)
+docker-compose.yml                # Local infrastructure (PostgreSQL, MinIO, Redis)
+.github/workflows/ci.yml          # CI: ruff, format, mypy, pytest, compileall
 ```
 
 ---
@@ -354,13 +363,10 @@ The platform core has no hard dependency on any specific intelligence provider, 
 
 ## Getting Started
 
-Implementation has not yet begun. The following steps will apply once Milestone 1 is available.
-
 **Prerequisites**
 
 - Python 3.12+
 - Docker and Docker Compose
-- PostgreSQL 15+
 
 **Local development environment**
 
@@ -369,25 +375,39 @@ Implementation has not yet begun. The following steps will apply once Milestone 
 git clone <repository-url>
 cd mivp
 
-# Install dependencies
-make install
+# Install dependencies (editable install, with dev/test extras)
+make install-dev
 
-# Start dependent services (PostgreSQL, message broker, object storage)
-docker-compose up -d
+# Start dependent services (PostgreSQL, MinIO, Redis)
+make docker-up
 
 # Apply database migrations
 make migrate
 
-# Start the API server
+# Start the API server (auto-reload)
 make run-api
 
-# Start the background worker
+# In another terminal: start all five pipeline workers
 make run-worker
 ```
 
+Copy `.env.example` to `.env` and adjust before running — see
+`docs/deployment/README.md` for the full environment variable reference.
+
 **Validation**
 
-Once the platform is running, follow the validation scenarios in `specs/001-mil-platform-spec/quickstart.md` to verify end-to-end operation. The quickstart covers eight scenarios from application creation through Evidence Copilot and Operational Intelligence.
+```bash
+make check   # ruff, ruff format --check, mypy
+make test    # full pytest suite
+make ci      # the complete CI gate: check + test + compileall
+```
+
+Once the API is running, `GET /v1/live`, `GET /v1/health`, and
+`GET /v1/ready` confirm the process is up, healthy, and fully wired to its
+dependencies (database, providers, migrations) respectively. See
+`docs/deployment/README.md` for the full deployment flow and production
+checklist, and `specs/001-mil-platform-spec/quickstart.md` for end-to-end
+validation scenarios.
 
 ---
 

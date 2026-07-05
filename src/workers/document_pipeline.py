@@ -26,12 +26,18 @@ to the bus.
 
 Provider resolution is exclusively through the DI container (``ProviderRegistry``).
 Concrete provider classes are never imported or instantiated here.
+
+On successful completion, this worker also dispatches the next planned
+``WorkflowStep`` (the Extraction stage, US2 Sprint 3) as a job on the
+``JobQueue``, carrying the OCR provider version and page count so the
+Extraction worker can load the persisted ``OCRResultRecord`` without needing
+the ``OCRProvider`` itself. If no further step is planned, dispatch is a no-op.
 """
 
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -43,9 +49,12 @@ from mil.document.service import DocumentService
 from mil.kernel.errors import NotFoundError, ProviderError, ProviderVersionMissingError
 from mil.kernel.event_bus import EventBus
 from mil.kernel.events import OCRCompleted, WorkflowStepFailed
+from mil.kernel.job_queue import Job, JobQueue
+from mil.kernel.metrics import MetricName
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, DocumentId, TenantId, WorkflowRunId
-from mil.orchestrator.models import StepStatus, WorkflowRun, WorkflowStep
+from mil.orchestrator.models import PinnedVersions, StepStatus, WorkflowRun, WorkflowStep
 from mil.orchestrator.repository import WorkflowRepository
 from mil.orchestrator.retry import (
     DeadLetterSink,
@@ -53,6 +62,7 @@ from mil.orchestrator.retry import (
     RetryDecision,
     RetryPolicy,
 )
+from mil.orchestrator.service import IntelligenceOrchestrator
 from mil.outbox.repository import OutboxRepository
 from workers.bootstrap import build_worker_context, process_next
 
@@ -60,13 +70,31 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from mil.kernel.container import Container
-    from mil.kernel.job_queue import Job
     from mil.kernel.providers.ocr import OCRProvider, OCRResult
     from mil.kernel.providers.storage import StorageProvider
     from workers.bootstrap import JobHandler, WorkerContext
 
 # OCR step label dispatched by the orchestrator for the DOCUMENT_INGESTION workflow.
 OCR_STEP_NAME = "OCR"
+
+# Mirrors workers.extraction_pipeline.EXTRACTION_STEP_NAME — duplicated as a
+# literal (not imported) to avoid a cross-worker-module import; both workers
+# already agree on this label via the orchestrator's planned step_names.
+EXTRACTION_STEP_NAME = "EXTRACTION"
+
+# Workflow type coordination label for the document ingestion pipeline
+# (OCR -> EXTRACTION), mirrored from ARCHITECTURE.md / plan.md.
+DOCUMENT_INGESTION_WORKFLOW_TYPE = "DOCUMENT_INGESTION"
+
+# Sentinel for pinned-version dimensions that do not apply to this workflow
+# type (ADR-009: a dimension that is genuinely not applicable is pinned to an
+# explicit sentinel, never left blank).
+_NOT_APPLICABLE_VERSION = "n/a"
+
+# How long main()'s polling loop blocks on RedisJobQueue.dequeue() waiting for
+# a job before checking again. A long-running worker process, not a one-shot
+# drain — see main()'s docstring.
+_POLL_TIMEOUT_SECONDS = 5.0
 
 
 class OCRProcessingOutcome(enum.StrEnum):
@@ -99,6 +127,8 @@ class OCRCollaborators:
     workflows: WorkflowRepository
     outbox: OutboxRepository
     documents: DocumentService
+    job_queue: JobQueue
+    metrics: MetricEmitter = field(default_factory=NoOpMetricEmitter)
 
 
 class OCRJobProcessor:
@@ -194,7 +224,62 @@ class OCRJobProcessor:
                 correlation_id=correlation_id,
             )
         )
+        self._dispatch_next_step(
+            run=run,
+            completed_step=step,
+            document_id=document_id,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            correlation_id=correlation_id,
+            ocr_provider_version=provider_version,
+            page_count=result.page_count,
+        )
+        self._c.metrics.increment(MetricName.OCR_JOBS_TOTAL)
         return OCRProcessingOutcome.COMPLETED
+
+    def _dispatch_next_step(
+        self,
+        *,
+        run: WorkflowRun,
+        completed_step: WorkflowStep,
+        document_id: UUID,
+        application_id: UUID,
+        tenant_id: UUID,
+        correlation_id: str,
+        ocr_provider_version: str,
+        page_count: int,
+    ) -> None:
+        """
+        Enqueue the job for the next planned step (the Extraction stage), if any.
+
+        Mirrors ``IntelligenceOrchestrator.start_workflow``'s first-step
+        dispatch: same job type, same idempotency-key derivation. A run with no
+        further planned steps (e.g. OCR-only workflows in earlier sprints) is
+        a no-op.
+        """
+        next_step = next(
+            (s for s in run.steps if s.step_order == completed_step.step_order + 1), None
+        )
+        if next_step is None or next_step.status != StepStatus.PENDING:
+            return
+        self._c.job_queue.enqueue(
+            Job(
+                job_type=next_step.step_name,
+                idempotency_key=f"{run.id}:{next_step.step_name}",
+                payload={
+                    "workflow_run_id": str(run.id),
+                    "step_id": str(next_step.id),
+                    "step_name": next_step.step_name,
+                    "document_id": str(document_id),
+                    "application_id": str(application_id),
+                    "tenant_id": str(tenant_id),
+                    "correlation_id": correlation_id,
+                    "ocr_provider_version": ocr_provider_version,
+                    "page_count": page_count,
+                },
+                max_retries=next_step.max_retries,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Failure handling (ADR-008 retry classification)
@@ -223,6 +308,7 @@ class OCRJobProcessor:
         if decision is RetryDecision.RETRIES_EXHAUSTED:
             self._dead_letter.record(job, exc)
 
+        self._c.metrics.increment(MetricName.PROVIDER_FAILURES_TOTAL)
         step.record_retry(job.retry_count)
         step.mark_failed(error_code=exc.code, error_message=exc.message)
         run.mark_failed()
@@ -277,6 +363,75 @@ def _find_step(run: WorkflowRun, step_name: str) -> WorkflowStep | None:
 
 
 # ---------------------------------------------------------------------------
+# Trigger (composition root for the document-upload -> pipeline-start point)
+# ---------------------------------------------------------------------------
+
+
+def start_document_ingestion_workflow(
+    session: Session,
+    container: Container,
+    *,
+    document_id: UUID,
+    application_id: UUID,
+    tenant_id: UUID,
+    correlation_id: str | None = None,
+) -> WorkflowRun:
+    """
+    Start (or return the existing) ``DOCUMENT_INGESTION`` workflow run for a
+    single uploaded document.
+
+    This is the trigger the API layer calls immediately after
+    ``DocumentService.ingest_document`` persists a new ``Document`` — without
+    it, an uploaded document is stored but never advances past PENDING, because
+    nothing else in the platform starts the OCR -> Extraction pipeline
+    (mirrors ``workers.finding_pipeline.start_finding_generation_workflow``,
+    the equivalent trigger for the DRAFT -> SUBMITTED transition; see that
+    function's docstring for the same rationale).
+
+    Per ADR-009, only ``extraction`` is a meaningful pinned-version dimension
+    for this workflow type (this run pins the extraction engine before the
+    Extraction stage runs); ``policy``, ``inference``, and ``prompt`` are
+    genuinely not applicable to document ingestion and are pinned to the
+    explicit ``"n/a"`` sentinel rather than left blank.
+
+    The caller is expected to invoke this within the same database transaction
+    as the document's creation (the request's session), so the ``Document``
+    row, the ``WorkflowRun``, its two planned steps (``OCR``, ``EXTRACTION``),
+    and its ``WorkflowStarted`` outbox event all commit atomically (ADR-007 /
+    ADR-008).
+
+    Idempotent (ADR-008): the idempotency key is deterministic per document, so
+    a repeat call (e.g. a retried request) returns the existing run rather than
+    creating a duplicate or re-dispatching the first job.
+    """
+    registry = container.resolve(ProviderRegistry)
+    extraction_version = registry.get_extraction().version()
+
+    pinned = PinnedVersions(
+        policy=_NOT_APPLICABLE_VERSION,
+        extraction=extraction_version,
+        inference=_NOT_APPLICABLE_VERSION,
+        prompt=_NOT_APPLICABLE_VERSION,
+    )
+
+    orchestrator = IntelligenceOrchestrator(
+        WorkflowRepository(session),
+        OutboxRepository(session),
+        container.resolve(JobQueue),
+    )
+    return orchestrator.start_workflow(
+        tenant_id=tenant_id,
+        application_id=application_id,
+        workflow_type=DOCUMENT_INGESTION_WORKFLOW_TYPE,
+        idempotency_key=f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}",
+        step_names=[OCR_STEP_NAME, EXTRACTION_STEP_NAME],
+        pinned_versions=pinned,
+        correlation_id=correlation_id,
+        job_payload_extra={"document_id": str(document_id)},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Wiring (composition root)
 # ---------------------------------------------------------------------------
 
@@ -292,8 +447,10 @@ def build_ocr_collaborators(session: Session, container: Container) -> OCRCollab
     ocr_provider = registry.get_ocr()
     storage = registry.get_storage()
     event_bus = container.resolve(EventBus)  # type: ignore[type-abstract]
+    job_queue = container.resolve(JobQueue)
+    metrics = container.resolve(MetricEmitter)  # type: ignore[type-abstract]
 
-    audit = AuditWriter(session)
+    audit = AuditWriter(session, metrics=metrics)
     document_service = DocumentService(DocumentRepository(session, audit), storage, event_bus)
     return OCRCollaborators(
         ocr_provider=ocr_provider,
@@ -302,6 +459,8 @@ def build_ocr_collaborators(session: Session, container: Container) -> OCRCollab
         workflows=WorkflowRepository(session),
         outbox=OutboxRepository(session),
         documents=document_service,
+        job_queue=job_queue,
+        metrics=metrics,
     )
 
 
@@ -345,12 +504,21 @@ def run_drain(ctx: WorkerContext, handler: JobHandler, *, max_iterations: int | 
 
 
 def main() -> None:  # pragma: no cover - process entry point
-    """Entry point for the OCR document-pipeline worker process."""
+    """
+    Entry point for the OCR document-pipeline worker process.
+
+    Runs indefinitely as a long-running service: each iteration blocks on
+    ``RedisJobQueue.dequeue()`` for up to ``_POLL_TIMEOUT_SECONDS`` waiting for
+    a job rather than exiting when the queue is momentarily empty (a worker
+    process is expected to be started once and left running — the previous
+    "process one batch then exit" loop meant a worker launched before any
+    document had been uploaded would exit immediately and never see later
+    work).
+    """
     ctx = build_worker_context()
     handler = make_ocr_handler(ctx.container)
     while True:
-        if not process_next(ctx, handler):
-            break
+        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=OCR_STEP_NAME)
 
 
 if __name__ == "__main__":  # pragma: no cover

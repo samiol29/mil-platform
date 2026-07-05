@@ -40,11 +40,14 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from mil.audit.models import AuditEvent
+from mil.kernel.metrics import MetricName
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from sqlalchemy.orm import Session
+
+    from mil.kernel.observability import MetricEmitter
 
 
 class AuditWriter:
@@ -57,10 +60,17 @@ class AuditWriter:
 
     Inject ``AuditWriter`` into repositories and services that need to emit
     audit events. Never instantiate it directly in domain entities.
+
+    ``metrics`` (Sprint 8 — Production Hardening) is optional: when supplied,
+    every ``record()`` call increments ``audit.events.total`` on it, giving
+    ``GET /v1/metrics`` basic visibility into audit volume. Callers that omit
+    it (the default) are unaffected — audit writing itself never depends on
+    metrics being configured.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, metrics: MetricEmitter | None = None) -> None:
         self._session = session
+        self._metrics = metrics
 
     def record(
         self,
@@ -119,4 +129,6 @@ class AuditWriter:
             occurred_at=datetime.now(UTC),
         )
         self._session.add(event)
+        if self._metrics is not None:
+            self._metrics.increment(MetricName.AUDIT_EVENTS_TOTAL)
         return event

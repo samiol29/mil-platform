@@ -1,10 +1,15 @@
 """
-Policy Engine bounded context.
+Policy bounded context.
 
-Loads and versions Policy Packs (YAML configuration). Evaluates evidence items
-against the active Policy Pack to produce triggered rule identifiers. Policy
-rules are never hardcoded — all verification logic is configuration. Policy
-Pack versions are retained for historical finding explanation.
+Owns Policy Pack lifecycle (create, activate, deactivate — at most one active
+pack per tenant) and its rule catalogue (``PolicyRule``, static configuration).
+Evaluates a Finding against the active pack's rules via the registered
+``PolicyProvider`` (resolved exclusively through ``ProviderRegistry``) and
+persists the immutable outcome as a ``PolicyResult``.
 
-Public interface: policy.engine.PolicyEngine
+``mil.policy`` never hardcodes verification logic — a rule's actual
+triggering condition lives in the concrete ``PolicyProvider`` implementation
+(``src/providers/policy/``), never in this package.
+
+Public interface: policy.service.PolicyService
 """

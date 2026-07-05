@@ -21,6 +21,72 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+# ---------------------------------------------------------------------------
+# Grounding item — the generalized, domain-agnostic grounding abstraction
+# ---------------------------------------------------------------------------
+
+# Legacy bridge discriminator.  This is the ONLY grounding ``kind`` the kernel
+# names, and it exists solely to normalise the pre-existing ``EvidenceEntry``
+# into a ``GroundingItem`` for backwards compatibility (see
+# ``InferenceContext.__post_init__``).  It is NOT a domain taxonomy: the full
+# set of grounding kinds (finding, policy result, review action, document, …)
+# is owned by the Copilot bounded context, never by the kernel.  ``kind`` on
+# ``GroundingItem`` is an opaque string precisely so the kernel stays
+# domain-agnostic (ARCHITECTURE.md §4).
+_EVIDENCE_KIND = "EVIDENCE"
+
+
+@dataclasses.dataclass(frozen=True)
+class GroundingItem:
+    """
+    A single, domain-agnostic unit of grounding for an inference call.
+
+    ``GroundingItem`` generalises ``EvidenceEntry`` so that a context can be
+    grounded on *any* governed record — evidence, an AI finding, a policy
+    result, a review action, a document — without the kernel learning what any
+    of those mortgage concepts are.  The ``kind`` field is an **opaque string**
+    owned by the consuming bounded context; the kernel never interprets it.
+
+    Attributes:
+        kind:        Opaque discriminator supplied by the consumer (e.g. the
+                     consumer's own ``"FINDING"`` / ``"POLICY_RESULT"``
+                     constant).  The kernel treats it as an unstructured label.
+        ref:         Stable citation handle for the underlying record.  A
+                     provider that cites this item MUST echo this exact value
+                     so the consumer can resolve the citation back to a record.
+        summary:     Minimal, reviewer-interpretable text the model may ground
+                     on.  Principle V (least-data): only what the query needs.
+        provenance:  Optional source locator (e.g. ``"doc-ref#page=1"``)
+                     preserving Principle II traceability where applicable.
+        confidence:  Optional confidence in ``[0.0, 1.0]`` for items that carry
+                     one; ``None`` for items that do not (e.g. a review action).
+        attributes:  Optional, string-only bag for kind-specific detail the
+                     ``summary`` alone cannot carry.  Kept opaque (str→str) so
+                     the kernel remains domain-agnostic.
+    """
+
+    kind: str
+    ref: str
+    summary: str
+    provenance: str | None = None
+    confidence: float | None = None
+    attributes: Mapping[str, str] = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.kind:
+            raise ValueError("kind cannot be empty")
+        if not self.ref:
+            raise ValueError("ref cannot be empty")
+        if not self.summary:
+            raise ValueError("summary cannot be empty")
+        if self.confidence is not None and not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("confidence must be between 0.0 and 1.0")
+
 
 # ---------------------------------------------------------------------------
 # Inference context and result data types
@@ -53,29 +119,53 @@ class InferenceContext:
     """
     Scoped context for a single inference call.
 
-    The ``evidence_items`` tuple contains only the evidence items relevant to
-    the specific ``query``, scoped strictly to the ``application_id``.  The
+    The ``grounding_items`` tuple contains only the governed records relevant
+    to the specific ``query``, scoped strictly to the ``application_id``.  The
     Copilot grounding layer is responsible for enforcing scope before this
     context is constructed.
 
-    Principle V requirement: ``evidence_items`` MUST contain only data
-    attributes necessary for the requested query.  Prompts MUST NOT carry
-    surplus personal data.
+    Backwards compatibility: ``evidence_items`` (the original, evidence-only
+    field) is retained.  When a caller supplies ``evidence_items`` but no
+    ``grounding_items``, the entries are normalised into ``grounding_items`` at
+    construction time so that providers can read a single uniform surface
+    (``grounding_items``) regardless of which field the caller populated.
+
+    Principle V requirement: both tuples MUST contain only data attributes
+    necessary for the requested query.  Prompts MUST NOT carry surplus
+    personal data.
 
     Attributes:
         application_id:  The MIL application ID (for scope enforcement).
-        evidence_items:  Scoped, minimal evidence entries.
         query:           The natural-language query to answer.
         prompt_version:  The version identifier of the prompt template used.
                          Required for Principle XII attribution.
+        evidence_items:  Legacy, evidence-only grounding entries (retained for
+                         backwards compatibility with existing callers).
+        grounding_items: Generalized, domain-agnostic grounding items.  This is
+                         the canonical surface providers should read.  Derived
+                         from ``evidence_items`` when not supplied directly.
         max_tokens:      Maximum token budget for the response.
+        temperature:     Sampling temperature for the model.  Defaults to
+                         ``0.0`` — regulated intelligence favours the most
+                         deterministic decoding available (Principle XII).  A
+                         provider MUST clamp/translate this into whatever range
+                         its backend expects; the interface value is engine-agnostic.
+        system_prompt:   Optional caller-supplied system instruction.  When
+                         ``None`` the provider applies its own governed default
+                         (e.g. a "answer only from the supplied grounding and
+                         cite each ref" guardrail).  Kept optional so callers
+                         such as ``CopilotService`` need not author prompt text
+                         to use inference — the provider owns a safe default.
     """
 
     application_id: str
-    evidence_items: tuple[EvidenceEntry, ...]
     query: str
     prompt_version: str
+    evidence_items: tuple[EvidenceEntry, ...] = ()
+    grounding_items: tuple[GroundingItem, ...] = ()
     max_tokens: int = 1024
+    temperature: float = 0.0
+    system_prompt: str | None = None
 
     def __post_init__(self) -> None:
         if not self.application_id:
@@ -86,6 +176,26 @@ class InferenceContext:
             raise ValueError("prompt_version cannot be empty")
         if self.max_tokens < 1:
             raise ValueError("max_tokens must be >= 1")
+        if self.temperature < 0.0:
+            raise ValueError("temperature cannot be negative")
+        # Backwards-compat bridge: normalise legacy evidence entries into the
+        # generalized grounding surface so downstream providers only ever read
+        # ``grounding_items``.  A caller that supplies ``grounding_items``
+        # directly is never overridden.
+        if self.evidence_items and not self.grounding_items:
+            derived = tuple(
+                GroundingItem(
+                    kind=_EVIDENCE_KIND,
+                    ref=entry.evidence_ref,
+                    summary=f"{entry.field_name}: {entry.field_value}",
+                    provenance=(
+                        f"{entry.source_ref}#page={entry.page_number}" if entry.source_ref else None
+                    ),
+                    confidence=entry.confidence,
+                )
+                for entry in self.evidence_items
+            )
+            object.__setattr__(self, "grounding_items", derived)
 
 
 @dataclasses.dataclass(frozen=True)

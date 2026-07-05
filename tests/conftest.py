@@ -36,6 +36,42 @@ def pytest_configure(config: pytest.Config) -> None:
             "Tests must not run against a production environment (MIL_ENV=production detected).",
             returncode=1,
         )
+    # Inference is now a real provider (Gemini): ``build_container`` wires it in
+    # every environment and fails fast without an API key. Tests that build the
+    # container (worker-wiring tests) never call ``infer`` — they only resolve
+    # collaborators — so a dummy key satisfies the startup guard without any
+    # network access. Set before the first ``get_settings()`` (lru-cached).
+    # A real ``GEMINI_API_KEY`` in the environment is respected and not
+    # overwritten. The GeminiInferenceProvider's HTTP behaviour is exercised
+    # separately against an httpx.MockTransport (tests/providers).
+    os.environ.setdefault("GEMINI_API_KEY", "test-dummy-gemini-key")
+
+
+# ---------------------------------------------------------------------------
+# Auto-marking by directory (Sprint 8 — Production Hardening)
+#
+# No individual test module applies ``@pytest.mark.unit`` etc. by hand — the
+# category is entirely determined by which top-level directory under
+# ``tests/`` a test lives in. Without this hook, ``pytest -m unit`` (used by
+# ``make test-unit`` and CI) silently collected zero tests, which is exactly
+# the kind of "CI reports success but validated nothing" failure mode Sprint
+# 8 is meant to close.
+# ---------------------------------------------------------------------------
+
+_DIRECTORY_MARKERS = {
+    "unit": "unit",
+    "integration": "integration",
+    "contract": "contract",
+    "providers": "providers",
+}
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Apply the marker matching each test's top-level directory under tests/."""
+    for item in items:
+        parts = item.path.relative_to(config.rootpath / "tests").parts
+        if parts and parts[0] in _DIRECTORY_MARKERS:
+            item.add_marker(getattr(pytest.mark, _DIRECTORY_MARKERS[parts[0]]))
 
 
 # ---------------------------------------------------------------------------

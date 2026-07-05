@@ -107,6 +107,15 @@ class Document(Base):
         String(50), nullable=False, default=IngestionStatus.PENDING
     )
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Pipeline outcome projections, populated once the DOCUMENT_INGESTION
+    # workflow reaches a terminal state. All four remain unset (None / 0)
+    # while the document is PENDING or IN_PROGRESS.
+    page_count: Mapped[int | None] = mapped_column(nullable=True)
+    evidence_item_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    ingestion_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ingestion_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -188,6 +197,10 @@ class Document(Base):
             storage_reference=storage_reference.strip(),
             ingestion_status=IngestionStatus.PENDING,
             uploaded_at=now,
+            page_count=None,
+            evidence_item_count=0,
+            ingestion_completed_at=None,
+            ingestion_error=None,
         )
 
         # DOCUMENT_UPLOADED: the business action — a user submitted a file.
@@ -252,17 +265,23 @@ class Document(Base):
             }
         )
 
-    def mark_completed(self) -> None:
+    def mark_completed(self, *, page_count: int, evidence_item_count: int) -> None:
         """
         Advance from IN_PROGRESS to COMPLETED when the pipeline finishes.
 
-        Enqueues a DOCUMENT_INGESTION_COMPLETED audit event.
+        Populates the pipeline outcome projections (``page_count``,
+        ``evidence_item_count``, ``ingestion_completed_at``) so the API can
+        report real values instead of placeholder defaults. Enqueues a
+        DOCUMENT_INGESTION_COMPLETED audit event.
         """
         if self.ingestion_status != IngestionStatus.IN_PROGRESS:
             raise ConflictError(
                 f"Cannot complete a {self.ingestion_status} document (id={self.id})"
             )
         self.ingestion_status = IngestionStatus.COMPLETED
+        self.page_count = page_count
+        self.evidence_item_count = evidence_item_count
+        self.ingestion_completed_at = datetime.now(UTC)
         self._pending_events.append(
             {
                 "event_type": "DOCUMENT_INGESTION_COMPLETED",
@@ -271,6 +290,8 @@ class Document(Base):
                 "data": {
                     "application_id": str(self.application_id),
                     "content_hash": self.content_hash,
+                    "page_count": page_count,
+                    "evidence_item_count": evidence_item_count,
                 },
             }
         )
@@ -281,11 +302,13 @@ class Document(Base):
         unrecoverable error.
 
         FAILED is a terminal state. The document record (and its immutable
-        content in storage) is retained for audit purposes.
+        content in storage) is retained for audit purposes. ``reason`` is
+        persisted to ``ingestion_error`` so the API can surface it.
         """
         if self.ingestion_status == IngestionStatus.COMPLETED:
             raise ConflictError(f"Cannot fail a COMPLETED document (id={self.id})")
         self.ingestion_status = IngestionStatus.FAILED
+        self.ingestion_error = reason
         self._pending_events.append(
             {
                 "event_type": "DOCUMENT_INGESTION_FAILED",
