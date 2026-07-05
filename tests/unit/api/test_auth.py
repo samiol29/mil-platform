@@ -60,9 +60,14 @@ class TestHealthCheck:
         assert data["status"] == "ok"
 
     def test_no_auth_required(self) -> None:
+        # Plain instantiation (no `with` block): entering TestClient as a
+        # context manager runs the real ASGI lifespan (main.lifespan), which
+        # opens a real database connection — unit tests must never depend on
+        # live infrastructure. /v1/health takes no dependencies, so this
+        # assertion needs nothing lifespan would provide anyway.
         app = create_app()
-        with TestClient(app, raise_server_exceptions=True) as c:
-            response = c.get("/v1/health")
+        c = TestClient(app, raise_server_exceptions=True)
+        response = c.get("/v1/health")
         assert response.status_code == 200
 
     def test_returns_version(self, client: TestClient) -> None:

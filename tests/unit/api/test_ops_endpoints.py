@@ -39,8 +39,13 @@ class TestHealth:
         assert data["uptime_seconds"] >= 0
 
     def test_no_auth_required(self) -> None:
-        with TestClient(create_app(), raise_server_exceptions=True) as c:
-            assert c.get("/v1/health").status_code == 200
+        # Plain instantiation (no `with` block): entering TestClient as a
+        # context manager runs the real ASGI lifespan (main.lifespan), which
+        # opens a real database connection — unit tests must never depend on
+        # live infrastructure. /v1/health takes no dependencies, so this
+        # assertion needs nothing lifespan would provide anyway.
+        c = TestClient(create_app(), raise_server_exceptions=True)
+        assert c.get("/v1/health").status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +140,11 @@ class TestMetrics:
         app.dependency_overrides[get_container] = lambda: self._container_with_emitter(
             InMemoryMetricEmitter()
         )
-        with TestClient(app, raise_server_exceptions=True) as tc:
-            response = tc.get("/v1/metrics")
+        # Plain instantiation (no `with` block) — see TestHealth.test_no_auth_required
+        # above. get_current_user raises 401 before get_container is ever
+        # reached, so nothing here depends on the real lifespan having run.
+        tc = TestClient(app, raise_server_exceptions=True)
+        response = tc.get("/v1/metrics")
         assert response.status_code == 401
 
     def test_returns_403_without_read_operational_permission(self, client: TestClient) -> None:
