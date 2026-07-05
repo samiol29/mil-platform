@@ -46,32 +46,32 @@ Per `plan.md`'s Structure Decision (Option 2 — web application): the existing 
 
 ### Design tokens (spec 003)
 
-- [ ] T011 [P] Define primitive color tokens in `frontend/src/design-system/tokens/color.primitives.ts`
-- [ ] T012 [P] Define semantic surface/interaction/focus tokens (light + dark) in `frontend/src/design-system/tokens/color.semantic.ts`
-- [ ] T013 [P] Define the Status color family (workflow/SLA state only) in `frontend/src/design-system/tokens/color.status.ts`
-- [ ] T014 [P] Define the Evidence/Confidence color family (structurally distinct from Status) in `frontend/src/design-system/tokens/color.confidence.ts`
-- [ ] T015 [P] Define the AI-signal color family (structurally distinct from Status and Confidence) in `frontend/src/design-system/tokens/color.ai.ts`
-- [ ] T016 [P] Define the type scale (6–8 steps incl. tabular/monospaced numeric treatment) in `frontend/src/design-system/tokens/typography.ts`
-- [ ] T017 [P] Define the spacing scale in `frontend/src/design-system/tokens/spacing.ts`
-- [ ] T018 [P] Define elevation levels and border-radius scale in `frontend/src/design-system/tokens/elevation.ts`
-- [ ] T019 [P] Define motion tokens (durations/easing per transition category, plus reduced-motion equivalents) in `frontend/src/design-system/tokens/motion.ts`
-- [ ] T020 Implement `ThemeProvider` resolving all tokens for light/dark theme in `frontend/src/design-system/theme/ThemeProvider.tsx` (depends on T011–T019)
+- [X] T011 [P] Define primitive color tokens in `frontend/src/design-system/tokens/color.primitives.ts`
+- [X] T012 [P] Define semantic surface/interaction/focus tokens (light + dark) in `frontend/src/design-system/tokens/color.semantic.ts`
+- [X] T013 [P] Define the Status color family (workflow/SLA state only) in `frontend/src/design-system/tokens/color.status.ts`
+- [X] T014 [P] Define the Evidence/Confidence color family (structurally distinct from Status) in `frontend/src/design-system/tokens/color.confidence.ts`
+- [X] T015 [P] Define the AI-signal color family (structurally distinct from Status and Confidence) in `frontend/src/design-system/tokens/color.ai.ts`
+- [X] T016 [P] Define the type scale (6–8 steps incl. tabular/monospaced numeric treatment) in `frontend/src/design-system/tokens/typography.ts`
+- [X] T017 [P] Define the spacing scale in `frontend/src/design-system/tokens/spacing.ts`
+- [X] T018 [P] Define elevation levels and border-radius scale in `frontend/src/design-system/tokens/elevation.ts`
+- [X] T019 [P] Define motion tokens (durations/easing per transition category, plus reduced-motion equivalents) in `frontend/src/design-system/tokens/motion.ts`
+- [X] T020 Implement `ThemeProvider` resolving all tokens for light/dark theme in `frontend/src/design-system/theme/ThemeProvider.tsx` (depends on T011–T019)
 
 ### Closed base component set (spec 003 FR-078)
 
-- [ ] T021 [P] Implement `Button` (all required states) in `frontend/src/design-system/components/Button/Button.tsx`
-- [ ] T022 [P] Implement `LoadingState` + `SkeletonState` in `frontend/src/design-system/components/LoadingState/`
-- [ ] T023 [P] Implement `EmptyState` in `frontend/src/design-system/components/EmptyState/EmptyState.tsx`
-- [ ] T024 [P] Implement `ErrorState` (plain-language, retry-capable, granular) in `frontend/src/design-system/components/ErrorState/ErrorState.tsx`
-- [ ] T025 [P] Implement `StatusBadge` (Status color family + non-color signal) in `frontend/src/design-system/components/StatusBadge/StatusBadge.tsx`
-- [ ] T026 [P] Implement `ConfidenceIndicator` (fixed band scale, Evidence/Confidence family) in `frontend/src/design-system/components/ConfidenceIndicator/ConfidenceIndicator.tsx`
-- [ ] T027 [P] Implement `AiSignalBadge` (AI color family, persistent non-decorative indicator) in `frontend/src/design-system/components/AiSignalBadge/AiSignalBadge.tsx`
-- [ ] T028 [P] Implement `EvidenceChip` (single reusable citation/evidence-reference pattern) in `frontend/src/design-system/components/EvidenceChip/EvidenceChip.tsx`
-- [ ] T029 [P] Implement `Drawer` (focus trap, keyboard dismiss, returns focus on close) in `frontend/src/design-system/components/Drawer/Drawer.tsx`
-- [ ] T030 [P] Implement `Dialog` (blocking-confirmation-only, focus trap) in `frontend/src/design-system/components/Dialog/Dialog.tsx`
-- [ ] T031 [P] Implement the virtualized `Table` primitive (TanStack Table + TanStack Virtual composition) in `frontend/src/design-system/components/Table/Table.tsx`
-- [ ] T032 [P] Implement the `CommandPalette` shell (fuzzy search, keyboard-first, empty of commands for now) in `frontend/src/design-system/components/CommandPalette/CommandPalette.tsx`
-- [ ] T033 Write Storybook stories covering every defined state, and confirm the `a11y` addon passes, for every component in T021–T032 (depends on T021–T032)
+- [X] T021 [P] Implement `Button` (all required states) in `frontend/src/design-system/components/Button/Button.tsx`
+- [X] T022 [P] Implement `LoadingState` + `SkeletonState` in `frontend/src/design-system/components/LoadingState/`
+- [X] T023 [P] Implement `EmptyState` in `frontend/src/design-system/components/EmptyState/EmptyState.tsx`
+- [X] T024 [P] Implement `ErrorState` (plain-language, retry-capable, granular) in `frontend/src/design-system/components/ErrorState/ErrorState.tsx`
+- [X] T025 [P] Implement `StatusBadge` (Status color family + non-color signal) in `frontend/src/design-system/components/StatusBadge/StatusBadge.tsx`
+- [X] T026 [P] Implement `ConfidenceIndicator` (fixed band scale, Evidence/Confidence family) in `frontend/src/design-system/components/ConfidenceIndicator/ConfidenceIndicator.tsx`
+- [X] T027 [P] Implement `AiSignalBadge` (AI color family, persistent non-decorative indicator) in `frontend/src/design-system/components/AiSignalBadge/AiSignalBadge.tsx`
+- [X] T028 [P] Implement `EvidenceChip` (single reusable citation/evidence-reference pattern) in `frontend/src/design-system/components/EvidenceChip/EvidenceChip.tsx`
+- [X] T029 [P] Implement `Drawer` (focus trap, keyboard dismiss, returns focus on close) in `frontend/src/design-system/components/Drawer/Drawer.tsx`
+- [X] T030 [P] Implement `Dialog` (blocking-confirmation-only, focus trap) in `frontend/src/design-system/components/Dialog/Dialog.tsx`
+- [X] T031 [P] Implement the virtualized `Table` primitive (TanStack Table + TanStack Virtual composition) in `frontend/src/design-system/components/Table/Table.tsx`
+- [X] T032 [P] Implement the `CommandPalette` shell (fuzzy search, keyboard-first, empty of commands for now) in `frontend/src/design-system/components/CommandPalette/CommandPalette.tsx`
+- [X] T033 Write Storybook stories covering every defined state, and confirm the `a11y` addon passes, for every component in T021–T032 (depends on T021–T032)
 
 ### App shell & cross-cutting infrastructure
 

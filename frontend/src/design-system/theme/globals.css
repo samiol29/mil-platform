@@ -1,0 +1,184 @@
+/**
+ * Tailwind v4 entry point + semantic-token → Tailwind-theme binding.
+ *
+ * This is the ONLY place Tailwind's `@theme` directive is used. It maps the
+ * named CSS custom properties defined in `tokens/tokens.css` into Tailwind's
+ * theme namespaces (`--color-*`, `--text-*`, `--radius-*`, `--duration-*`,
+ * `--ease-*`) so that utility classes (`bg-surface-raised`,
+ * `text-heading-page`, `rounded-container`) resolve to the design system's
+ * tokens — never to Tailwind's own default palette/scale, which is
+ * deliberately unused here (003: closed, non-generic token vocabulary).
+ */
+
+@import 'tailwindcss';
+@import '../tokens/tokens.css';
+
+/* Theme selection is an explicit `data-theme` attribute (set by
+   ThemeProvider), not the OS media query alone — this is what makes
+   FR-030 ("switching without a full reload") and manual theme choice
+   possible. `dark:` variants apply whenever an ancestor carries
+   `data-theme="dark"`. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme inline {
+  /* Surfaces */
+  --color-surface-background: var(--surface-background);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-disabled: var(--surface-disabled);
+  --color-surface-sunken: var(--surface-sunken);
+
+  /* Text */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-critical: var(--text-critical);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-on-brand: var(--text-on-brand);
+
+  /* Borders */
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  /* Interaction */
+  --color-interactive-primary-default: var(--interactive-primary-default);
+  --color-interactive-primary-hover: var(--interactive-primary-hover);
+  --color-interactive-primary-active: var(--interactive-primary-active);
+  --color-interactive-primary-disabled: var(--interactive-primary-disabled);
+  --color-interactive-primary-disabled-text: var(--interactive-primary-disabled-text);
+  --color-interactive-secondary-default: var(--interactive-secondary-default);
+  --color-interactive-secondary-hover: var(--interactive-secondary-hover);
+  --color-interactive-secondary-active: var(--interactive-secondary-active);
+  --color-interactive-secondary-border: var(--interactive-secondary-border);
+  --color-interactive-secondary-disabled: var(--interactive-secondary-disabled);
+  --color-interactive-danger-default: var(--interactive-danger-default);
+  --color-interactive-danger-hover: var(--interactive-danger-hover);
+  --color-interactive-danger-active: var(--interactive-danger-active);
+
+  /* Focus */
+  --color-focus-ring: var(--focus-ring);
+  --color-focus-ring-offset: var(--focus-ring-offset);
+
+  /* Status family */
+  --color-status-on-track-bg: var(--status-on-track-bg);
+  --color-status-on-track-fg: var(--status-on-track-fg);
+  --color-status-on-track-border: var(--status-on-track-border);
+  --color-status-at-risk-bg: var(--status-at-risk-bg);
+  --color-status-at-risk-fg: var(--status-at-risk-fg);
+  --color-status-at-risk-border: var(--status-at-risk-border);
+  --color-status-overdue-bg: var(--status-overdue-bg);
+  --color-status-overdue-fg: var(--status-overdue-fg);
+  --color-status-overdue-border: var(--status-overdue-border);
+  --color-status-blocked-bg: var(--status-blocked-bg);
+  --color-status-blocked-fg: var(--status-blocked-fg);
+  --color-status-blocked-border: var(--status-blocked-border);
+
+  /* Evidence/Confidence family */
+  --color-confidence-high-bg: var(--confidence-high-bg);
+  --color-confidence-high-fg: var(--confidence-high-fg);
+  --color-confidence-high-fill: var(--confidence-high-fill);
+  --color-confidence-medium-bg: var(--confidence-medium-bg);
+  --color-confidence-medium-fg: var(--confidence-medium-fg);
+  --color-confidence-medium-fill: var(--confidence-medium-fill);
+  --color-confidence-low-bg: var(--confidence-low-bg);
+  --color-confidence-low-fg: var(--confidence-low-fg);
+  --color-confidence-low-fill: var(--confidence-low-fill);
+  --color-confidence-conflict-bg: var(--confidence-conflict-bg);
+  --color-confidence-conflict-fg: var(--confidence-conflict-fg);
+  --color-confidence-conflict-border: var(--confidence-conflict-border);
+
+  /* AI-signal family */
+  --color-ai-signal-bg: var(--ai-signal-bg);
+  --color-ai-signal-fg: var(--ai-signal-fg);
+  --color-ai-signal-border: var(--ai-signal-border);
+  --color-ai-processing-fg: var(--ai-processing-fg);
+
+  /* Feedback states */
+  --color-feedback-success-bg: var(--feedback-success-bg);
+  --color-feedback-success-fg: var(--feedback-success-fg);
+  --color-feedback-warning-bg: var(--feedback-warning-bg);
+  --color-feedback-warning-fg: var(--feedback-warning-fg);
+  --color-feedback-error-bg: var(--feedback-error-bg);
+  --color-feedback-error-fg: var(--feedback-error-fg);
+  --color-feedback-error-border: var(--feedback-error-border);
+
+  /* Typography */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --text-display: var(--text-display);
+  --text-display--line-height: var(--text-display--line-height);
+  --text-display--font-weight: var(--text-display--font-weight);
+  --text-display--letter-spacing: var(--text-display--letter-spacing);
+
+  --text-heading-page: var(--text-heading-page);
+  --text-heading-page--line-height: var(--text-heading-page--line-height);
+  --text-heading-page--font-weight: var(--text-heading-page--font-weight);
+  --text-heading-page--letter-spacing: var(--text-heading-page--letter-spacing);
+
+  --text-heading-section: var(--text-heading-section);
+  --text-heading-section--line-height: var(--text-heading-section--line-height);
+  --text-heading-section--font-weight: var(--text-heading-section--font-weight);
+  --text-heading-section--letter-spacing: var(--text-heading-section--letter-spacing);
+
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--text-body--line-height);
+  --text-body--font-weight: var(--text-body--font-weight);
+
+  --text-body-emphasis: var(--text-body-emphasis);
+  --text-body-emphasis--line-height: var(--text-body-emphasis--line-height);
+  --text-body-emphasis--font-weight: var(--text-body-emphasis--font-weight);
+
+  --text-label: var(--text-label);
+  --text-label--line-height: var(--text-label--line-height);
+  --text-label--font-weight: var(--text-label--font-weight);
+
+  --text-caption: var(--text-caption);
+  --text-caption--line-height: var(--text-caption--line-height);
+  --text-caption--font-weight: var(--text-caption--font-weight);
+  --text-caption--letter-spacing: var(--text-caption--letter-spacing);
+
+  --text-data-tabular: var(--text-data-tabular);
+  --text-data-tabular--line-height: var(--text-data-tabular--line-height);
+  --text-data-tabular--font-weight: var(--text-data-tabular--font-weight);
+
+  /* Radius */
+  --radius-interactive: var(--radius-interactive);
+  --radius-container: var(--radius-container);
+  --radius-chip: var(--radius-chip);
+
+  /* Motion */
+  --duration-micro: var(--duration-micro);
+  --duration-panel: var(--duration-panel);
+  --duration-page: var(--duration-page);
+  --ease-standard: var(--ease-standard);
+  --ease-decelerate: var(--ease-decelerate);
+  --ease-accelerate: var(--ease-accelerate);
+
+  /* Shadows (elevation) */
+  --shadow-raised: var(--elevation-raised-shadow);
+  --shadow-overlay: var(--elevation-overlay-shadow);
+}
+
+@layer base {
+  * {
+    @apply border-border-default;
+  }
+
+  body {
+    @apply bg-surface-background text-text-primary;
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Single dedicated focus treatment (003 FR-021), applied identically to
+     every interactive element — never a per-component focus style. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}

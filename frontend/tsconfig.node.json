@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
     "module": "ESNext",
     "skipLibCheck": true,
     "composite": true,
@@ -11,13 +12,30 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "jsx": "react-jsx",
 
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /* .storybook/preview.tsx imports design-system modules directly (it is
+       not part of the app bundle) — the same path aliases as
+       tsconfig.app.json, plus including src/design-system/** below, let
+       those imports resolve as part of this project's own file list
+       (composite mode requires every reachable file to be an explicit
+       project member; tsconfig.app.json's noEmit setting makes it
+       ineligible to be depended on via a formal project "references" entry). */
+    "paths": {
+      "@app/*": ["./src/app/*"],
+      "@design-system/*": ["./src/design-system/*"],
+      "@entities/*": ["./src/entities/*"],
+      "@features/*": ["./src/features/*"],
+      "@routes/*": ["./src/routes/*"],
+      "@shared/*": ["./src/shared/*"]
+    }
   },
   "include": [
     "vite.config.ts",
@@ -25,6 +43,8 @@
     "vitest.shims.d.ts",
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",
-    "e2e/**/*.ts"
+    "e2e/**/*.ts",
+    "src/design-system/**/*.ts",
+    "src/design-system/**/*.tsx"
   ]
 }

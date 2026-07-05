@@ -1,0 +1,388 @@
+/**
+ * Design System (spec 003) — literal token values.
+ *
+ * This file is the ONE place in the entire product where a raw color value is
+ * permitted to exist (spec 003 FR-018: two-tier primitive → semantic
+ * architecture; spec 003's own Assumptions: literal values are a
+ * design-production artifact produced during implementation, not specified in
+ * 003 itself). Every other file — including the typed TS token modules in
+ * this directory — references these custom properties by name, never a raw
+ * hex value.
+ *
+ * Structure:
+ *   1. Primitives  — raw, non-meaningful color ramps (neutral, brand, status
+ *      hues, confidence hue, AI hue). Never referenced directly by components.
+ *   2. Semantic (light)  — role-based tokens resolved for the default theme.
+ *   3. Semantic (dark)   — the same token names, independently resolved
+ *      (003 FR-028: dark is a first-class theme, not an inverted derivative).
+ *
+ * Theme switching (003 FR-030): the `data-theme` attribute on <html> selects
+ * which block below applies; both blocks define every token, so switching is
+ * a single attribute flip with no flash of undefined values.
+ */
+
+:root {
+  /* ------------------------------------------------------------------ */
+  /* 1. Primitives — raw ramps, not directly meaningful (003 FR-018)      */
+  /* ------------------------------------------------------------------ */
+
+  /* Neutral — cool slate ramp used for surfaces, text, and borders. */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+  --color-neutral-950: #020617;
+
+  /* Brand — the single accent reserved for primary actions and focus/selection
+     (003: "Brand color... is NOT used for status, risk, confidence, or AI
+     signaling"). A restrained, trustworthy blue. */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-300: #93c5fd;
+  --color-brand-500: #2563eb;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  /* Status hues — workflow/SLA lifecycle only (003 FR-022). */
+  --color-green-100: #dcfce7;
+  --color-green-300: #86efac;
+  --color-green-600: #16a34a;
+  --color-green-700: #15803d;
+  --color-green-900: #14532d;
+
+  --color-amber-100: #fef3c7;
+  --color-amber-300: #fcd34d;
+  --color-amber-600: #d97706;
+  --color-amber-700: #b45309;
+  --color-amber-900: #78350f;
+
+  --color-red-100: #fee2e2;
+  --color-red-300: #fca5a5;
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+  --color-red-900: #7f1d1d;
+
+  --color-slate-blocked-100: #e2e8f0;
+  --color-slate-blocked-600: #475569;
+  --color-slate-blocked-700: #334155;
+  --color-slate-blocked-900: #0f172a;
+
+  /* Evidence/Confidence hue — teal, structurally distinct from Status and AI
+     (003 FR-023). Varies in fill/saturation across bands, never reused
+     elsewhere. */
+  --color-teal-100: #ccfbf1;
+  --color-teal-300: #5eead4;
+  --color-teal-600: #0d9488;
+  --color-teal-700: #0f766e;
+  --color-teal-900: #134e4a;
+
+  /* AI-signal hue — violet, structurally distinct from Status and Confidence
+     (003 FR-024). Used exclusively to mark AI-generated/AI-in-progress
+     content. */
+  --color-violet-100: #ede9fe;
+  --color-violet-300: #c4b5fd;
+  --color-violet-600: #7c3aed;
+  --color-violet-700: #6d28d9;
+  --color-violet-900: #4c1d95;
+
+  /* ------------------------------------------------------------------ */
+  /* 2. Semantic tokens — light theme (default; 003 FR-030)               */
+  /* ------------------------------------------------------------------ */
+
+  /* Surfaces (003 FR-019) */
+  --surface-background: var(--color-neutral-0);
+  --surface-secondary: var(--color-neutral-50);
+  --surface-raised: var(--color-neutral-0);
+  --surface-overlay: var(--color-neutral-0);
+  --surface-disabled: var(--color-neutral-100);
+  --surface-sunken: var(--color-neutral-100);
+
+  /* Text (003 FR-010: every step pre-verified for AA contrast at this
+     surface) */
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-600);
+  --text-tertiary: var(--color-neutral-500);
+  --text-disabled: var(--color-neutral-400);
+  --text-critical: var(--color-red-700);
+  --text-inverse: var(--color-neutral-0);
+  --text-on-brand: var(--color-neutral-0);
+
+  /* Borders */
+  --border-subtle: var(--color-neutral-200);
+  --border-default: var(--color-neutral-300);
+  --border-strong: var(--color-neutral-400);
+
+  /* Interaction — primary (brand-accented) action (003 FR-020) */
+  --interactive-primary-default: var(--color-brand-600);
+  --interactive-primary-hover: var(--color-brand-700);
+  --interactive-primary-active: var(--color-brand-900);
+  --interactive-primary-disabled: var(--color-neutral-200);
+  --interactive-primary-disabled-text: var(--color-neutral-400);
+
+  /* Interaction — secondary (neutral) action */
+  --interactive-secondary-default: var(--color-neutral-0);
+  --interactive-secondary-hover: var(--color-neutral-100);
+  --interactive-secondary-active: var(--color-neutral-200);
+  --interactive-secondary-border: var(--color-neutral-300);
+  --interactive-secondary-disabled: var(--color-neutral-100);
+
+  /* Interaction — danger (destructive) action */
+  --interactive-danger-default: var(--color-red-600);
+  --interactive-danger-hover: var(--color-red-700);
+  --interactive-danger-active: var(--color-red-900);
+
+  /* Focus (003 FR-021 — one dedicated token, used identically everywhere) */
+  --focus-ring: var(--color-brand-500);
+  --focus-ring-offset: var(--surface-background);
+
+  /* Status family (003 FR-022) — background/foreground/border per state */
+  --status-on-track-bg: var(--color-green-100);
+  --status-on-track-fg: var(--color-green-700);
+  --status-on-track-border: var(--color-green-300);
+
+  --status-at-risk-bg: var(--color-amber-100);
+  --status-at-risk-fg: var(--color-amber-700);
+  --status-at-risk-border: var(--color-amber-300);
+
+  --status-overdue-bg: var(--color-red-100);
+  --status-overdue-fg: var(--color-red-700);
+  --status-overdue-border: var(--color-red-300);
+
+  --status-blocked-bg: var(--color-slate-blocked-100);
+  --status-blocked-fg: var(--color-slate-blocked-700);
+  --status-blocked-border: var(--color-neutral-300);
+
+  /* Evidence/Confidence family (003 FR-023) */
+  --confidence-high-bg: var(--color-teal-100);
+  --confidence-high-fg: var(--color-teal-700);
+  --confidence-high-fill: var(--color-teal-600);
+
+  --confidence-medium-bg: var(--color-teal-100);
+  --confidence-medium-fg: var(--color-teal-700);
+  --confidence-medium-fill: var(--color-teal-300);
+
+  --confidence-low-bg: var(--color-neutral-100);
+  --confidence-low-fg: var(--color-neutral-600);
+  --confidence-low-fill: var(--color-neutral-300);
+
+  --confidence-conflict-bg: var(--color-red-100);
+  --confidence-conflict-fg: var(--color-red-700);
+  --confidence-conflict-border: var(--color-red-300);
+
+  /* AI-signal family (003 FR-024) */
+  --ai-signal-bg: var(--color-violet-100);
+  --ai-signal-fg: var(--color-violet-700);
+  --ai-signal-border: var(--color-violet-300);
+  --ai-processing-fg: var(--color-violet-600);
+
+  /* Feedback states (003 FR-042–049) */
+  --feedback-success-bg: var(--color-green-100);
+  --feedback-success-fg: var(--color-green-700);
+  --feedback-warning-bg: var(--color-amber-100);
+  --feedback-warning-fg: var(--color-amber-700);
+  --feedback-error-bg: var(--color-red-100);
+  --feedback-error-fg: var(--color-red-700);
+  --feedback-error-border: var(--color-red-300);
+
+  /* Elevation — near-flat, border-led (003: reject skeuomorphic depth) */
+  --elevation-base-shadow: none;
+  --elevation-base-border: var(--border-subtle);
+  --elevation-raised-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+  --elevation-raised-border: var(--border-subtle);
+  --elevation-overlay-shadow:
+    0 4px 6px -1px rgb(15 23 42 / 0.1), 0 2px 4px -2px rgb(15 23 42 / 0.1);
+  --elevation-overlay-border: var(--border-default);
+
+  /* -------------------------------------------------------------------- */
+  /* Typography — 8 steps (003 FR-006), theme-independent                  */
+  /* -------------------------------------------------------------------- */
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.25rem;
+  --text-display--font-weight: 600;
+  --text-display--letter-spacing: -0.01em;
+
+  --text-heading-page: 1.5rem;
+  --text-heading-page--line-height: 2rem;
+  --text-heading-page--font-weight: 600;
+  --text-heading-page--letter-spacing: -0.01em;
+
+  --text-heading-section: 1.125rem;
+  --text-heading-section--line-height: 1.5rem;
+  --text-heading-section--font-weight: 600;
+  --text-heading-section--letter-spacing: 0em;
+
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-body--font-weight: 400;
+  --text-body--letter-spacing: 0em;
+
+  --text-body-emphasis: 0.875rem;
+  --text-body-emphasis--line-height: 1.375rem;
+  --text-body-emphasis--font-weight: 600;
+  --text-body-emphasis--letter-spacing: 0em;
+
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.125rem;
+  --text-label--font-weight: 500;
+  --text-label--letter-spacing: 0em;
+
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-caption--font-weight: 400;
+  --text-caption--letter-spacing: 0.01em;
+
+  --text-data-tabular: 0.875rem;
+  --text-data-tabular--line-height: 1.375rem;
+  --text-data-tabular--font-weight: 500;
+  --text-data-tabular--letter-spacing: 0em;
+
+  /* Maximum comfortable reading measure for dense text (003 FR-009) */
+  --reading-measure: 68ch;
+
+  /* -------------------------------------------------------------------- */
+  /* Radius — fixed set, mapped by element category (003 FR-015)           */
+  /* -------------------------------------------------------------------- */
+
+  --radius-interactive: 0.375rem; /* buttons, inputs, menu items */
+  --radius-container: 0.5rem; /* cards, panels, dialogs, drawers */
+  --radius-chip: 9999px; /* badges, chips, pills */
+
+  /* -------------------------------------------------------------------- */
+  /* Motion — fixed durations/easings by transition category (003 FR-039)  */
+  /* -------------------------------------------------------------------- */
+
+  --duration-micro: 100ms; /* hover, focus, pressed feedback */
+  --duration-panel: 200ms; /* drawer/dialog/dropdown enter-exit */
+  --duration-page: 300ms; /* route/tab-level transitions */
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* ---------------------------------------------------------------------- */
+/* 3. Semantic tokens — dark theme (003 FR-028: independently designed,     */
+/*    not an inverted derivative of light)                                 */
+/* ---------------------------------------------------------------------- */
+
+:root[data-theme='dark'] {
+  --surface-background: var(--color-neutral-950);
+  --surface-secondary: var(--color-neutral-900);
+  --surface-raised: var(--color-neutral-900);
+  --surface-overlay: var(--color-neutral-800);
+  --surface-disabled: var(--color-neutral-800);
+  --surface-sunken: var(--color-neutral-950);
+
+  --text-primary: var(--color-neutral-50);
+  --text-secondary: var(--color-neutral-300);
+  --text-tertiary: var(--color-neutral-400);
+  --text-disabled: var(--color-neutral-600);
+  --text-critical: var(--color-red-300);
+  --text-inverse: var(--color-neutral-950);
+  --text-on-brand: var(--color-neutral-0);
+
+  --border-subtle: var(--color-neutral-800);
+  --border-default: var(--color-neutral-700);
+  --border-strong: var(--color-neutral-600);
+
+  --interactive-primary-default: var(--color-brand-500);
+  --interactive-primary-hover: var(--color-brand-300);
+  --interactive-primary-active: var(--color-brand-100);
+  --interactive-primary-disabled: var(--color-neutral-800);
+  --interactive-primary-disabled-text: var(--color-neutral-600);
+
+  --interactive-secondary-default: var(--color-neutral-900);
+  --interactive-secondary-hover: var(--color-neutral-800);
+  --interactive-secondary-active: var(--color-neutral-700);
+  --interactive-secondary-border: var(--color-neutral-700);
+  --interactive-secondary-disabled: var(--color-neutral-800);
+
+  --interactive-danger-default: var(--color-red-600);
+  --interactive-danger-hover: var(--color-red-300);
+  --interactive-danger-active: var(--color-red-100);
+
+  /* Dark-theme focus ring uses a lighter step of the same brand hue so it
+     remains visible against dark surfaces at the required contrast
+     (003 FR-031: elevation/surface treatments independently tuned per theme,
+     not shadow-darkened light values reused unmodified). */
+  --focus-ring: var(--color-brand-300);
+  --focus-ring-offset: var(--surface-background);
+
+  --status-on-track-bg: color-mix(in srgb, var(--color-green-900) 60%, transparent);
+  --status-on-track-fg: var(--color-green-300);
+  --status-on-track-border: var(--color-green-700);
+
+  --status-at-risk-bg: color-mix(in srgb, var(--color-amber-900) 60%, transparent);
+  --status-at-risk-fg: var(--color-amber-300);
+  --status-at-risk-border: var(--color-amber-700);
+
+  --status-overdue-bg: color-mix(in srgb, var(--color-red-900) 60%, transparent);
+  --status-overdue-fg: var(--color-red-300);
+  --status-overdue-border: var(--color-red-700);
+
+  --status-blocked-bg: color-mix(in srgb, var(--color-slate-blocked-900) 60%, transparent);
+  --status-blocked-fg: var(--color-neutral-300);
+  --status-blocked-border: var(--color-neutral-600);
+
+  --confidence-high-bg: color-mix(in srgb, var(--color-teal-900) 60%, transparent);
+  --confidence-high-fg: var(--color-teal-300);
+  --confidence-high-fill: var(--color-teal-300);
+
+  --confidence-medium-bg: color-mix(in srgb, var(--color-teal-900) 60%, transparent);
+  --confidence-medium-fg: var(--color-teal-300);
+  --confidence-medium-fill: var(--color-teal-700);
+
+  --confidence-low-bg: var(--color-neutral-800);
+  --confidence-low-fg: var(--color-neutral-400);
+  --confidence-low-fill: var(--color-neutral-700);
+
+  --confidence-conflict-bg: color-mix(in srgb, var(--color-red-900) 60%, transparent);
+  --confidence-conflict-fg: var(--color-red-300);
+  --confidence-conflict-border: var(--color-red-700);
+
+  --ai-signal-bg: color-mix(in srgb, var(--color-violet-900) 60%, transparent);
+  --ai-signal-fg: var(--color-violet-300);
+  --ai-signal-border: var(--color-violet-700);
+  --ai-processing-fg: var(--color-violet-300);
+
+  --feedback-success-bg: color-mix(in srgb, var(--color-green-900) 60%, transparent);
+  --feedback-success-fg: var(--color-green-300);
+  --feedback-warning-bg: color-mix(in srgb, var(--color-amber-900) 60%, transparent);
+  --feedback-warning-fg: var(--color-amber-300);
+  --feedback-error-bg: color-mix(in srgb, var(--color-red-900) 60%, transparent);
+  --feedback-error-fg: var(--color-red-300);
+  --feedback-error-border: var(--color-red-700);
+
+  --elevation-base-shadow: none;
+  --elevation-base-border: var(--border-subtle);
+  --elevation-raised-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --elevation-raised-border: var(--border-subtle);
+  --elevation-overlay-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --elevation-overlay-border: var(--border-default);
+}
+
+/* Respect the OS reduced-motion preference globally (003 FR-041, FR-071) —
+   every motion-token consumer additionally honors this via the `motion.ts`
+   token module, but this blanket rule is the fail-safe floor. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

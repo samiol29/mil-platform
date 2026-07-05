@@ -10,83 +10,66 @@
 
 ## 1. Current State in One Sentence
 
-Phase 1 (Setup) of `tasks.md` is **complete** (T001–T010, T126 all `[X]`), fully validated; Phase 2 (Foundational) has **not started** — both blockers that previously paused work have been explicitly resolved by the project owner (see §2) and Phase 2 is the next unit of work.
+Phase 1 (Setup) and the Design Tokens + Closed Base Component Set portion of Phase 2 (Foundational) — `tasks.md` T001–T033 — are complete and fully validated; **T034 onward (app shell & cross-cutting infrastructure) has deliberately not been started**, per explicit instruction to stop after T033 for review.
 
 ---
 
-## 2. Blockers — Resolved
+## 2. Completed Work
 
-### Blocker 1 — `loan_number` column (RESOLVED: add a real column)
+### Phase 1: Setup — T001–T010, T126 (complete)
 
-Decision: add a real, additive `loan_number` column to `core.applications`, distinct from `los_reference`. Implemented in this session:
+Legacy scaffold removal, TypeScript/ESLint/Prettier/Vite/Vitest/Storybook/Playwright/CI setup (T001–T010); `scripts/seed_large_dataset.py`, a deterministic 100,000+-row seed script for User Story 2 (T126). See prior session history / git diff for full detail.
 
-| File | Change |
+Also resolved in the prior session: **loan_number** was added as a real, additive `core.applications` column (migration `0011`, model/service/API/contract/tests updated) — backend work, unrelated to this session's frontend focus.
+
+### Phase 2 (partial): Design System foundation — T011–T033 (complete, this session)
+
+**Styling mechanism** (previously an open decision, now fixed as the project standard): **Tailwind CSS v4** + **CSS custom properties** for tokens + **shadcn/ui's underlying primitives** (Radix UI, `cva`, `clsx`/`tailwind-merge`, `cmdk`, `lucide-react`) customized to spec 003 — not shadcn's own visual defaults.
+
+| Area | Files |
 |---|---|
-| `migrations/versions/0011_application_loan_number.py` | New migration (`0010` → `0011`): adds nullable `loan_number VARCHAR(255)` to `core.applications`. Applied and verified against the local dev Postgres. |
-| `src/mil/application/models.py` | `MortgageApplication.loan_number` mapped column; `create()` factory accepts `loan_number` and records it in the `APPLICATION_CREATED` event payload. |
-| `src/mil/application/service.py` | `ApplicationService.create_application()` accepts and forwards `loan_number`. |
-| `src/mil/api/v1/schemas.py` | `CreateApplicationRequest.loan_number`, `ApplicationResponse.loan_number` (+ `from_model` mapping). |
-| `src/mil/api/v1/applications.py` | `create_application` route passes `body.loan_number` through; docstring updated. |
-| `specs/001-mil-platform-spec/contracts/applications.yaml` | `loan_number` added to `CreateApplicationRequest` and `Application` schemas. |
-| `specs/001-mil-platform-spec/data-model.md` | `core.applications` table doc updated with the new column. |
-| `tests/unit/application/test_models.py`, `test_service.py`, `tests/unit/api/test_applications.py`, `tests/unit/api/conftest.py` | New tests mirroring every existing `los_reference` test case for `loan_number`; `make_application()` fixture now defaults `loan_number="LN-0001"`. |
+| Tailwind v4 wiring | `frontend/vite.config.ts` (`@tailwindcss/vite` plugin), `frontend/.storybook/main.ts` (`viteFinal` adds the same plugin to Storybook's own Vite instance) |
+| Token source of truth | `frontend/src/design-system/tokens/tokens.css` — every literal color/typography/radius/motion value in the product lives here, and only here (spec 003 FR-018) |
+| Tailwind ↔ token binding | `frontend/src/design-system/theme/globals.css` — `@theme inline` maps every semantic CSS variable into Tailwind's theme namespaces; `@custom-variant dark` makes `dark:` utilities key off `data-theme`, not just OS preference |
+| Typed token modules (T011–T019) | `frontend/src/design-system/tokens/{color.primitives,color.semantic,color.status,color.confidence,color.ai,typography,spacing,elevation,motion}.ts` |
+| Theme switching (T020) | `frontend/src/design-system/theme/{ThemeContext.ts,ThemeProvider.tsx,useTheme.ts}` — persists to `localStorage`, defaults to OS `prefers-color-scheme`, no reload on switch |
+| Closed base components (T021–T032) | `frontend/src/design-system/components/{Button,LoadingState,EmptyState,ErrorState,StatusBadge,ConfidenceIndicator,AiSignalBadge,EvidenceChip,Drawer,Dialog,Table,CommandPalette}/` |
+| Storybook stories + a11y (T033) | A `*.stories.tsx` file per component covering every defined state; `.storybook/preview.tsx` wraps every story in `ThemeProvider` with a light/dark toolbar toggle |
+| Shared utility | `frontend/src/design-system/lib/cn.ts` — `tailwind-merge` extended with this project's custom token class groups (see Real Issues below — this was not optional boilerplate) |
+| App wiring | `frontend/src/main.tsx` imports `globals.css` and mounts `ThemeProvider` around the existing minimal `Root` (router/query/auth wiring is explicitly T034+, not done) |
 
-All 156 application/API unit tests pass; full suite is 1709 passed / 1 pre-existing unrelated failure (see §5) / 1 skipped. `ruff`, `ruff format --check`, and `mypy` all clean on every changed file.
+### Real issues found and fixed during this phase (future maintainers should know these)
 
-### Blocker 2 — CSS/styling mechanism (RESOLVED: Tailwind v4 + CSS variables + shadcn/ui)
+1. **`tailwind-merge` silently dropped classes** — our custom `text-<type-scale-step>` (font-size, e.g. `text-caption`) and `text-<semantic-color>` (color, e.g. `text-text-on-brand`) utilities both share the bare `text-` prefix, which `tailwind-merge`'s default heuristics cannot tell apart from Tailwind's own built-in classes. Left unconfigured, it treated every `text-*` class as one conflicting group and kept only the last one — concretely, `Button`'s `size="sm"` variant was silently deleting the `primary` variant's `text-text-on-brand` color class. **This was caught for real by the Storybook `a11y` gate** (a genuine color-contrast violation, not a hypothetical one), not discovered by inspection. Fixed in `cn.ts` via `extendTailwindMerge`. **Any new component that introduces a new `text-*`-prefixed semantic token must add it to `cn.ts`'s `classGroups` config**, or risk the same silent-drop failure mode.
+2. **`cmdk`'s `<CommandList>` (`role="listbox"`) + built-in `<CommandEmpty>` (`role="presentation"`) violates `aria-required-children`** when `CommandEmpty` is the list's only child — a known upstream cmdk/axe friction point, also caught by the `a11y` gate. Fixed in `CommandPalette.tsx` by rendering the empty message as a non-interactive `role="option"` inside the always-mounted `<CommandList>` instead of using `<CommandEmpty>` — keeps `aria-controls` references intact (an initial fix attempt that unmounted `<CommandList>` entirely broke that reference; documented in the component's own comment so it isn't tried again).
+3. `ConfidenceIndicator`'s `role="meter"` needs an explicit `aria-label` in addition to `aria-valuetext` — axe's `aria-meter-name` rule.
+4. Two color-contrast token misses (`ErrorState`'s `<summary>`/`<pre>` at `text-tertiary` on the error-tinted background; measured 3.89:1, needs 4.5:1) — changed to `text-secondary`.
+5. `.storybook/preview.tsx` importing app-source modules (for the `ThemeProvider` decorator) needed `tsconfig.node.json` widened (path aliases, `DOM` lib, `vite/client` types, and `src/design-system/**` added to its `include`) — TypeScript's composite-project mode requires every file a project reaches via import to be a declared member of that project or a formally referenced one; `tsconfig.app.json` can't be a formal reference target because it has `noEmit: true`.
 
-Decision: **Tailwind CSS v4** + **CSS custom properties** for design tokens + **shadcn/ui** as the component foundation, customized to the MIL Design System (spec 003). This is now the project standard for all frontend styling going forward. **Not yet implemented** — Phase 2 (T011 onward) is where this becomes load-bearing, and Phase 2 has not started in this session (see §4).
+### Validation performed (this session)
+
+```
+npx tsc -b --noEmit          # clean
+npx eslint .                 # 0 errors (1 informational React-Compiler note on Table.tsx, expected/harmless)
+npx prettier --check .       # clean
+npx vitest run --project unit        # 1/1 passed
+npm run build                        # succeeds (CSS: 38.9KB, JS: 191KB)
+npx storybook build                  # succeeds
+npx vitest run --project storybook   # 47/47 passed, light theme (default) — zero a11y violations
+npx vitest run --project storybook   # 47/47 passed, dark theme (manually flipped initialGlobals, then reverted to light) — zero a11y violations
+npx playwright test --config=e2e/playwright.config.ts   # 3/3 passed (chromium, firefox, webkit)
+```
+
+Both themes independently pass the automated `a11y` gate with zero violations, per plan.md's Accessibility Strategy requirement that a theme's contrast conformance is never inferred from the other theme's result.
+
+**Design decisions made without a explicit spec value** (spec 003 deliberately leaves literal values unspecified — see its Assumptions section): the actual color hex values, the 8-step type scale's exact sizes, the spacing/radius/motion literal values, and the specific icon choices (`lucide-react`, matching shadcn/ui's own convention) were all invented in this session per 003's *structural* rules (two-tier token architecture, 3 structurally distinct color families, 8 type-scale steps, WCAG AA contrast, etc.). These are production values now, not placeholders, but are the kind of decision 003 explicitly defers to implementation — flagging this so a designer reviewing this work knows where to focus.
 
 ---
 
-## 3. Completed Work
+## 3. Exact Next Step
 
-### Phase 1: Setup — T001–T010, T126 (all complete, marked `[X]` in `tasks.md`)
+**Stop here for review, per explicit instruction.** Do not begin T034 until told to proceed.
 
-T001–T010 were completed in the prior session (see git diff / prior handoff content for details — legacy scaffold removal, TypeScript/ESLint/Prettier/Vite/Vitest/Storybook/Playwright/CI setup).
-
-**T126** (this session): `scripts/seed_large_dataset.py` — deterministic seed/fixture script for User Story 2's 100,000+-row queue testing.
-
-- Deterministic: single seeded `random.Random` (default seed `20260706`); same `--seed`/`--count` always produces byte-identical rows, including UUIDs.
-- Generates `core.applications` + `core.parties` rows directly via SQLAlchemy Core bulk `insert()` (not through `ApplicationService`/the aggregate — bulk fixture data doesn't need per-row domain-event/audit bookkeeping at this volume).
-- Realistic synthetic borrower names (fixed first/last name pools, no real individuals), 10-digit `loan_number`, sequential `LOS-NNNNNNN` references, a weighted status distribution (42% REVIEW_COMPLETE / 28% IN_REVIEW / 14% SUBMITTED / 8% DRAFT / 8% WITHDRAWN, matching a realistic live queue), and `created_at`/`updated_at` spread over the last ~180 days so the frontend's derived SLA-age indicator has a realistic range.
-- Seeds the dev-bearer identity user first (idempotent, reuses `mil.identity.dev_seed.seed_development_identity`) so `created_by` satisfies its FK.
-- CLI (`--count`, `--seed`, `--tenant-id`, `--created-by`, `--reset`) and an importable `run()` function, so it can be invoked standalone for manual QA or from Playwright global setup for T081/T082/T108.
-- **Smoke-tested against the local dev Postgres** in this session: migration applied (`alembic upgrade head`, 0010 → 0011), 500 rows seeded and verified (status distribution, names, loan numbers, timestamp spread all correct), `--reset` re-run confirmed idempotent, then cleaned up — the dev db was left exactly as found (6 pre-existing rows), per explicit confirmation before touching it.
-
-### Validation performed (backend, this session)
-
-```
-pytest tests/unit/application/ tests/unit/api/test_applications.py -q   # 156 passed
-pytest -q                                                                # 1709 passed, 1 pre-existing unrelated failure, 1 skipped
-ruff check <all changed files>                                           # clean
-ruff format --check <all changed files>                                 # clean
-mypy <all changed src files>                                             # clean
-mypy --explicit-package-bases scripts/seed_large_dataset.py             # clean (scripts/ isn't in Makefile's SRC_DIR scope; checked manually)
-alembic heads                                                            # 0011 (head) — chains cleanly from 0010
-```
-
-**Pre-existing, unrelated test failure** (not touched by this session's changes, reproduces in a clean environment): `tests/unit/kernel/test_config.py::TestProductionSafetyValidator::test_placeholder_secret_key_fails_in_production`.
-
-### Frontend validation (from the prior session, still the last-known-green state — no frontend code changed in this session)
-
-```
-npm run lint / format:check / typecheck / test / build   # all green
-npx storybook build                                       # succeeds
-npx playwright test                                        # 3/3 passed
-```
-
----
-
-## 4. Exact Next Step
-
-Phase 1 is fully complete. The next unit of work is **Phase 2 (Foundational)**, starting with T011–T019 (design tokens), now that the CSS mechanism decision (Tailwind v4 + CSS variables + shadcn/ui) is fixed. Per standing instruction, this session stopped at the end of Phase 1 for review before starting Phase 2 — nothing in Phase 2 has been implemented yet.
-
-1. Configure Tailwind v4 in the frontend build (`vite.config.ts` plugin, `tailwind.config` equivalent for v4's CSS-first config) and install shadcn/ui's foundation.
-2. T011–T019: define primitive/semantic/status/confidence/AI-signal color tokens, type scale, spacing, elevation, motion — as CSS custom properties consumed by Tailwind's `@theme` (v4) and re-exported as typed TS token objects where components need programmatic access.
-3. T020: `ThemeProvider` resolving light/dark.
-4. T021–T033: the closed base component set (Button, LoadingState, EmptyState, ErrorState, StatusBadge, ConfidenceIndicator, AiSignalBadge, EvidenceChip, Drawer, Dialog, Table, CommandPalette) built on shadcn/ui primitives, customized to the token set, each with Storybook stories passing the `a11y` gate.
-5. T034–T044, T127: app shell (httpClient, authProvider, queryClient, router, uiStore, error boundaries, telemetry, `createEntityQuery`, MSW handlers, UserMenu).
-6. Run full frontend validation (lint/format/typecheck/test/build/Storybook/Playwright) after Phase 2, before starting any User Story.
+Once approved, the next unit of work is **T034–T044 + T127** (app shell & cross-cutting infrastructure): HTTP client, auth abstraction, TanStack Query client, TanStack Router root route tree (composing Theme+Query+Router), Zustand UI store, three-tier error boundaries, telemetry module, the shared entity-query-hook convention, MSW handlers, and the persistent user-identity/sign-out control. This is the last Foundational work before any User Story (Phase 3+) can begin.
 
 No other work is in flight. This document plus `specs/002-underwriter-workspace/tasks.md` (source of truth for task-level status) are sufficient to resume from a cold start.
