@@ -68,6 +68,9 @@ export function FindingCard({
         <AiSignalBadge variant="signal" />
         <span className={cn('text-label font-medium', STATE_CLASS_NAME[finding.state])}>
           {STATE_LABEL[finding.state]}
+          {finding.state === 'escalated' && finding.escalatedToRole !== null && (
+            <> &mdash; {finding.escalatedToRole}</>
+          )}
         </span>
       </div>
 

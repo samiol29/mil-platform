@@ -35,6 +35,14 @@ httpClient.interceptors.request.use((config) => {
 });
 
 httpClient.interceptors.response.use((response) => {
+  // Binary responses (PdfRenderer's `responseType: 'arraybuffer'` document
+  // fetch) have no snake_case keys to convert — `camelCaseKeysDeep` would
+  // treat an `ArrayBuffer`/`Blob` as a plain object (its own enumerable
+  // properties are empty) and silently replace it with `{}`, corrupting
+  // the payload. Skip the transform entirely for these.
+  if (response.data instanceof ArrayBuffer || response.data instanceof Blob) {
+    return response;
+  }
   response.data = camelCaseKeysDeep(response.data);
   return response;
 });

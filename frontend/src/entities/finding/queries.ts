@@ -4,14 +4,8 @@
  * Confirmed writes only — no optimistic update, per this task's own
  * instruction and Constitution Principle I (a verification/override is a
  * human decision of record; the UI must reflect the server's confirmed
- * result, never an assumed one).
- *
- * **No `useEscalateFinding` hook exists here.** `POST /v1/findings/{id}
- * /escalate` does not exist on the backend yet (see `findings.py`'s module
- * docstring and `HANDOFF.md` for the full analysis) — a hook calling a
- * nonexistent endpoint would be exactly the kind of guessed, unreviewed
- * assumption this task was told to avoid. Add it here once that decision
- * is made and the endpoint exists.
+ * result, never an assumed one). `useEscalateFinding` follows the same
+ * confirmed-write pattern.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -71,6 +65,36 @@ export function useOverrideFinding(applicationId: string) {
         reason: input.reason,
         previous_value: input.previousValue,
         new_value: input.newValue,
+      });
+      return findingSchema.parse(response.data);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: findingsQueryKey(applicationId) });
+    },
+  });
+}
+
+export interface EscalateFindingInput {
+  readonly findingId: string;
+  readonly reason: string;
+  readonly targetRole: string;
+  readonly targetUserId?: string;
+}
+
+/**
+ * Escalate a finding to another role's (or, optionally, a specific
+ * person's) queue (spec 002 FR-054). Non-terminal on the server: the
+ * escalated finding remains resolvable via `useVerifyFinding`/
+ * `useOverrideFinding`, restricted server-side to the target role/person.
+ */
+export function useEscalateFinding(applicationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: EscalateFindingInput) => {
+      const response = await httpClient.post<unknown>(`/findings/${input.findingId}/escalate`, {
+        reason: input.reason,
+        target_role: input.targetRole,
+        target_user_id: input.targetUserId ?? null,
       });
       return findingSchema.parse(response.data);
     },

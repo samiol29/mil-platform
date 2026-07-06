@@ -20,9 +20,24 @@
  * `extractionModelVersion`) — data-model.md's guessed name predates this
  * endpoint's implementation; Constitution Principle VII requires matching
  * the real backend name, not a pre-implementation guess.
+ *
+ * `fieldLocation.boundingBox` matches `mil.kernel.providers.extraction
+ * .FieldLocation.bounding_box` exactly: an `[x, y, width, height]` tuple,
+ * each a fraction of the page's dimensions in `[0.0, 1.0]` — not pixels,
+ * so it is independent of zoom/render scale (tasks.md T065's coordinate
+ * mapping only has to place it, never rescale it against a stored pixel
+ * size).
  */
 
 import { z } from 'zod';
+
+export const fieldLocationSchema = z.object({
+  pageNumber: z.number().int().positive(),
+  fieldName: z.string(),
+  boundingBox: z.tuple([z.number(), z.number(), z.number(), z.number()]).nullable(),
+});
+
+export type FieldLocation = z.infer<typeof fieldLocationSchema>;
 
 export const evidenceItemSchema = z.object({
   id: z.uuid(),
@@ -34,7 +49,7 @@ export const evidenceItemSchema = z.object({
   valueNumeric: z.string().nullable(),
   currency: z.string().nullable(),
   pageNumber: z.number().int().positive().nullable(),
-  fieldLocation: z.record(z.string(), z.unknown()).nullable(),
+  fieldLocation: fieldLocationSchema.nullable(),
   confidence: z.enum(['high', 'medium', 'low']),
   extractionMethod: z.string(),
   extractionModelVersion: z.string(),

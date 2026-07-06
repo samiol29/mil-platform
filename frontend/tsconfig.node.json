@@ -45,6 +45,7 @@
     ".storybook/**/*.tsx",
     "e2e/**/*.ts",
     "src/design-system/**/*.ts",
-    "src/design-system/**/*.tsx"
+    "src/design-system/**/*.tsx",
+    "src/test/msw/**/*.ts"
   ]
 }

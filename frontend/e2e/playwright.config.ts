@@ -20,7 +20,10 @@ export default defineConfig({
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
   webServer: {
+    // MSW (not a real backend) so these specs are deterministic and don't
+    // require a running API/database — see src/test/msw/handlers.ts.
     command: 'npm run dev',
+    env: { VITE_USE_MSW: 'true' },
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     cwd: '..',

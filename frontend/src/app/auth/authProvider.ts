@@ -40,10 +40,26 @@ const DEV_USER: AuthenticatedUser = {
   roles: ['ADMIN'],
 };
 
+/**
+ * Dev/E2E-only role override via `?devRole=`, e.g. `?devRole=AUDIT_TEAM` —
+ * lets Playwright (`e2e/application-workspace-readonly.spec.ts`, tasks.md
+ * T129) exercise the auditor/compliance read-only view deterministically,
+ * without a real multi-role login flow (out of scope until the production
+ * IdentityProvider, per this module's own docstring). `import.meta.env.DEV`
+ * (Vite's built-in flag, false in a production build) keeps this out of
+ * shipped bundles entirely — it is not a runtime feature flag.
+ */
+function initialDevUser(): AuthenticatedUser {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return DEV_USER;
+  const devRole = new URLSearchParams(window.location.search).get('devRole');
+  if (devRole === null) return DEV_USER;
+  return { ...DEV_USER, displayName: `Dev (${devRole})`, roles: [devRole] };
+}
+
 type Listener = () => void;
 
 let currentToken: string | null = DEV_BEARER_TOKEN;
-let currentUser: AuthenticatedUser | null = DEV_USER;
+let currentUser: AuthenticatedUser | null = initialDevUser();
 const listeners = new Set<Listener>();
 
 function notify(): void {

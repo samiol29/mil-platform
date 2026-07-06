@@ -89,11 +89,12 @@ from mil.identity.provider import (
     populate_authenticated_user,
 )
 from mil.kernel.config import Settings
-from mil.kernel.errors import AuthenticationError, NotFoundError
+from mil.kernel.errors import AuthenticationError, AuthorizationError, NotFoundError
 from mil.kernel.providers.storage import StorageProvider
-from mil.kernel.security import AuthenticatedUser
+from mil.kernel.security import AuthenticatedUser, Permission, require_permission
 from mil.kernel.types import UserId
 from mil.policy.repository import PolicyRepository
+from mil.review.models import ESCALATED
 from mil.review.repository import ReviewRepository
 from mil.review.service import ReviewService
 
@@ -554,6 +555,10 @@ class FindingReviewActions:
         session = self._reviews.get_session_for_finding(finding_id)
         return session.status if session is not None else None
 
+    def get_review_session(self, finding_id: UUID) -> ReviewSession | None:
+        """Return the Review Session for a Finding, or ``None`` if none exists yet."""
+        return self._reviews.get_session_for_finding(finding_id)
+
     def policy_version_for(self, finding_id: UUID) -> str | None:
         """Return the most recent Policy evaluation's version for a Finding, if any."""
         results = self._policy.get_for_finding(finding_id)
@@ -561,28 +566,89 @@ class FindingReviewActions:
             return None
         return max(results, key=lambda r: r.created_at).policy_version
 
-    def verify(self, finding_id: UUID, *, actor_user_id: UUID) -> ReviewSession:
+    def _authorize_resolution(self, user: AuthenticatedUser, session: ReviewSession) -> None:
+        """
+        Enforce the escalation-ownership rule when resolving (verify,
+        override, or reject) a session currently in ``ESCALATED`` status.
+
+        Per the approved design: a session escalated to a specific person
+        (``escalated_to_user_id`` set) may only be resolved by that person;
+        otherwise it may be resolved by any holder of ``VERIFY_FINDING``/
+        ``OVERRIDE_FINDING`` whose roles include ``escalated_to_role``. A
+        session that is *not* currently escalated has no extra restriction
+        beyond the base ``VERIFY_FINDING``/``OVERRIDE_FINDING`` permission
+        check the caller already performed.
+        """
+        if session.status != ESCALATED:
+            return
+
+        if session.escalated_to_user_id is not None:
+            if user.user_id != session.escalated_to_user_id:
+                raise AuthorizationError(
+                    "This finding was escalated to a specific reviewer; only they may resolve it."
+                )
+            return
+
+        if session.escalated_to_role is not None and session.escalated_to_role not in user.roles:
+            raise AuthorizationError(
+                f"This finding was escalated to the {session.escalated_to_role} role."
+            )
+
+    def verify(self, user: AuthenticatedUser, finding_id: UUID) -> ReviewSession:
         """Approve the finding under review (spec 002 FR-033-034, FR-052)."""
+        require_permission(user, Permission.VERIFY_FINDING)
         session = self.get_review_session_or_404(finding_id)
-        return self._review_service.approve_finding(session, actor_user_id=actor_user_id)
+        self._authorize_resolution(user, session)
+        return self._review_service.approve_finding(session, actor_user_id=user.user_id)
 
     def override(
         self,
+        user: AuthenticatedUser,
         finding_id: UUID,
         *,
-        actor_user_id: UUID,
         reason: str,
         previous_value: str,
         new_value: str,
     ) -> ReviewSession:
         """Override the finding under review (spec 002 FR-033-034, FR-052-053)."""
+        require_permission(user, Permission.OVERRIDE_FINDING)
         session = self.get_review_session_or_404(finding_id)
+        self._authorize_resolution(user, session)
         return self._review_service.override_finding(
             session,
-            actor_user_id=actor_user_id,
+            actor_user_id=user.user_id,
             reason=reason,
             previous_value=previous_value,
             new_value=new_value,
+        )
+
+    def escalate(
+        self,
+        user: AuthenticatedUser,
+        finding_id: UUID,
+        *,
+        reason: str,
+        target_role: str,
+        target_user_id: UUID | None = None,
+    ) -> ReviewSession:
+        """
+        Escalate the finding under review to another role's (or, when
+        provided, a specific person's) queue (spec 002 FR-054).
+
+        Unlike ``verify``/``override``, escalating never requires the
+        escalation-ownership check: any holder of ``ESCALATE_FINDING`` may
+        escalate a finding they currently hold, including re-escalating one
+        already escalated to someone else (module docstring: ``ESCALATED ->
+        ESCALATED`` is a valid transition).
+        """
+        require_permission(user, Permission.ESCALATE_FINDING)
+        session = self.get_review_session_or_404(finding_id)
+        return self._review_service.escalate_finding(
+            session,
+            actor_user_id=user.user_id,
+            reason=reason,
+            target_role=target_role,
+            target_user_id=target_user_id,
         )
 
 

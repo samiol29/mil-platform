@@ -5,20 +5,19 @@ Endpoints:
     GET  /v1/applications/{application_id}/findings   List findings for an application
     POST /v1/findings/{finding_id}/verify              Verify (approve) a finding
     POST /v1/findings/{finding_id}/override             Override a finding
+    POST /v1/findings/{finding_id}/escalate             Escalate a finding to another role
 
 Route handlers are intentionally thin: delegate to ``FindingService`` /
 ``FindingReviewActions``, map the result to a response schema, return it.
 
-**Escalation is deliberately not implemented here.** Spec 002 FR-054
-requires a third action, escalation, alongside verify/override — but no
-backend domain logic for it exists yet (the Review bounded context's own
-module docstring states escalation is "out of scope for this sprint," and
-defines no corresponding ``ReviewStatus``, action type, or transition rule).
-Implementing it requires a genuine state-machine design decision (what does
-"escalate" transition to, does it close the review or leave it open for
-reassignment, how is a target role recorded and attributed) that is not
-this router's call to make unilaterally. See ``HANDOFF.md`` for the full
-analysis and the concrete options presented for that decision.
+**Escalation** (spec 002 FR-054) was implemented after a focused domain-design
+review (see ``HANDOFF.md``): ``ESCALATED`` is a non-terminal Review Session
+status that transfers ownership to another role's (or, optionally, a
+specific person's) queue; the existing verify/override actions resolve it —
+there is no separate "resolve escalation" action or bounded context.
+``FindingReviewActions._authorize_resolution`` enforces that only a holder
+of the target role (or the specifically assigned person, when one is set)
+may resolve an escalated finding.
 
 Dependency rule: imports from ``mil.api.deps``, ``mil.api.v1.schemas``,
 ``mil.kernel.types``, FastAPI, and the Python standard library only.
@@ -35,26 +34,28 @@ from mil.api.deps import (  # noqa: TC001
     FindingReviewActionsDep,
     FindingServiceDep,
 )
-from mil.api.v1.schemas import FindingResponse, OverrideFindingRequest
+from mil.api.v1.schemas import EscalateFindingRequest, FindingResponse, OverrideFindingRequest
 from mil.kernel.errors import NotFoundError
-from mil.kernel.types import ApplicationId, FindingId, UserId
+from mil.kernel.types import ApplicationId, FindingId
 
 router = APIRouter(tags=["Findings"])
 
 _VERIFIED_STATUS = "APPROVED"
 _OVERRIDDEN_STATUS = "OVERRIDDEN"
+_ESCALATED_STATUS = "ESCALATED"
 
 
 def _finding_state(review_status: str | None) -> str:
     """
     Map a Review Session status onto the Underwriter Workspace's Finding
     lifecycle vocabulary (spec 002 data-model.md: unreviewed / verified /
-    overridden). No session yet, or a non-terminal status, maps to
-    ``"unreviewed"``. A ``REJECTED`` session status — a real Review Session
-    state with no defined Underwriter Workspace equivalent, see
-    ``HANDOFF.md`` — deliberately falls back to ``"unreviewed"`` rather
-    than ``"verified"``/``"overridden"``: the conservative failure mode for
-    a compliance-sensitive review state is to keep a finding visibly in the
+    overridden / escalated). No session yet, or a non-terminal
+    (``PENDING_REVIEW``/``IN_REVIEW``) status, maps to ``"unreviewed"``. A
+    ``REJECTED`` session status — a real Review Session state with no
+    defined Underwriter Workspace equivalent, see ``HANDOFF.md`` —
+    deliberately falls back to ``"unreviewed"`` rather than
+    ``"verified"``/``"overridden"``: the conservative failure mode for a
+    compliance-sensitive review state is to keep a finding visibly in the
     reviewer's queue, never to imply a resolution that did not happen
     through this workspace.
     """
@@ -62,6 +63,8 @@ def _finding_state(review_status: str | None) -> str:
         return "verified"
     if review_status == _OVERRIDDEN_STATUS:
         return "overridden"
+    if review_status == _ESCALATED_STATUS:
+        return "escalated"
     return "unreviewed"
 
 
@@ -89,14 +92,19 @@ def list_findings(
 ) -> list[FindingResponse]:
     """Return all findings for an application, with resolved state and policy attribution."""
     findings = service.list_for_application(user, application_id=ApplicationId(application_id))
-    return [
-        FindingResponse.from_model(
-            finding,
-            state=_finding_state(actions.get_review_status(finding.id)),
-            policy_version=actions.policy_version_for(finding.id),
+    responses = []
+    for finding in findings:
+        session = actions.get_review_session(finding.id)
+        responses.append(
+            FindingResponse.from_model(
+                finding,
+                state=_finding_state(session.status if session is not None else None),
+                policy_version=actions.policy_version_for(finding.id),
+                escalated_to_role=session.escalated_to_role if session is not None else None,
+                escalated_to_user_id=session.escalated_to_user_id if session is not None else None,
+            )
         )
-        for finding in findings
-    ]
+    return responses
 
 
 @router.post(
@@ -127,11 +135,13 @@ def verify_finding(
     if finding is None:
         raise NotFoundError("Finding", finding_id)
 
-    session = actions.verify(finding_id, actor_user_id=UserId(user.user_id))
+    session = actions.verify(user, finding_id)
     return FindingResponse.from_model(
         finding,
         state=_finding_state(session.status),
         policy_version=actions.policy_version_for(finding_id),
+        escalated_to_role=session.escalated_to_role,
+        escalated_to_user_id=session.escalated_to_user_id,
     )
 
 
@@ -165,8 +175,8 @@ def override_finding(
         raise NotFoundError("Finding", finding_id)
 
     session = actions.override(
+        user,
         finding_id,
-        actor_user_id=UserId(user.user_id),
         reason=body.reason,
         previous_value=body.previous_value,
         new_value=body.new_value,
@@ -175,4 +185,52 @@ def override_finding(
         finding,
         state=_finding_state(session.status),
         policy_version=actions.policy_version_for(finding_id),
+        escalated_to_role=session.escalated_to_role,
+        escalated_to_user_id=session.escalated_to_user_id,
+    )
+
+
+@router.post(
+    "/v1/findings/{finding_id}/escalate",
+    summary="Escalate a finding",
+    description=(
+        "Escalate a finding to another role's (or, optionally, a specific "
+        "person's) queue, requiring a non-empty reason (spec 002 FR-054). "
+        "Non-terminal: the escalated finding is resolved by the existing "
+        "verify/override actions, restricted to the target role (or "
+        "person). Requires ``escalate:finding`` permission."
+    ),
+    response_model=FindingResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Finding or its Review Session not found"},
+        422: {"description": "Missing reason/target role, or an invalid Review Session state"},
+    },
+)
+def escalate_finding(
+    finding_id: UUID,
+    body: EscalateFindingRequest,
+    user: CurrentUser,
+    service: FindingServiceDep,
+    actions: FindingReviewActionsDep,
+) -> FindingResponse:
+    """Escalate the finding under review to another role's queue."""
+    finding = service.get_by_id(user, finding_id=FindingId(finding_id))
+    if finding is None:
+        raise NotFoundError("Finding", finding_id)
+
+    session = actions.escalate(
+        user,
+        finding_id,
+        reason=body.reason,
+        target_role=body.target_role,
+        target_user_id=body.target_user_id,
+    )
+    return FindingResponse.from_model(
+        finding,
+        state=_finding_state(session.status),
+        policy_version=actions.policy_version_for(finding_id),
+        escalated_to_role=session.escalated_to_role,
+        escalated_to_user_id=session.escalated_to_user_id,
     )

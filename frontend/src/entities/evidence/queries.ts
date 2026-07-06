@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { STALE_TIME } from '@app/queryClient';
 import { httpClient } from '@app/auth/httpClient';
 
-import { evidenceItemSchema, type EvidenceItem } from './types';
+import { evidenceItemSchema, type EvidenceItem, type FieldLocation } from './types';
 
 /**
  * List every evidence item for an application.
@@ -28,4 +28,4 @@ export function useEvidenceForApplication(applicationId: string) {
   });
 }
 
-export type { EvidenceItem };
+export type { EvidenceItem, FieldLocation };

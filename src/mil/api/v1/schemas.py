@@ -301,6 +301,8 @@ class FindingResponse(BaseModel):
     prompt_version: str
     extraction_version: str
     policy_version: str | None = None
+    escalated_to_role: str | None = None
+    escalated_to_user_id: UUID | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=False)
@@ -312,6 +314,8 @@ class FindingResponse(BaseModel):
         *,
         state: str,
         policy_version: str | None,
+        escalated_to_role: str | None = None,
+        escalated_to_user_id: UUID | None = None,
     ) -> FindingResponse:
         return cls(
             id=finding.id,
@@ -326,6 +330,8 @@ class FindingResponse(BaseModel):
             prompt_version=finding.prompt_version,
             extraction_version=finding.extraction_version,
             policy_version=policy_version,
+            escalated_to_role=escalated_to_role,
+            escalated_to_user_id=escalated_to_user_id,
             created_at=finding.created_at,
         )
 
@@ -340,6 +346,19 @@ class OverrideFindingRequest(BaseModel):
     reason: str = Field(description="Why the finding is being overridden.", min_length=1)
     previous_value: str = Field(description="The finding's value before this override.")
     new_value: str = Field(description="The corrected value.", min_length=1)
+
+
+class EscalateFindingRequest(BaseModel):
+    """Request body for POST /v1/findings/{id}/escalate (spec 002 FR-054)."""
+
+    reason: str = Field(description="Why the finding is being escalated.", min_length=1)
+    target_role: str = Field(
+        description="The role this finding is being escalated to.", min_length=1
+    )
+    target_user_id: UUID | None = Field(
+        default=None,
+        description="Reserved for a future direct-assignment refinement; NULL means any holder of target_role.",
+    )
 
 
 # ---------------------------------------------------------------------------

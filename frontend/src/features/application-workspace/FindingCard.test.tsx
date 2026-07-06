@@ -6,12 +6,12 @@ import type { Finding } from '@entities/finding/queries';
 
 import { FindingCard } from './FindingCard';
 
-const EVIDENCE_ID = '33333333-3333-3333-3333-333333333333';
+const EVIDENCE_ID = '33333333-3333-3333-a333-333333333333';
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
-    id: '44444444-4444-4444-4444-444444444444',
-    applicationId: '11111111-1111-1111-1111-111111111111',
+    id: '44444444-4444-4444-a444-444444444444',
+    applicationId: '11111111-1111-1111-a111-111111111111',
     what: 'Reported income does not match the pay stub on file.',
     why: 'The application states $6,500/month; the extracted value is $6,200/month.',
     evidenceRefs: [EVIDENCE_ID],
@@ -22,6 +22,8 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
     promptVersion: 'finding-v3',
     extractionVersion: '2026.06.1',
     policyVersion: 'policy-pack-2026.2',
+    escalatedToRole: null,
+    escalatedToUserId: null,
     createdAt: '2026-06-21T10:15:00Z',
     ...overrides,
   };
@@ -30,8 +32,8 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
 function makeEvidenceItem(overrides: Partial<EvidenceItem> = {}): EvidenceItem {
   return {
     id: EVIDENCE_ID,
-    applicationId: '11111111-1111-1111-1111-111111111111',
-    documentId: '22222222-2222-2222-2222-222222222222',
+    applicationId: '11111111-1111-1111-a111-111111111111',
+    documentId: '22222222-2222-2222-a222-222222222222',
     partyId: null,
     evidenceType: 'gross_monthly_income',
     valueText: '6200.00',
@@ -108,5 +110,17 @@ describe('FindingCard', () => {
       />,
     );
     expect(screen.getByRole('button', { name: 'Verify' })).toBeInTheDocument();
+  });
+
+  it('shows the target role for an escalated finding', () => {
+    render(
+      <FindingCard
+        finding={makeFinding({ state: 'escalated', escalatedToRole: 'COMPLIANCE_OFFICER' })}
+        evidenceItems={[makeEvidenceItem()]}
+        onEvidenceChipActivate={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Escalated/)).toBeInTheDocument();
+    expect(screen.getByText(/COMPLIANCE_OFFICER/)).toBeInTheDocument();
   });
 });

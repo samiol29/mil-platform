@@ -27,7 +27,13 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from mil.review.models import TERMINAL_STATUSES, ReviewAction, ReviewComment, ReviewSession
+from mil.review.models import (
+    ESCALATED,
+    TERMINAL_STATUSES,
+    ReviewAction,
+    ReviewComment,
+    ReviewSession,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -79,6 +85,26 @@ class ReviewRepository:
                 ReviewSession.status.not_in(TERMINAL_STATUSES),
             )
             .order_by(ReviewSession.created_at.asc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def get_escalated_for_role(self, tenant_id: UUID, role: str) -> list[ReviewSession]:
+        """
+        Return every Review Session currently escalated to ``role``, oldest
+        first — the target role's escalation queue.
+
+        Not yet wired to an HTTP endpoint (queue endpoints are User Story 2);
+        provided now so the data-level "escalation places it into the target
+        role's queue" effect is actually queryable once that endpoint exists.
+        """
+        stmt = (
+            select(ReviewSession)
+            .where(
+                ReviewSession.tenant_id == tenant_id,
+                ReviewSession.status == ESCALATED,
+                ReviewSession.escalated_to_role == role,
+            )
+            .order_by(ReviewSession.updated_at.asc())
         )
         return list(self._session.scalars(stmt))
 

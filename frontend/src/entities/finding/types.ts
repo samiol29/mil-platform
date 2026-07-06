@@ -15,11 +15,10 @@
  * may exist yet for a given finding, a real and expected state, distinct
  * from a missing/broken attribution chain.
  *
- * `state` includes `"escalated"` at the type level, per data-model.md,
- * even though the backend cannot produce it yet — see HANDOFF.md for the
- * open question on the Finding lifecycle's escalate action. The type is
- * written to the spec's eventual shape; only the escalate mutation
- * (tasks.md T059) is withheld pending that decision.
+ * `state` includes `"escalated"` (spec 002 FR-053/FR-054) — a real,
+ * producible state as of the approved Review/Escalation domain-design
+ * (see HANDOFF.md): `escalatedToRole`/`escalatedToUserId` are non-null
+ * exactly when `state === "escalated"`.
  */
 
 import { z } from 'zod';
@@ -37,6 +36,8 @@ export const findingSchema = z.object({
   promptVersion: z.string().min(1),
   extractionVersion: z.string().min(1),
   policyVersion: z.string().nullable(),
+  escalatedToRole: z.string().nullable(),
+  escalatedToUserId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
 });
 

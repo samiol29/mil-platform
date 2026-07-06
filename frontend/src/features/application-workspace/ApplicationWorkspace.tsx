@@ -14,19 +14,23 @@
  * tab that does nothing would be exactly the placeholder UI this session
  * was told to avoid.
  *
- * The Document Viewer region renders `PdfRenderer` only (tasks.md T064) —
- * page navigation and the evidence-highlight overlay are T065/T066,
- * explicitly out of scope for this session.
+ * The Document Viewer region renders `DocumentViewer` (tasks.md T064–T066):
+ * PDF rendering, page/zoom navigation, and the evidence-highlight overlay.
+ * Clicking an evidence chip in the Findings region switches to the
+ * Documents region and jumps the viewer directly to that evidence's page
+ * and highlight (FR-039) — `jumpTarget` is lifted to this component since
+ * it coordinates between the two regions.
  */
+
+import { useState } from 'react';
 
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { LoadingState } from '@design-system/components/LoadingState';
 import { useApplication } from '@entities/application/queries';
-import { useDocumentsForApplication } from '@entities/document/queries';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
-import { PdfRenderer } from '@features/document-viewer/PdfRenderer';
+import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { AuditTimeline } from './AuditTimeline';
@@ -50,6 +54,7 @@ export function ApplicationWorkspace({
   readOnly = false,
 }: ApplicationWorkspaceProps) {
   const applicationQuery = useApplication(applicationId);
+  const [jumpTarget, setJumpTarget] = useState<DocumentJumpTarget | null>(null);
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -110,7 +115,14 @@ export function ApplicationWorkspace({
 
           {region === 'findings' && (
             <PanelErrorBoundary panelName="Findings">
-              <FindingsRegion applicationId={applicationId} readOnly={readOnly} />
+              <FindingsRegion
+                applicationId={applicationId}
+                readOnly={readOnly}
+                onEvidenceChipActivate={(jump) => {
+                  setJumpTarget(jump);
+                  onRegionChange('documents');
+                }}
+              />
             </PanelErrorBoundary>
           )}
 
@@ -122,7 +134,7 @@ export function ApplicationWorkspace({
 
           {region === 'documents' && (
             <PanelErrorBoundary panelName="Documents">
-              <DocumentsRegion applicationId={applicationId} />
+              <DocumentViewer applicationId={applicationId} jumpTarget={jumpTarget} />
             </PanelErrorBoundary>
           )}
         </>
@@ -131,7 +143,15 @@ export function ApplicationWorkspace({
   );
 }
 
-function FindingsRegion({ applicationId, readOnly }: { applicationId: string; readOnly: boolean }) {
+function FindingsRegion({
+  applicationId,
+  readOnly,
+  onEvidenceChipActivate,
+}: {
+  applicationId: string;
+  readOnly: boolean;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
+}) {
   const findingsQuery = useFindingsForApplication(applicationId);
   const evidenceQuery = useEvidenceForApplication(applicationId);
 
@@ -164,9 +184,13 @@ function FindingsRegion({ applicationId, readOnly }: { applicationId: string; re
           key={finding.id}
           finding={finding}
           evidenceItems={evidenceItems}
-          onEvidenceChipActivate={() => {
-            // Navigating to the evidence item's exact source location is
-            // tasks.md T065/T066 (out of scope this session).
+          onEvidenceChipActivate={(item) => {
+            onEvidenceChipActivate({
+              documentId: item.documentId,
+              pageNumber: item.pageNumber ?? 1,
+              boundingBox: item.fieldLocation?.boundingBox ?? null,
+              label: item.evidenceType,
+            });
           }}
           actions={
             readOnly ? undefined : (
@@ -208,41 +232,6 @@ function EvidenceRegion({ applicationId }: { applicationId: string }) {
           <span className="text-body-emphasis text-text-primary">
             {item.valueText ?? item.valueNumeric ?? '—'}
           </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function DocumentsRegion({ applicationId }: { applicationId: string }) {
-  const documentsQuery = useDocumentsForApplication(applicationId);
-
-  if (documentsQuery.isPending) return <LoadingState label="Loading documents…" />;
-  if (documentsQuery.isError) {
-    return (
-      <ErrorState
-        title="Could not load documents"
-        onRetry={() => {
-          void documentsQuery.refetch();
-        }}
-      />
-    );
-  }
-  if (documentsQuery.data.length === 0) {
-    return <EmptyState title="No documents uploaded yet" />;
-  }
-
-  return (
-    <ul className="flex flex-col gap-4">
-      {documentsQuery.data.map((doc) => (
-        <li key={doc.id} className="border-border-subtle rounded-container border p-4">
-          <p className="text-body-emphasis text-text-primary">{doc.filename}</p>
-          <p className="text-caption text-text-secondary">{doc.ingestionStatus}</p>
-          {doc.ingestionStatus === 'COMPLETED' && (
-            <div className="mt-3">
-              <PdfRenderer applicationId={applicationId} documentId={doc.id} />
-            </div>
-          )}
         </li>
       ))}
     </ul>
