@@ -81,7 +81,7 @@ from mil.orchestrator.retry import (
 from mil.outbox.repository import OutboxRepository
 from mil.policy.repository import PolicyRepository
 from mil.policy.service import PolicyService
-from workers.bootstrap import build_worker_context, process_next
+from workers.bootstrap import build_worker_context, process_next, run_forever
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -230,7 +230,7 @@ class PolicyJobProcessor:
 
         # Success: persist the immutable PolicyResult, complete the step (and
         # run, since POLICY is the last planned step), publish.
-        policy_result = self._c.policy.record_policy_result(
+        policy_result, created = self._c.policy.record_policy_result(
             finding_id=finding_id,
             application_id=application_id,
             tenant_id=tenant_id,
@@ -242,17 +242,21 @@ class PolicyJobProcessor:
         if _is_last_step(run, step):
             run.mark_completed()
         self._c.workflows.save(run)
-        self._c.outbox.add(
-            PolicyEvaluated(
-                tenant_id=TenantId(tenant_id),
-                finding_id=FindingId(finding_id),
-                application_id=ApplicationId(application_id),
-                policy_pack_id=PolicyPackId(active_pack.id),
-                policy_version=policy_result.policy_version,
-                outcome=policy_result.outcome,
-                correlation_id=correlation_id,
+        if created:
+            # Lost a race against another worker otherwise (ADR-008 §5): the
+            # audit event and PolicyEvaluated were already published by
+            # whichever worker actually committed the result.
+            self._c.outbox.add(
+                PolicyEvaluated(
+                    tenant_id=TenantId(tenant_id),
+                    finding_id=FindingId(finding_id),
+                    application_id=ApplicationId(application_id),
+                    policy_pack_id=PolicyPackId(active_pack.id),
+                    policy_version=policy_result.policy_version,
+                    outcome=policy_result.outcome,
+                    correlation_id=correlation_id,
+                )
             )
-        )
         self._dispatch_next_step(
             run=run,
             completed_step=step,
@@ -508,8 +512,7 @@ def main() -> None:  # pragma: no cover - process entry point
     """
     ctx = build_worker_context()
     handler = make_policy_handler(ctx.container)
-    while True:
-        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=POLICY_STEP_NAME)
+    run_forever(ctx, handler, job_type=POLICY_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":  # pragma: no cover

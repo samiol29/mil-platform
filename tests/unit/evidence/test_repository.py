@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
+
 from mil.evidence.models import EvidenceItem
 from mil.evidence.repository import EvidenceRepository
 from mil.kernel.providers.extraction import EvidenceAttributes
@@ -53,6 +55,28 @@ class TestSave:
         repo, session = _make_repo()
         repo.save(_item())
         session.commit.assert_not_called()
+
+
+class TestSaveIfNotExists:
+    def test_returns_true_and_adds_on_success(self) -> None:
+        repo, session = _make_repo()
+        # A real `session.begin_nested()` (SAVEPOINT) used as a context
+        # manager does not suppress exceptions on `__exit__` (it rolls back
+        # and re-raises); the default MagicMock `__exit__` return value is
+        # truthy, which would incorrectly *suppress* an exception, so it
+        # must be forced to `False` to faithfully emulate that behavior.
+        session.begin_nested.return_value.__exit__.return_value = False
+        item = _item()
+        assert repo.save_if_not_exists(item) is True
+        session.add.assert_called_once_with(item)
+        session.flush.assert_called_once()
+
+    def test_returns_false_on_integrity_error_without_raising(self) -> None:
+        repo, session = _make_repo()
+        session.begin_nested.return_value.__exit__.return_value = False
+        session.flush.side_effect = IntegrityError("INSERT", {}, Exception("duplicate key"))
+        # Must not raise: ADR-008 §5 treats this as proof of a prior commit.
+        assert repo.save_if_not_exists(_item()) is False
 
 
 class TestExistsForDocumentAndVersion:

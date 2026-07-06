@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from mil.review.models import (
     ESCALATED,
@@ -55,6 +56,33 @@ class ReviewRepository:
         """Persist a Review Session (create or update). Adds and flushes."""
         self._session.add(review_session)
         self._session.flush()
+
+    def create_session_if_not_exists(self, review_session: ReviewSession) -> bool:
+        """
+        Persist a brand-new Review Session, treating a uniqueness violation
+        (a session already exists for this Finding) as proof one was already
+        committed by a prior attempt (ADR-008 §5) rather than an error — the
+        authoritative fallback beneath ``exists_for_finding``'s read-then-write
+        check, which alone is subject to a race between concurrent workers.
+        Isolated with a SAVEPOINT (``session.begin_nested``) so a collision
+        here cannot poison the caller's per-job Unit of Work.
+
+        Only for the *create* path (``ReviewService.start_review``) — every
+        subsequent status transition on an existing session goes through
+        ``save_session`` as an ordinary update, which cannot violate this
+        constraint (``finding_id`` never changes after creation).
+
+        Returns:
+            ``True`` if this call newly persisted the session, ``False`` if
+            one already existed (a replay no-op).
+        """
+        try:
+            with self._session.begin_nested():
+                self._session.add(review_session)
+                self._session.flush()
+        except IntegrityError:
+            return False
+        return True
 
     def get_session_by_id(self, review_session_id: UUID) -> ReviewSession | None:
         """Return the Review Session with the given id, or ``None``."""

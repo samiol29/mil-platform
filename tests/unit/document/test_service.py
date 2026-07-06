@@ -12,7 +12,7 @@ import pytest
 from mil.document.models import Document, IngestionStatus
 from mil.document.repository import DocumentRepository
 from mil.document.service import DocumentService
-from mil.kernel.errors import AuthorizationError, NotFoundError, ValidationError
+from mil.kernel.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from mil.kernel.event_bus import EventBus
 from mil.kernel.events import DocumentIngested
 from mil.kernel.providers.storage import StorageProvider, StorageReference
@@ -64,6 +64,7 @@ def _make_service() -> tuple[DocumentService, MagicMock, MagicMock, MagicMock]:
     storage = MagicMock(spec=StorageProvider)
     event_bus = MagicMock(spec=EventBus)
     storage.store.return_value = _make_storage_reference()
+    repo.get_by_application_and_hash.return_value = None
     return DocumentService(repo, storage, event_bus), repo, storage, event_bus
 
 
@@ -298,6 +299,93 @@ class TestIngestDocumentRBAC:
 # ---------------------------------------------------------------------------
 # ingest_document — validation
 # ---------------------------------------------------------------------------
+
+
+class TestIngestDocumentDuplicateDetection:
+    """
+    A real gap found via live end-to-end testing: without this check,
+    re-uploading the same file bytes to the same application created a
+    second ``Document`` row with its own ``document_id`` — the pipeline's
+    replay-safety (keyed on ``document_id``, not content) never recognized
+    it as a duplicate, so OCR and Extraction ran again and doubled the
+    application's evidence pool.
+    """
+
+    def test_raises_conflict_for_byte_identical_reupload(self) -> None:
+        service, repo, _, _ = _make_service()
+        application_id = uuid4()
+        existing = Document.create(
+            tenant_id=uuid4(),
+            application_id=application_id,
+            uploaded_by=uuid4(),
+            original_filename="payslip.pdf",
+            mime_type="application/pdf",
+            size_bytes=len(_SAMPLE_CONTENT),
+            content_hash=_SAMPLE_HASH,
+            storage_reference=_SAMPLE_REFERENCE,
+        )
+        repo.get_by_application_and_hash.return_value = existing
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        with pytest.raises(ConflictError):
+            service.ingest_document(
+                user,
+                application_id=application_id,
+                content=_SAMPLE_CONTENT,
+                original_filename="payslip-again.pdf",
+                mime_type="application/pdf",
+            )
+
+    def test_does_not_call_storage_or_publish_event_on_duplicate(self) -> None:
+        service, repo, storage, event_bus = _make_service()
+        application_id = uuid4()
+        existing = Document.create(
+            tenant_id=uuid4(),
+            application_id=application_id,
+            uploaded_by=uuid4(),
+            original_filename="payslip.pdf",
+            mime_type="application/pdf",
+            size_bytes=len(_SAMPLE_CONTENT),
+            content_hash=_SAMPLE_HASH,
+            storage_reference=_SAMPLE_REFERENCE,
+        )
+        repo.get_by_application_and_hash.return_value = existing
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        with pytest.raises(ConflictError):
+            service.ingest_document(
+                user,
+                application_id=application_id,
+                content=_SAMPLE_CONTENT,
+                original_filename="payslip-again.pdf",
+                mime_type="application/pdf",
+            )
+        storage.store.assert_not_called()
+        repo.save.assert_not_called()
+        event_bus.publish.assert_not_called()
+
+    def test_checks_duplicate_scoped_to_application_and_hash(self) -> None:
+        service, repo, _, _ = _make_service()
+        application_id = uuid4()
+        service.ingest_document(
+            _make_user(Role.RELATIONSHIP_MANAGER),
+            application_id=application_id,
+            content=_SAMPLE_CONTENT,
+            original_filename="payslip.pdf",
+            mime_type="application/pdf",
+        )
+        repo.get_by_application_and_hash.assert_called_once_with(application_id, _SAMPLE_HASH)
+
+    def test_different_content_to_same_application_is_not_a_duplicate(self) -> None:
+        """A corrected re-scan (different bytes) must not be rejected."""
+        service, repo, _, _ = _make_service()
+        repo.get_by_application_and_hash.return_value = None
+        result = service.ingest_document(
+            _make_user(Role.RELATIONSHIP_MANAGER),
+            application_id=uuid4(),
+            content=_SAMPLE_CONTENT,
+            original_filename="payslip.pdf",
+            mime_type="application/pdf",
+        )
+        assert result is not None
 
 
 class TestIngestDocumentValidation:

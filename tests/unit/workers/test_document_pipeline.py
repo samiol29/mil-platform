@@ -96,10 +96,17 @@ class FakeOCRResultRepository:
     def __init__(self) -> None:
         self.saved: list[object] = []
         self._by_key: dict[tuple[UUID, str], object] = {}
+        self.force_collision = False
 
     def save(self, record: object) -> None:
         self.saved.append(record)
         self._by_key[(record.document_id, record.provider_version)] = record  # type: ignore[attr-defined]
+
+    def save_if_not_exists(self, record: object) -> bool:
+        if self.force_collision:
+            return False
+        self.save(record)
+        return True
 
     def exists_for_document_and_version(self, document_id: UUID, provider_version: str) -> bool:
         return (document_id, provider_version) in self._by_key
@@ -498,6 +505,33 @@ class TestIdempotentReplay:
     def test_replay_emits_no_event(self) -> None:
         h = _Harness()
         h.ocr_results.seed(h.document.id, _PROVIDER_VERSION)
+        h.run_processor()
+        assert h.outbox.added == []
+
+
+class TestConcurrentReplayCollision:
+    """
+    ADR-008 §5: the up-front `exists_for_document_and_version` check
+    (`TestIdempotentReplay` above) cannot close the race between two
+    concurrent workers — both can pass it before either commits. The
+    unique constraint is the actual authority; a collision at insert time
+    must be treated as a no-op, never crash the worker.
+    """
+
+    def test_returns_already_done_not_an_exception(self) -> None:
+        h = _Harness()
+        h.ocr_results.force_collision = True
+        assert h.run_processor() is OCRProcessingOutcome.ALREADY_DONE
+
+    def test_marks_step_completed_despite_collision(self) -> None:
+        h = _Harness()
+        h.ocr_results.force_collision = True
+        h.run_processor()
+        assert h.step.status == StepStatus.COMPLETED  # type: ignore[attr-defined]
+
+    def test_emits_no_duplicate_event(self) -> None:
+        h = _Harness()
+        h.ocr_results.force_collision = True
         h.run_processor()
         assert h.outbox.added == []
 

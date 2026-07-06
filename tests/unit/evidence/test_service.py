@@ -39,9 +39,16 @@ class FakeEvidenceRepository:
     def __init__(self) -> None:
         self.saved: list[EvidenceItem] = []
         self.by_application: dict[object, list[EvidenceItem]] = {}
+        self.force_collision = False
 
     def save(self, item: EvidenceItem) -> None:
         self.saved.append(item)
+
+    def save_if_not_exists(self, item: EvidenceItem) -> bool:
+        if self.force_collision:
+            return False
+        self.save(item)
+        return True
 
     def get_for_application(self, application_id: object) -> list[EvidenceItem]:
         return self.by_application.get(application_id, [])
@@ -141,6 +148,40 @@ class TestCreateEvidenceItems:
             party_id=party_id,
         )
         assert repo.saved[0].party_id == party_id
+
+
+class TestCreateEvidenceItemsReplayCollision:
+    """
+    ADR-008 §5: the Extraction worker's up-front
+    ``exists_for_document_and_version`` check cannot close the race between
+    two concurrent workers processing the same document. A uniqueness
+    collision at insert time must be a no-op for that specific item, not an
+    error — and must not block the rest of the batch.
+    """
+
+    def test_colliding_item_is_skipped_not_raised(self) -> None:
+        service, repo, _ = _make_service()
+        repo.force_collision = True
+        created = service.create_evidence_items(
+            application_id=uuid4(),
+            document_id=uuid4(),
+            workflow_run_id=uuid4(),
+            tenant_id=uuid4(),
+            attrs_list=[_attrs("gross_monthly_income")],
+        )
+        assert created == []
+
+    def test_colliding_item_emits_no_audit_event(self) -> None:
+        service, repo, audit = _make_service()
+        repo.force_collision = True
+        service.create_evidence_items(
+            application_id=uuid4(),
+            document_id=uuid4(),
+            workflow_run_id=uuid4(),
+            tenant_id=uuid4(),
+            attrs_list=[_attrs("gross_monthly_income")],
+        )
+        assert audit.records == []
 
 
 def _make_user(*roles: str) -> AuthenticatedUser:

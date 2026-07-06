@@ -64,7 +64,7 @@ from mil.orchestrator.retry import (
 )
 from mil.orchestrator.service import IntelligenceOrchestrator
 from mil.outbox.repository import OutboxRepository
-from workers.bootstrap import build_worker_context, process_next
+from workers.bootstrap import build_worker_context, process_next, run_forever
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -210,7 +210,13 @@ class OCRJobProcessor:
             tenant_id=tenant_id,
             ocr_result=result,
         )
-        self._c.ocr_results.save(record)
+        if not self._c.ocr_results.save_if_not_exists(record):
+            # Lost a race against another worker that committed first
+            # (ADR-008 §5): treat exactly like the up-front replay check.
+            if step.status != StepStatus.COMPLETED:
+                step.mark_completed()
+                self._c.workflows.save(run)
+            return OCRProcessingOutcome.ALREADY_DONE
         step.mark_completed()
         self._c.workflows.save(run)
         self._c.outbox.add(
@@ -507,18 +513,21 @@ def main() -> None:  # pragma: no cover - process entry point
     """
     Entry point for the OCR document-pipeline worker process.
 
-    Runs indefinitely as a long-running service: each iteration blocks on
-    ``RedisJobQueue.dequeue()`` for up to ``_POLL_TIMEOUT_SECONDS`` waiting for
-    a job rather than exiting when the queue is momentarily empty (a worker
-    process is expected to be started once and left running — the previous
-    "process one batch then exit" loop meant a worker launched before any
-    document had been uploaded would exit immediately and never see later
-    work).
+    Runs indefinitely as a long-running service via ``workers.bootstrap
+    .run_forever``: each iteration blocks on ``RedisJobQueue.dequeue()`` for
+    up to ``_POLL_TIMEOUT_SECONDS`` waiting for a job rather than exiting
+    when the queue is momentarily empty (a worker process is expected to be
+    started once and left running — the previous "process one batch then
+    exit" loop meant a worker launched before any document had been uploaded
+    would exit immediately and never see later work). ``run_forever`` also
+    ensures one job's unhandled exception (a bad payload, a missing
+    dependency, an unexpected bug) logs and moves on rather than killing this
+    process and silently halting every other application's processing too —
+    see its own docstring.
     """
     ctx = build_worker_context()
     handler = make_ocr_handler(ctx.container)
-    while True:
-        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=OCR_STEP_NAME)
+    run_forever(ctx, handler, job_type=OCR_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":  # pragma: no cover

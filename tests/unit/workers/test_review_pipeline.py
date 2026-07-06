@@ -36,12 +36,16 @@ class _FakeReviewSession:
 
 
 class FakeReviewService:
-    def __init__(self) -> None:
+    def __init__(self, *, force_collision: bool = False) -> None:
         self.calls: list[dict[str, object]] = []
+        self._force_collision = force_collision
+        self._existing = _FakeReviewSession()
 
-    def start_review(self, **kwargs: object) -> _FakeReviewSession:
+    def start_review(self, **kwargs: object) -> tuple[_FakeReviewSession, bool]:
         self.calls.append(kwargs)
-        return _FakeReviewSession()
+        if self._force_collision:
+            return self._existing, False
+        return _FakeReviewSession(), True
 
 
 class FakeReviewRepository:
@@ -258,6 +262,32 @@ class TestIdempotentReplay:
         h.reviews.seed(h.finding_id)
         h.run_processor()
         assert h.run.status == WorkflowStatus.COMPLETED
+
+
+class TestConcurrentReplayCollision:
+    """
+    ADR-008 §5: the up-front `exists_for_finding` check (`TestIdempotentReplay`
+    above) cannot close the race between two concurrent workers — both can
+    pass it before either commits. A collision at insert time must still
+    complete the step/run, but must not publish duplicate outbox events.
+    """
+
+    def test_returns_completed_not_an_exception(self) -> None:
+        h = _Harness()
+        h.review._force_collision = True
+        assert h.run_processor() is ReviewProcessingOutcome.COMPLETED
+
+    def test_emits_no_duplicate_event(self) -> None:
+        h = _Harness()
+        h.review._force_collision = True
+        h.run_processor()
+        assert h.outbox.added == []
+
+    def test_marks_step_completed_despite_collision(self) -> None:
+        h = _Harness()
+        h.review._force_collision = True
+        h.run_processor()
+        assert h.step.status == StepStatus.COMPLETED  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

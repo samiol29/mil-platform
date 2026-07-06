@@ -94,7 +94,7 @@ from mil.kernel.providers.storage import StorageProvider
 from mil.kernel.security import AuthenticatedUser, Permission, require_permission
 from mil.kernel.types import UserId
 from mil.policy.repository import PolicyRepository
-from mil.review.models import ESCALATED
+from mil.review.models import ESCALATED, PENDING_REVIEW
 from mil.review.repository import ReviewRepository
 from mil.review.service import ReviewService
 
@@ -594,11 +594,33 @@ class FindingReviewActions:
                 f"This finding was escalated to the {session.escalated_to_role} role."
             )
 
+    def _ensure_in_review(self, session: ReviewSession, user: AuthenticatedUser) -> None:
+        """
+        Auto-assign the acting user as reviewer if the session is still
+        ``PENDING_REVIEW`` (real, pre-existing gap fixed here): the Review
+        state machine only permits ``approve``/``reject``/``override`` from
+        ``IN_REVIEW``, never directly from ``PENDING_REVIEW``
+        (``ReviewSession._VALID_TRANSITIONS``) — and nothing in this HTTP
+        layer ever called the domain's own ``assign_reviewer`` before this
+        fix, so verify/override could never succeed on a fresh finding
+        (confirmed live: a brand-new session's first verify attempt raised
+        ``InvalidStateTransitionError`` — ``PENDING_REVIEW`` -> ``APPROVED``
+        is not a valid edge). The first person to act on a pending finding
+        becoming its assigned reviewer matches how underwriting queues work
+        in practice; escalating is unaffected (``PENDING_REVIEW ->
+        ESCALATED`` is already a direct, valid edge).
+        """
+        if session.status == PENDING_REVIEW:
+            self._review_service.assign_reviewer(
+                session, reviewer_user_id=user.user_id, assigned_by_user_id=user.user_id
+            )
+
     def verify(self, user: AuthenticatedUser, finding_id: UUID) -> ReviewSession:
         """Approve the finding under review (spec 002 FR-033-034, FR-052)."""
         require_permission(user, Permission.VERIFY_FINDING)
         session = self.get_review_session_or_404(finding_id)
         self._authorize_resolution(user, session)
+        self._ensure_in_review(session, user)
         return self._review_service.approve_finding(session, actor_user_id=user.user_id)
 
     def override(
@@ -614,6 +636,7 @@ class FindingReviewActions:
         require_permission(user, Permission.OVERRIDE_FINDING)
         session = self.get_review_session_or_404(finding_id)
         self._authorize_resolution(user, session)
+        self._ensure_in_review(session, user)
         return self._review_service.override_finding(
             session,
             actor_user_id=user.user_id,

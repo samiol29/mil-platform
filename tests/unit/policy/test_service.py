@@ -10,11 +10,11 @@ import pytest
 
 from mil.kernel.errors import ConflictError
 from mil.kernel.providers.policy import PolicyEvaluationResult, TriggeredRule
-from mil.policy.models import PolicyPack
+from mil.policy.models import PolicyPack, PolicyResult
 from mil.policy.service import PolicyService
 
 if TYPE_CHECKING:
-    from mil.policy.models import PolicyResult, PolicyRule
+    from mil.policy.models import PolicyRule
 
 
 class FakePolicyRepository:
@@ -23,6 +23,8 @@ class FakePolicyRepository:
         self.saved_rules: list[PolicyRule] = []
         self.saved_results: list[PolicyResult] = []
         self._active_pack: PolicyPack | None = None
+        self.force_collision = False
+        self.collision_existing: PolicyResult | None = None
 
     def save_pack(self, pack: PolicyPack) -> None:
         self.saved_packs.append(pack)
@@ -32,6 +34,17 @@ class FakePolicyRepository:
 
     def save_result(self, result: PolicyResult) -> None:
         self.saved_results.append(result)
+
+    def save_result_if_not_exists(self, result: PolicyResult) -> bool:
+        if self.force_collision:
+            return False
+        self.save_result(result)
+        return True
+
+    def get_by_finding_and_version(
+        self, finding_id: object, policy_version: str
+    ) -> PolicyResult | None:
+        return self.collision_existing
 
     def get_active_pack_for_tenant(self, tenant_id: object) -> PolicyPack | None:
         return self._active_pack
@@ -236,3 +249,44 @@ class TestRecordPolicyResult:
         )
         assert repo.saved_results[0].finding_id == finding_id
         assert repo.saved_results[0].workflow_run_id == run_id
+
+    def test_returns_created_true_on_first_call(self) -> None:
+        service, _, _ = _make_service()
+        _, created = service.record_policy_result(
+            finding_id=uuid4(),
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_pack_id=uuid4(),
+            result=_evaluation_result(),
+        )
+        assert created is True
+
+    def test_replay_collision_returns_existing_result_without_duplicate_audit(self) -> None:
+        """ADR-008 §5: a uniqueness collision on create is a no-op, not an error."""
+        service, repo, audit = _make_service()
+        finding_id = uuid4()
+        existing = PolicyResult.create(
+            finding_id=finding_id,
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_pack_id=uuid4(),
+            result=_evaluation_result(),
+        )
+        repo.force_collision = True
+        repo.collision_existing = existing
+
+        result, created = service.record_policy_result(
+            finding_id=finding_id,
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_pack_id=uuid4(),
+            result=_evaluation_result(),
+        )
+
+        assert created is False
+        assert result is existing
+        assert repo.saved_results == []
+        assert audit.records == []

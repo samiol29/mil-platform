@@ -30,7 +30,7 @@ import hashlib
 from typing import TYPE_CHECKING
 
 from mil.document.models import Document
-from mil.kernel.errors import NotFoundError
+from mil.kernel.errors import ConflictError, NotFoundError
 from mil.kernel.events import DocumentIngested
 from mil.kernel.security import Permission, require_permission
 from mil.kernel.types import ApplicationId, DocumentId
@@ -106,6 +106,13 @@ class DocumentService:
         Raises:
             AuthorizationError: If the caller lacks UPLOAD_DOCUMENT permission.
             ValidationError:    If ``content`` is empty or metadata is invalid.
+            ConflictError:      If this exact file (by SHA-256 content hash)
+                                was already uploaded to this application —
+                                see ``DocumentRepository
+                                .get_by_application_and_hash``. Re-uploading
+                                different bytes for the same logical document
+                                (a corrected payslip, a rescan) is unaffected;
+                                only a byte-for-byte duplicate is rejected.
             ProviderError:      If ``StorageProvider.store()`` fails.
         """
         require_permission(user, Permission.UPLOAD_DOCUMENT)
@@ -117,6 +124,26 @@ class DocumentService:
 
         # SHA-256 computed exactly once — immutable for this document's lifetime.
         content_hash = hashlib.sha256(content).hexdigest()
+
+        # Reject a byte-for-byte duplicate upload to this application (see
+        # DocumentRepository.get_by_application_and_hash's docstring): a new
+        # Document row would get its own document_id, which the pipeline's
+        # replay-safety (keyed on document_id, not content) does not
+        # recognize as the same file — it would silently double this
+        # application's evidence pool rather than no-op like every other
+        # ADR-008 replay path in this system does.
+        duplicate = self._repo.get_by_application_and_hash(application_id, content_hash)
+        if duplicate is not None:
+            raise ConflictError(
+                f"This exact file was already uploaded to this application as "
+                f"document {duplicate.id} ({duplicate.original_filename!r}, "
+                f"{duplicate.ingestion_status}).",
+                details={
+                    "application_id": str(application_id),
+                    "existing_document_id": str(duplicate.id),
+                    "content_hash": content_hash,
+                },
+            )
 
         # Delegate to StorageProvider — the implementation is fully replaceable.
         storage_ref = self._storage.store(content, content_hash)

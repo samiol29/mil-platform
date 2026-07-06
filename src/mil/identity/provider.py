@@ -276,8 +276,17 @@ def populate_authenticated_user(
 # Public (not module-private) because ``mil.identity.dev_seed`` must seed the
 # exact same identifiers into ``core.users`` — a single source of truth avoids
 # the two drifting apart (Backend Freeze Patch v1.0 — development bootstrap).
-DEV_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
-DEV_TENANT_ID = UUID("00000000-0000-0000-0000-000000000002")
+#
+# Version/variant nibbles (`4`/`8`) are deliberately real, RFC 4122-valid
+# values, not all-zero — found live, via end-to-end testing, that an
+# all-zero placeholder (`...0000-000000000001`) fails the frontend's
+# `z.uuid()` validator (it requires a `[1-8]` version nibble and an
+# `[89ab]` variant nibble), which crashed the Audit Timeline for every
+# application with any real user-actor audit event — the same class of gap
+# `tests/.../msw/handlers.ts` already documents having had to fix once for its
+# own fixture ids ("`11111111-1111-1111-1111-...` is non-compliant").
+DEV_USER_ID = UUID("00000000-0000-4000-8000-000000000001")
+DEV_TENANT_ID = UUID("00000000-0000-4000-8000-000000000002")
 
 
 class DevBearerIdentityProvider(IdentityProvider):

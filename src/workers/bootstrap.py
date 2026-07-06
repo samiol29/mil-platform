@@ -27,22 +27,28 @@ loses the correlation id.
 
 Dependency rule: imports only from ``mil.kernel``, the persistence layer, and
 the Python standard library. No bounded context business logic is imported.
-``_register_all_models`` is the one sanctioned exception: it imports every
-bounded context's ``models.py`` purely for the ORM side effect of registering
-its tables with ``Base.metadata`` (never touching business logic), mirroring
-the identical, pre-existing pattern in ``migrations/env.py``. Without it, a
-worker process started standalone (``python -m workers.document_pipeline``)
-only has the tables its own direct imports happen to touch registered, and a
-flush touching a foreign key into an unregistered table (e.g. ``Document``'s
-FK to ``core.parties``) raises ``sqlalchemy.exc.NoReferencedTableError`` — a
-real crash reproduced by running a real worker process, not a hypothetical.
-The API process never hits this because ``main.py``'s router imports happen
-to transitively import every model module; a worker process has no such
-transitive guarantee.
+``_register_all_models`` (re-exported here from
+``mil.kernel.model_registration.register_all_models``, the shared
+implementation) is the one sanctioned exception: it imports every bounded
+context's ``models.py`` purely for the ORM side effect of registering its
+tables with ``Base.metadata`` (never touching business logic), mirroring the
+identical, pre-existing pattern in ``migrations/env.py``. Without it, a
+process only has the tables its own direct imports happen to touch
+registered, and a flush touching a foreign key into an unregistered table
+raises ``sqlalchemy.exc.NoReferencedTableError`` — a real crash, reproduced
+live in both a standalone worker process (``Document``'s FK to
+``core.parties``) and, contrary to this module's own former assumption, the
+API process too (approving/overriding a Finding flushes a ``ReviewSession``
+whose FK targets ``orchestrator.workflow_runs``, a table nothing under
+``main.py``'s router imports happened to register). ``main.create_app`` now
+calls the same shared ``register_all_models()`` for exactly this reason —
+neither process may rely on the accident of which models its own imports
+happen to touch.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -53,6 +59,7 @@ from mil.kernel.config import get_settings
 from mil.kernel.container import build_container
 from mil.kernel.context import RequestContext, reset_request_context, set_request_context
 from mil.kernel.job_queue import JobQueue
+from mil.kernel.model_registration import register_all_models as _register_all_models
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -61,28 +68,7 @@ if TYPE_CHECKING:
     from mil.kernel.container import Container
     from mil.kernel.job_queue import Job
 
-
-def _register_all_models() -> None:
-    """
-    Import every bounded context's ``models.py`` so its tables are registered
-    on the shared ``Base.metadata`` before any worker performs a flush.
-
-    Import-only side effect — nothing here is called or referenced beyond the
-    import itself. See the module docstring for why this is necessary and why
-    it is a sanctioned exception to this module's own dependency rule.
-    """
-    from mil.application import models as _application_models  # noqa: F401
-    from mil.audit import models as _audit_models  # noqa: F401
-    from mil.copilot import models as _copilot_models  # noqa: F401
-    from mil.document import models as _document_models  # noqa: F401
-    from mil.document import ocr_models as _document_ocr_models  # noqa: F401
-    from mil.evidence import models as _evidence_models  # noqa: F401
-    from mil.finding import models as _finding_models  # noqa: F401
-    from mil.identity import models as _identity_models  # noqa: F401
-    from mil.orchestrator import models as _orchestrator_models  # noqa: F401
-    from mil.outbox import models as _outbox_models  # noqa: F401
-    from mil.policy import models as _policy_models  # noqa: F401
-    from mil.review import models as _review_models  # noqa: F401
+_log = logging.getLogger(__name__)
 
 
 class JobHandler(Protocol):
@@ -216,3 +202,41 @@ def process_next(
         reset_request_context(token)
 
     return True
+
+
+def run_forever(
+    ctx: WorkerContext,
+    handler: JobHandler,
+    *,
+    job_type: str,
+    poll_timeout: float,
+) -> None:
+    """
+    Poll for and process jobs indefinitely, surviving any single job's failure.
+
+    Every worker's ``main()`` calls this rather than hand-rolling
+    ``while True: process_next(...)``. ``process_next`` re-raises on any
+    exception (by design — see its own docstring) so the per-job rollback/
+    reject is visible to the caller; without a boundary here, that exception
+    would propagate out of the polling loop and kill the entire worker
+    process over a *single* bad job — an unhandled ``ConflictError`` (e.g. no
+    active Policy Pack for a tenant), a malformed payload, or any other bug
+    would silently stop that worker from processing every other application's
+    jobs too, indistinguishable from the process being down. This mirrors
+    ``mil.api.errors``'s own top-level ``Exception`` handler for HTTP
+    requests: log it, keep serving.
+
+    A job that fails for a genuinely retryable reason (``ProviderError`` with
+    attempts remaining) is unaffected by this: it is requeued by
+    ``process_next``/``reject`` before the exception reaches here, and this
+    loop simply continues on to dequeue the next available job (which may be
+    that same job, redelivered, once its retry is due).
+    """
+    while True:
+        try:
+            process_next(ctx, handler, timeout=poll_timeout, job_type=job_type)
+        except Exception:
+            _log.exception(
+                "Unhandled exception processing a %s job; continuing to poll.",
+                job_type,
+            )

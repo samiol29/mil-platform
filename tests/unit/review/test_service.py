@@ -32,6 +32,13 @@ class FakeReviewRepository:
     def save_session(self, session: ReviewSession) -> None:
         self.saved_sessions.append(session)
 
+    def create_session_if_not_exists(self, session: ReviewSession) -> bool:
+        self.saved_sessions.append(session)
+        return True
+
+    def get_session_for_finding(self, finding_id: object) -> ReviewSession | None:
+        return None
+
     def save_action(self, action: ReviewAction) -> None:
         self.saved_actions.append(action)
 
@@ -55,13 +62,14 @@ def _make_service() -> tuple[ReviewService, FakeReviewRepository, FakeAuditWrite
 
 
 def _start_review(service: ReviewService) -> ReviewSession:
-    return service.start_review(
+    session, _created = service.start_review(
         finding_id=uuid4(),
         application_id=uuid4(),
         tenant_id=uuid4(),
         workflow_run_id=uuid4(),
         policy_result_id=uuid4(),
     )
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +113,45 @@ class TestStartReview:
         )
         assert repo.saved_sessions[0].finding_id == finding_id
         assert repo.saved_sessions[0].policy_result_id == policy_result_id
+
+    def test_returns_created_true_on_first_call(self) -> None:
+        service, _, _ = _make_service()
+        _, created = service.start_review(
+            finding_id=uuid4(),
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_result_id=uuid4(),
+        )
+        assert created is True
+
+    def test_replay_collision_returns_existing_session_without_duplicate_action_or_audit(
+        self,
+    ) -> None:
+        """ADR-008 §5: a uniqueness collision on create is a no-op, not an error."""
+        service, repo, audit = _make_service()
+        existing = ReviewSession.create(
+            finding_id=uuid4(),
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_result_id=uuid4(),
+        )
+        repo.create_session_if_not_exists = lambda _session: False  # type: ignore[method-assign]
+        repo.get_session_for_finding = lambda _finding_id: existing  # type: ignore[method-assign]
+
+        session, created = service.start_review(
+            finding_id=existing.finding_id,
+            application_id=existing.application_id,
+            tenant_id=existing.tenant_id,
+            workflow_run_id=existing.workflow_run_id,
+            policy_result_id=existing.policy_result_id,
+        )
+
+        assert created is False
+        assert session is existing
+        assert repo.saved_actions == []
+        assert audit.records == []
 
 
 # ---------------------------------------------------------------------------

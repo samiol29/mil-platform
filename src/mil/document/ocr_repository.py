@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from mil.document.ocr_models import OCRResultRecord
 
@@ -44,6 +45,28 @@ class OCRResultRepository:
         """
         self._session.add(record)
         self._session.flush()
+
+    def save_if_not_exists(self, record: OCRResultRecord) -> bool:
+        """
+        Persist an immutable OCR result, treating a uniqueness violation as
+        proof the result was already committed by a prior attempt (ADR-008
+        §5) rather than an error — the authoritative fallback beneath
+        ``exists_for_document_and_version``'s read-then-write check, which
+        alone is subject to a race between concurrent workers. Isolated with
+        a SAVEPOINT (``session.begin_nested``) so a collision here cannot
+        poison the caller's per-job Unit of Work.
+
+        Returns:
+            ``True`` if this call newly persisted the record, ``False`` if an
+            equivalent result already existed (a replay no-op).
+        """
+        try:
+            with self._session.begin_nested():
+                self._session.add(record)
+                self._session.flush()
+        except IntegrityError:
+            return False
+        return True
 
     def get_by_document_and_version(
         self, document_id: UUID, provider_version: str

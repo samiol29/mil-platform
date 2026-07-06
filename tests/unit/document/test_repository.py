@@ -194,3 +194,18 @@ class TestRepositoryGetForApplication:
         session.scalars.return_value = iter([doc1, doc2])
         result = repo.get_for_application(uuid4())
         assert result == [doc1, doc2]
+
+
+class TestRepositoryGetByApplicationAndHash:
+    def test_returns_none_when_no_match(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value.first.return_value = None
+        result = repo.get_by_application_and_hash(uuid4(), _SAMPLE_HASH)
+        assert result is None
+
+    def test_returns_existing_document_on_match(self) -> None:
+        repo, session, _ = _make_repo()
+        existing = _make_document()
+        session.scalars.return_value.first.return_value = existing
+        result = repo.get_by_application_and_hash(existing.application_id, _SAMPLE_HASH)
+        assert result is existing

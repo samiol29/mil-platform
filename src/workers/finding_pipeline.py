@@ -98,7 +98,7 @@ from mil.orchestrator.retry import (
 )
 from mil.orchestrator.service import IntelligenceOrchestrator
 from mil.outbox.repository import OutboxRepository
-from workers.bootstrap import build_worker_context, process_next
+from workers.bootstrap import build_worker_context, process_next, run_forever
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -259,7 +259,7 @@ class FindingJobProcessor:
 
         # Success: persist the immutable Finding, complete the step (and run,
         # since FINDING is the sole step), publish.
-        finding = self._c.finding.generate_finding(
+        finding, created = self._c.finding.generate_finding(
             application_id=application_id,
             tenant_id=tenant_id,
             workflow_run_id=workflow_run_id,
@@ -271,16 +271,23 @@ class FindingJobProcessor:
         if _is_last_step(run, step):
             run.mark_completed()
         self._c.workflows.save(run)
-        self._c.outbox.add(
-            FindingGenerated(
-                tenant_id=TenantId(tenant_id),
-                finding_id=FindingId(finding.id),
-                application_id=ApplicationId(application_id),
-                finding_type=finding.finding_type,
-                policy_version=run.pinned_versions.policy,
-                correlation_id=correlation_id,
+        if created:
+            # Lost a race against another worker otherwise (ADR-008 §5): the
+            # audit event and FindingGenerated were already published by
+            # whichever worker actually committed the Finding — do not
+            # duplicate them here, but still dispatch the next step below,
+            # since the queue's own idempotency key makes that a safe no-op
+            # too if it was already dispatched.
+            self._c.outbox.add(
+                FindingGenerated(
+                    tenant_id=TenantId(tenant_id),
+                    finding_id=FindingId(finding.id),
+                    application_id=ApplicationId(application_id),
+                    finding_type=finding.finding_type,
+                    policy_version=run.pinned_versions.policy,
+                    correlation_id=correlation_id,
+                )
             )
-        )
         self._dispatch_next_step(
             run=run,
             completed_step=step,
@@ -611,8 +618,7 @@ def main() -> None:  # pragma: no cover - process entry point
     """
     ctx = build_worker_context()
     handler = make_finding_handler(ctx.container)
-    while True:
-        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=FINDING_STEP_NAME)
+    run_forever(ctx, handler, job_type=FINDING_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":  # pragma: no cover

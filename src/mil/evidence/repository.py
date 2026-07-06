@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from mil.evidence.models import EvidenceItem
 
@@ -45,6 +46,34 @@ class EvidenceRepository:
         """
         self._session.add(item)
         self._session.flush()
+
+    def save_if_not_exists(self, item: EvidenceItem) -> bool:
+        """
+        Persist an immutable evidence item, treating a uniqueness violation
+        as proof the item was already committed by a prior attempt (ADR-008
+        §5) rather than an error.
+
+        ``exists_for_document_and_version`` is a read-then-write check and is
+        the caller's *first* line of defense; it is subject to a race between
+        two concurrent workers (ADR-008 explicitly anticipates multiple
+        replicas). This method is the authoritative fallback: the unique
+        constraint ``uq_evidence_items_document_version_type`` is the actual
+        source of truth. A single failed item is isolated with a SAVEPOINT
+        (``session.begin_nested``) so the rest of the caller's per-job Unit of
+        Work — and any other items in the same extraction batch — are
+        unaffected by this one collision.
+
+        Returns:
+            ``True`` if this call newly persisted the item, ``False`` if an
+            equivalent item already existed (a replay no-op for this item).
+        """
+        try:
+            with self._session.begin_nested():
+                self._session.add(item)
+                self._session.flush()
+        except IntegrityError:
+            return False
+        return True
 
     def get_for_document(self, document_id: UUID) -> list[EvidenceItem]:
         """Return all evidence items for a document, most recent first."""

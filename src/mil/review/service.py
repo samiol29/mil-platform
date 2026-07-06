@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mil.kernel.errors import ValidationError
+from mil.kernel.errors import ConflictError, ValidationError
 from mil.review.models import (
     ACTION_APPROVED,
     ACTION_ASSIGNED,
@@ -83,13 +83,22 @@ class ReviewService:
         tenant_id: UUID,
         workflow_run_id: UUID,
         policy_result_id: UUID,
-    ) -> ReviewSession:
+    ) -> tuple[ReviewSession, bool]:
         """
         Create a new ``ReviewSession`` in ``PENDING_REVIEW`` status for a
         Finding, handing it off for human review.
 
         Records a ``SESSION_STARTED`` action (system-attributed, no human
         actor yet) and a synchronous ``REVIEW_SESSION_STARTED`` audit event.
+
+        Idempotent replay (ADR-008 §5): if a session already exists for this
+        Finding — the race the caller's own up-front ``exists_for_finding``
+        check cannot fully close under concurrent workers — that pre-existing
+        session is returned instead of raising, paired with ``False``.
+
+        Returns:
+            A ``(session, created)`` pair: ``created`` is ``True`` only when
+            this call newly persisted the session.
         """
         session = ReviewSession.create(
             finding_id=finding_id,
@@ -98,7 +107,14 @@ class ReviewService:
             workflow_run_id=workflow_run_id,
             policy_result_id=policy_result_id,
         )
-        self._repo.save_session(session)
+        if not self._repo.create_session_if_not_exists(session):
+            existing = self._repo.get_session_for_finding(finding_id)
+            if existing is None:
+                raise ConflictError(
+                    f"Review session for finding {finding_id} could not be "
+                    "recovered after a uniqueness conflict."
+                )
+            return existing, False
 
         action = ReviewAction.create(
             review_session_id=session.id,
@@ -116,7 +132,7 @@ class ReviewService:
             application_id=application_id,
             event_data={"finding_id": str(finding_id), "policy_result_id": str(policy_result_id)},
         )
-        return session
+        return session, True
 
     # ------------------------------------------------------------------
     # Human-triggered actions (Principle I — every call requires a human actor)

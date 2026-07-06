@@ -105,3 +105,24 @@ class DocumentRepository:
     def exists(self, document_id: UUID) -> bool:
         """Return ``True`` if a Document with the given id exists."""
         return self.get_by_id(document_id) is not None
+
+    def get_by_application_and_hash(
+        self, application_id: UUID, content_hash: str
+    ) -> Document | None:
+        """
+        Return the Document already uploaded to this application with this
+        exact content hash, or ``None`` if this is a new file.
+
+        Used by ``DocumentService.ingest_document`` to reject a byte-for-byte
+        duplicate upload (ADR-008-style content identity, applied to uploads
+        rather than replays): without this check, re-uploading the same file
+        to the same application creates a second ``Document`` row with its
+        own ``document_id``, which the pipeline's replay-safety (keyed on
+        ``document_id``) does not recognize as a duplicate — it runs OCR and
+        Extraction again and doubles that application's evidence pool.
+        """
+        stmt = select(Document).where(
+            Document.application_id == application_id,
+            Document.content_hash == content_hash,
+        )
+        return self._session.scalars(stmt).first()

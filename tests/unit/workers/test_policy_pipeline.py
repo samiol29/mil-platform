@@ -115,14 +115,18 @@ class FakeFindingRepository:
 
 
 class FakePolicyService:
-    def __init__(self) -> None:
+    def __init__(self, *, force_collision: bool = False) -> None:
         self.calls: list[dict[str, object]] = []
+        self._force_collision = force_collision
+        self._existing = _FakePolicyResult(policy_version="existing", outcome="PASS")
 
-    def record_policy_result(self, **kwargs: object) -> _FakePolicyResult:
+    def record_policy_result(self, **kwargs: object) -> tuple[_FakePolicyResult, bool]:
         self.calls.append(kwargs)
+        if self._force_collision:
+            return self._existing, False
         result = kwargs["result"]
         assert isinstance(result, PolicyEvaluationResult)
-        return _FakePolicyResult(policy_version=result.policy_version, outcome=result.outcome)
+        return _FakePolicyResult(policy_version=result.policy_version, outcome=result.outcome), True
 
 
 class FakePolicyRepo:
@@ -477,6 +481,34 @@ class TestIdempotentReplay:
         h.policy_repo.seed(h.finding_id, _POLICY_VERSION)
         h.run_processor()
         assert h.run.status == WorkflowStatus.COMPLETED
+
+
+class TestConcurrentReplayCollision:
+    """
+    ADR-008 §5: the up-front `exists_for_finding_and_version` check
+    (`TestIdempotentReplay` above) cannot close the race between two
+    concurrent workers — both can pass it before either commits. A
+    collision at insert time must still complete the step/run and dispatch
+    the next step, but must not publish a duplicate audit event or
+    ``PolicyEvaluated``.
+    """
+
+    def test_returns_completed_not_an_exception(self) -> None:
+        h = _Harness()
+        h.policy._force_collision = True
+        assert h.run_processor() is PolicyProcessingOutcome.COMPLETED
+
+    def test_emits_no_duplicate_event(self) -> None:
+        h = _Harness()
+        h.policy._force_collision = True
+        h.run_processor()
+        assert h.outbox.added == []
+
+    def test_marks_step_completed_despite_collision(self) -> None:
+        h = _Harness()
+        h.policy._force_collision = True
+        h.run_processor()
+        assert h.step.status == StepStatus.COMPLETED  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

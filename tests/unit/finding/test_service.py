@@ -4,19 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import pytest
 
+from mil.finding.models import Finding
 from mil.finding.service import FindingService
 from mil.kernel.errors import AuthorizationError
 from mil.kernel.providers.inference import InferenceResult
 from mil.kernel.security import AuthenticatedUser, Role
 from mil.kernel.types import TenantId, UserId
-
-if TYPE_CHECKING:
-    from mil.finding.models import Finding
 
 
 @dataclass
@@ -52,15 +49,28 @@ class FakeFindingRepository:
         self.saved: list[Finding] = []
         self.by_application: dict[object, list[Finding]] = {}
         self.by_id: dict[object, Finding] = {}
+        self.force_collision = False
+        self.collision_existing: Finding | None = None
 
     def save(self, finding: Finding) -> None:
         self.saved.append(finding)
+
+    def save_if_not_exists(self, finding: Finding) -> bool:
+        if self.force_collision:
+            return False
+        self.save(finding)
+        return True
 
     def get_for_application(self, application_id: object) -> list[Finding]:
         return self.by_application.get(application_id, [])
 
     def get_by_id(self, finding_id: object) -> Finding | None:
         return self.by_id.get(finding_id)
+
+    def get_by_application_and_version(
+        self, application_id: object, model_version: str
+    ) -> Finding | None:
+        return self.collision_existing
 
 
 class FakeAuditWriter:
@@ -232,6 +242,54 @@ class TestGenerateFinding:
         )
         assert repo.saved[0].application_id == app_id
         assert repo.saved[0].workflow_run_id == run_id
+
+    def test_returns_created_true_on_first_call(self) -> None:
+        service, _, _ = _make_service()
+        _, created = service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(),
+            extraction_version="mock-extraction-1.0.0",
+        )
+        assert created is True
+
+    def test_replay_collision_returns_existing_finding_without_duplicate_audit(self) -> None:
+        """ADR-008 §5: a uniqueness collision on create is a no-op, not an error."""
+        service, repo, audit = _make_service()
+        existing = Finding.create(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            finding_type="AI_GENERATED_ASSESSMENT",
+            title="Existing",
+            rationale="Existing rationale",
+            evidence_summary="Existing summary",
+            confidence_label="HIGH",
+            recommended_action="Existing action",
+            confidence_score=Decimal("0.9"),
+            model_version="m1",
+            prompt_version="p1",
+            extraction_version="mock-extraction-1.0.0",
+            evidence_item_ids=[uuid4()],
+        )
+        repo.force_collision = True
+        repo.collision_existing = existing
+
+        finding, created = service.generate_finding(
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            evidence_items=_evidence_items(),  # type: ignore[arg-type]
+            inference_result=_inference_result(model_version="m1"),
+            extraction_version="mock-extraction-1.0.0",
+        )
+
+        assert created is False
+        assert finding is existing
+        assert repo.saved == []
+        assert audit.records == []
 
 
 def _make_user(*roles: str) -> AuthenticatedUser:
