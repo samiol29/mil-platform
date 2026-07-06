@@ -7,8 +7,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import pytest
+
 from mil.finding.service import FindingService
+from mil.kernel.errors import AuthorizationError
 from mil.kernel.providers.inference import InferenceResult
+from mil.kernel.security import AuthenticatedUser, Role
+from mil.kernel.types import TenantId, UserId
 
 if TYPE_CHECKING:
     from mil.finding.models import Finding
@@ -45,9 +50,17 @@ def _inference_result(**overrides: object) -> InferenceResult:
 class FakeFindingRepository:
     def __init__(self) -> None:
         self.saved: list[Finding] = []
+        self.by_application: dict[object, list[Finding]] = {}
+        self.by_id: dict[object, Finding] = {}
 
     def save(self, finding: Finding) -> None:
         self.saved.append(finding)
+
+    def get_for_application(self, application_id: object) -> list[Finding]:
+        return self.by_application.get(application_id, [])
+
+    def get_by_id(self, finding_id: object) -> Finding | None:
+        return self.by_id.get(finding_id)
 
 
 class FakeAuditWriter:
@@ -219,3 +232,51 @@ class TestGenerateFinding:
         )
         assert repo.saved[0].application_id == app_id
         assert repo.saved[0].workflow_run_id == run_id
+
+
+def _make_user(*roles: str) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        user_id=UserId(uuid4()),
+        tenant_id=TenantId(uuid4()),
+        roles=frozenset(roles or (Role.ADMIN,)),
+    )
+
+
+class TestListForApplication:
+    def test_returns_items_for_application(self) -> None:
+        service, repo, _ = _make_service()
+        app_id = uuid4()
+        findings = [uuid4(), uuid4()]
+        repo.by_application[app_id] = findings  # type: ignore[assignment]
+        result = service.list_for_application(_make_user(), application_id=app_id)
+        assert result == findings
+
+    def test_missing_permission_raises_authorization_error(self) -> None:
+        service, _, _ = _make_service()
+        user = AuthenticatedUser(
+            user_id=UserId(uuid4()), tenant_id=TenantId(uuid4()), roles=frozenset()
+        )
+        with pytest.raises(AuthorizationError):
+            service.list_for_application(user, application_id=uuid4())
+
+
+class TestGetById:
+    def test_returns_finding_when_present(self) -> None:
+        service, repo, _ = _make_service()
+        finding_id = uuid4()
+        repo.by_id[finding_id] = "a-finding"  # type: ignore[assignment]
+        result = service.get_by_id(_make_user(), finding_id=finding_id)
+        assert result == "a-finding"
+
+    def test_returns_none_when_absent(self) -> None:
+        service, _, _ = _make_service()
+        result = service.get_by_id(_make_user(), finding_id=uuid4())
+        assert result is None
+
+    def test_missing_permission_raises_authorization_error(self) -> None:
+        service, _, _ = _make_service()
+        user = AuthenticatedUser(
+            user_id=UserId(uuid4()), tenant_id=TenantId(uuid4()), roles=frozenset()
+        )
+        with pytest.raises(AuthorizationError):
+            service.get_by_id(user, finding_id=uuid4())

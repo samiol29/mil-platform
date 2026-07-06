@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mil.evidence.models import EvidenceItem
+from mil.kernel.security import Permission, require_permission
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from mil.audit.writer import AuditWriter
     from mil.evidence.repository import EvidenceRepository
     from mil.kernel.providers.extraction import EvidenceAttributes
+    from mil.kernel.security import AuthenticatedUser
 
 
 class EvidenceService:
@@ -90,3 +92,15 @@ class EvidenceService:
             )
             created.append(item)
         return created
+
+    def list_for_application(
+        self, user: AuthenticatedUser, *, application_id: UUID
+    ) -> list[EvidenceItem]:
+        """
+        Return every evidence item for an application, most recent first.
+
+        Raises:
+            AuthorizationError: If the user lacks ``read:evidence``.
+        """
+        require_permission(user, Permission.READ_EVIDENCE)
+        return self._repo.get_for_application(application_id)

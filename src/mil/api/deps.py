@@ -63,6 +63,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mil.application.repository import ApplicationRepository
 from mil.application.service import ApplicationService
+from mil.audit.repository import AuditRepository
 from mil.audit.writer import AuditWriter
 from mil.copilot.adapters import (
     ApplicationReaderAdapter,
@@ -79,27 +80,33 @@ from mil.document.ocr_repository import OCRResultRepository
 from mil.document.repository import DocumentRepository
 from mil.document.service import DocumentService
 from mil.evidence.repository import EvidenceRepository
+from mil.evidence.service import EvidenceService
 from mil.finding.repository import FindingRepository
+from mil.finding.service import FindingService
 from mil.identity.provider import (
     DevBearerIdentityProvider,
     IdentityProvider,
     populate_authenticated_user,
 )
 from mil.kernel.config import Settings
-from mil.kernel.errors import AuthenticationError
+from mil.kernel.errors import AuthenticationError, NotFoundError
+from mil.kernel.providers.storage import StorageProvider
 from mil.kernel.security import AuthenticatedUser
 from mil.kernel.types import UserId
 from mil.policy.repository import PolicyRepository
 from mil.review.repository import ReviewRepository
+from mil.review.service import ReviewService
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from mil.application.models import MortgageApplication
     from mil.document.models import Document
+    from mil.finding.models import Finding
     from mil.identity.provider import TokenClaims
     from mil.kernel.container import Container
     from mil.orchestrator.models import WorkflowRun
+    from mil.review.models import ReviewSession
 
 log = logging.getLogger(__name__)
 
@@ -319,6 +326,27 @@ def get_document_service(
     return DocumentService(repo, storage, event_bus)
 
 
+def get_storage_provider(
+    container: Annotated[object, Depends(get_container)],
+) -> StorageProvider:
+    """
+    Resolve the platform's ``StorageProvider`` from the DI container.
+
+    Exposed as its own dependency (distinct from ``get_document_service``,
+    which already resolves one internally for writes) so a read-only content
+    endpoint can retrieve document bytes without constructing a full
+    ``DocumentService`` — mirrors the existing retrieval call already used
+    by ``workers.document_pipeline`` (``storage.retrieve(document
+    .storage_reference)``), not new storage-access logic.
+    """
+    from mil.kernel.container import Container
+
+    c = container
+    if not isinstance(c, Container):
+        raise RuntimeError("DI container not available on app state.")
+    return c.resolve(StorageProvider)  # type: ignore[type-abstract]
+
+
 class DocumentIngestionTrigger:
     """
     Composition-root wrapper that starts the ``DOCUMENT_INGESTION`` workflow.
@@ -464,6 +492,105 @@ def get_copilot_service(
     )
 
 
+def get_evidence_service(session: DbSession) -> EvidenceService:
+    """Build and return an ``EvidenceService`` wired to the request session."""
+    audit = AuditWriter(session)
+    repo = EvidenceRepository(session)
+    return EvidenceService(repo, audit)
+
+
+def get_finding_service(session: DbSession) -> FindingService:
+    """Build and return a ``FindingService`` wired to the request session."""
+    audit = AuditWriter(session)
+    repo = FindingRepository(session)
+    return FindingService(repo, audit)
+
+
+def get_audit_repository(session: DbSession) -> AuditRepository:
+    """Build and return an ``AuditRepository`` wired to the request session."""
+    return AuditRepository(session)
+
+
+class FindingReviewActions:
+    """
+    Composition-root wrapper for the Finding verify/override HTTP actions.
+
+    Bound to the request's session, this composes the Finding, Review, and
+    Policy bounded contexts' existing repositories/services for the two HTTP
+    composition points (``POST /v1/findings/{id}/verify``,
+    ``POST /v1/findings/{id}/override``) — mirroring ``FindingTrigger``/
+    ``DocumentIngestionTrigger`` above. It exists so
+    ``mil.api.v1.findings`` depends on a type re-exported from this module
+    rather than importing ``mil.review``/``mil.policy`` directly.
+
+    ``mil.review.service.ReviewService.approve_finding``/``override_finding``
+    perform the actual state transition and audit recording (see
+    ``mil.review.service`` — a synchronous ``AuditWriter`` call in the same
+    transaction, never the outbox); this class only resolves the Finding and
+    its Review Session and reports the Policy attribution version findings.py
+    needs to build the response.
+    """
+
+    def __init__(self, *, session: Session) -> None:
+        self._findings = FindingRepository(session)
+        self._reviews = ReviewRepository(session)
+        self._policy = PolicyRepository(session)
+        self._review_service = ReviewService(self._reviews, AuditWriter(session))
+
+    def get_finding_or_404(self, finding_id: UUID) -> Finding:
+        finding = self._findings.get_by_id(finding_id)
+        if finding is None:
+            raise NotFoundError("Finding", finding_id)
+        return finding
+
+    def get_review_session_or_404(self, finding_id: UUID) -> ReviewSession:
+        session = self._reviews.get_session_for_finding(finding_id)
+        if session is None:
+            raise NotFoundError("ReviewSession", finding_id)
+        return session
+
+    def get_review_status(self, finding_id: UUID) -> str | None:
+        """Return the Review Session status for a Finding, or ``None`` if none exists yet."""
+        session = self._reviews.get_session_for_finding(finding_id)
+        return session.status if session is not None else None
+
+    def policy_version_for(self, finding_id: UUID) -> str | None:
+        """Return the most recent Policy evaluation's version for a Finding, if any."""
+        results = self._policy.get_for_finding(finding_id)
+        if not results:
+            return None
+        return max(results, key=lambda r: r.created_at).policy_version
+
+    def verify(self, finding_id: UUID, *, actor_user_id: UUID) -> ReviewSession:
+        """Approve the finding under review (spec 002 FR-033-034, FR-052)."""
+        session = self.get_review_session_or_404(finding_id)
+        return self._review_service.approve_finding(session, actor_user_id=actor_user_id)
+
+    def override(
+        self,
+        finding_id: UUID,
+        *,
+        actor_user_id: UUID,
+        reason: str,
+        previous_value: str,
+        new_value: str,
+    ) -> ReviewSession:
+        """Override the finding under review (spec 002 FR-033-034, FR-052-053)."""
+        session = self.get_review_session_or_404(finding_id)
+        return self._review_service.override_finding(
+            session,
+            actor_user_id=actor_user_id,
+            reason=reason,
+            previous_value=previous_value,
+            new_value=new_value,
+        )
+
+
+def get_finding_review_actions(session: DbSession) -> FindingReviewActions:
+    """Build and return ``FindingReviewActions`` wired to the request session."""
+    return FindingReviewActions(session=session)
+
+
 AppService = Annotated[ApplicationService, Depends(get_application_service)]
 DocService = Annotated[DocumentService, Depends(get_document_service)]
 DocIngestionTriggerDep = Annotated[
@@ -471,3 +598,8 @@ DocIngestionTriggerDep = Annotated[
 ]
 FindingTriggerDep = Annotated[FindingTrigger, Depends(get_finding_trigger)]
 CopilotServiceDep = Annotated[CopilotService, Depends(get_copilot_service)]
+EvidenceServiceDep = Annotated[EvidenceService, Depends(get_evidence_service)]
+FindingServiceDep = Annotated[FindingService, Depends(get_finding_service)]
+AuditRepositoryDep = Annotated[AuditRepository, Depends(get_audit_repository)]
+StorageProviderDep = Annotated[StorageProvider, Depends(get_storage_provider)]
+FindingReviewActionsDep = Annotated[FindingReviewActions, Depends(get_finding_review_actions)]

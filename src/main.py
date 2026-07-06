@@ -30,10 +30,13 @@ from mil.api.errors import register_error_handlers
 from mil.api.middleware.security_headers import SecurityHeadersMiddleware
 from mil.api.middleware.telemetry import TelemetryMiddleware
 from mil.api.v1.applications import router as applications_router
+from mil.api.v1.audit import router as audit_router
 from mil.api.v1.auth import router as auth_router
 from mil.api.v1.copilot import application_copilot_router
 from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
+from mil.api.v1.evidence import router as evidence_router
+from mil.api.v1.findings import router as findings_router
 from mil.api.v1.ops import router as ops_router
 from mil.identity.dev_seed import seed_development_identity
 from mil.identity.provider import DevBearerIdentityProvider, IdentityProvider
@@ -157,6 +160,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ops_router)
     app.include_router(applications_router)
     app.include_router(documents_router)
+    app.include_router(evidence_router)
+    app.include_router(findings_router)
+    app.include_router(audit_router)
     app.include_router(copilot_router)
     app.include_router(application_copilot_router)
 

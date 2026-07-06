@@ -75,18 +75,18 @@ Per `plan.md`'s Structure Decision (Option 2 — web application): the existing 
 
 ### App shell & cross-cutting infrastructure
 
-- [ ] T034 Implement the HTTP client with a token-attachment interceptor in `frontend/src/app/auth/httpClient.ts`
-- [ ] T035 Implement the auth abstraction module (token acquisition behind one interface; dev-bearer flow as the initial implementation) in `frontend/src/app/auth/authProvider.ts` (depends on T034; see `plan.md` Authentication Flow)
-- [ ] T036 Configure the TanStack Query client with per-entity-tier `staleTime` defaults (audit-critical / informational / long-lived / preference, per `data-model.md`) in `frontend/src/app/queryClient.ts`
-- [ ] T037 Configure the TanStack Router root route tree and compose root providers (Theme, Query, Router) in `frontend/src/app/router.tsx` (depends on T020, T036)
-- [ ] T038 Implement the Zustand store for ephemeral UI state (command palette query, panel open/closed, theme choice) in `frontend/src/app/uiStore.ts`
-- [ ] T039 Implement the root Error Boundary in `frontend/src/app/ErrorBoundary.root.tsx`
-- [ ] T040 [P] Implement the route-level Error Boundary wrapper in `frontend/src/shared/errors/RouteErrorBoundary.tsx`
-- [ ] T041 [P] Implement the panel-level Error Boundary wrapper in `frontend/src/shared/errors/PanelErrorBoundary.tsx`
-- [ ] T042 [P] Implement the client-side telemetry module (error + Performance Budget metric reporting) in `frontend/src/shared/telemetry/telemetry.ts`
-- [ ] T043 Establish the shared entity-layer convention: a Zod-parsing + query-hook helper every `entities/*` module will use in `frontend/src/shared/api/createEntityQuery.ts` (depends on T034, T036)
-- [ ] T044 [P] Configure MSW contract-shaped mock handlers for local dev and tests in `frontend/src/test/msw/handlers.ts`
-- [ ] T127 [P] Implement the persistent user-identity indicator and always-reachable sign-out control (FR-007) in `frontend/src/app/UserMenu.tsx` (depends on T035) — resolves post-analysis finding C1
+- [X] T034 Implement the HTTP client with a token-attachment interceptor in `frontend/src/app/auth/httpClient.ts`
+- [X] T035 Implement the auth abstraction module (token acquisition behind one interface; dev-bearer flow as the initial implementation) in `frontend/src/app/auth/authProvider.ts` (depends on T034; see `plan.md` Authentication Flow)
+- [X] T036 Configure the TanStack Query client with per-entity-tier `staleTime` defaults (audit-critical / informational / long-lived / preference, per `data-model.md`) in `frontend/src/app/queryClient.ts`
+- [X] T037 Configure the TanStack Router root route tree and compose root providers (Theme, Query, Router) in `frontend/src/app/router.tsx` (depends on T020, T036)
+- [X] T038 Implement the Zustand store for ephemeral UI state (command palette query, panel open/closed, theme choice) in `frontend/src/app/uiStore.ts`
+- [X] T039 Implement the root Error Boundary in `frontend/src/app/ErrorBoundary.root.tsx`
+- [X] T040 [P] Implement the route-level Error Boundary wrapper in `frontend/src/shared/errors/RouteErrorBoundary.tsx`
+- [X] T041 [P] Implement the panel-level Error Boundary wrapper in `frontend/src/shared/errors/PanelErrorBoundary.tsx`
+- [X] T042 [P] Implement the client-side telemetry module (error + Performance Budget metric reporting) in `frontend/src/shared/telemetry/telemetry.ts`
+- [X] T043 Establish the shared entity-layer convention: a Zod-parsing + query-hook helper every `entities/*` module will use in `frontend/src/shared/api/createEntityQuery.ts` (depends on T034, T036)
+- [X] T044 [P] Configure MSW contract-shaped mock handlers for local dev and tests in `frontend/src/test/msw/handlers.ts`
+- [X] T127 [P] Implement the persistent user-identity indicator and always-reachable sign-out control (FR-007) in `frontend/src/app/UserMenu.tsx` (depends on T035) — resolves post-analysis finding C1
 
 **Checkpoint**: Foundation ready — user story implementation can now begin.
 
@@ -100,44 +100,44 @@ Per `plan.md`'s Structure Decision (Option 2 — web application): the existing 
 
 ### Backend additions for User Story 1 (additive only — see `contracts/api-gaps.md`)
 
-- [ ] T045 [US1] Add `GET /v1/applications/{id}/evidence` in new router `src/mil/api/v1/evidence.py`, exposing the existing `mil.evidence` service
-- [ ] T046 [US1] Add `GET /v1/applications/{id}/findings` in new router `src/mil/api/v1/findings.py`, exposing the existing `mil.finding` service, with resolved evidence refs
-- [ ] T047 [US1] Add `POST /v1/findings/{id}/verify` in `src/mil/api/v1/findings.py` (idempotent, attributed, immutable per Constitution Principle VIII)
-- [ ] T048 [US1] Add `POST /v1/findings/{id}/override` in `src/mil/api/v1/findings.py`, rejecting an empty `reason`
-- [ ] T049 [US1] Add `POST /v1/findings/{id}/escalate` in `src/mil/api/v1/findings.py`, requiring `reason` and a target role
-- [ ] T050 [US1] Add `GET /v1/applications/{id}/audit` in new router `src/mil/api/v1/audit.py`, read-only chronological projection of existing audit events
-- [ ] T051 [US1] Register the new routers in `src/main.py`
+- [X] T045 [US1] Add `GET /v1/applications/{id}/evidence` in new router `src/mil/api/v1/evidence.py`, exposing the existing `mil.evidence` service
+- [X] T046 [US1] Add `GET /v1/applications/{id}/findings` in new router `src/mil/api/v1/findings.py`, exposing the existing `mil.finding` service, with resolved evidence refs
+- [X] T047 [US1] Add `POST /v1/findings/{id}/verify` in `src/mil/api/v1/findings.py` (idempotent, attributed, immutable per Constitution Principle VIII)
+- [X] T048 [US1] Add `POST /v1/findings/{id}/override` in `src/mil/api/v1/findings.py`, rejecting an empty `reason`
+- [ ] T049 [US1] Add `POST /v1/findings/{id}/escalate` in `src/mil/api/v1/findings.py`, requiring `reason` and a target role — **BLOCKED, see HANDOFF.md: no backend domain logic (state machine, persistence) for escalation exists yet; this requires a genuine design decision, not just HTTP exposure of existing logic**
+- [X] T050 [US1] Add `GET /v1/applications/{id}/audit` in new router `src/mil/api/v1/audit.py`, read-only chronological projection of existing audit events
+- [X] T051 [US1] Register the new routers in `src/main.py`
 
 ### Frontend entity layer for User Story 1
 
-- [ ] T052 [P] [US1] Create `Application` types + Zod schema in `frontend/src/entities/application/types.ts` (per `data-model.md`)
-- [ ] T053 [P] [US1] Create `Application` single-record query hook in `frontend/src/entities/application/queries.ts`
-- [ ] T054 [P] [US1] Create `Document` types + Zod schema in `frontend/src/entities/document/types.ts`
-- [ ] T055 [P] [US1] Create `Document` query hooks (list-for-application, get) in `frontend/src/entities/document/queries.ts`
-- [ ] T056 [P] [US1] Create `EvidenceItem` types + Zod schema in `frontend/src/entities/evidence/types.ts`
-- [ ] T057 [US1] Create `EvidenceItem` query hooks in `frontend/src/entities/evidence/queries.ts` (depends on T045, T056)
-- [ ] T058 [P] [US1] Create `Finding` types + Zod schema (five explainability fields required, not optional, at the type level) in `frontend/src/entities/finding/types.ts`
-- [ ] T059 [US1] Create `Finding` query hook + verify/override/escalate mutation hooks (confirmed writes only — no optimistic update) in `frontend/src/entities/finding/queries.ts` (depends on T046–T049, T058)
-- [ ] T060 [P] [US1] Create `AuditTrailEntry` types + read-only query hook (no mutation exposed at the type level) in `frontend/src/entities/audit/queries.ts` (depends on T050)
+- [X] T052 [P] [US1] Create `Application` types + Zod schema in `frontend/src/entities/application/types.ts` (per `data-model.md`)
+- [X] T053 [P] [US1] Create `Application` single-record query hook in `frontend/src/entities/application/queries.ts`
+- [X] T054 [P] [US1] Create `Document` types + Zod schema in `frontend/src/entities/document/types.ts`
+- [X] T055 [P] [US1] Create `Document` query hooks (list-for-application, get) in `frontend/src/entities/document/queries.ts`
+- [X] T056 [P] [US1] Create `EvidenceItem` types + Zod schema in `frontend/src/entities/evidence/types.ts`
+- [X] T057 [US1] Create `EvidenceItem` query hooks in `frontend/src/entities/evidence/queries.ts` (depends on T045, T056)
+- [X] T058 [P] [US1] Create `Finding` types + Zod schema (five explainability fields required, not optional, at the type level) in `frontend/src/entities/finding/types.ts`
+- [X] T059 [US1] Create `Finding` query hook + verify/override mutation hooks (confirmed writes only — no optimistic update) in `frontend/src/entities/finding/queries.ts` (depends on T046–T048, T058) — **escalate mutation hook withheld pending T049**
+- [X] T060 [P] [US1] Create `AuditTrailEntry` types + read-only query hook (no mutation exposed at the type level) in `frontend/src/entities/audit/queries.ts` (depends on T050)
 
 ### Frontend features for User Story 1
 
-- [ ] T061 [US1] Implement the Application Workspace shell (overview/findings/evidence/documents/Copilot regions, no full reload between them) in `frontend/src/features/application-workspace/ApplicationWorkspace.tsx` (depends on T052–T055)
-- [ ] T062 [US1] Implement the Finding presentation component, type-gated on all five explainability fields, in `frontend/src/features/application-workspace/FindingCard.tsx` (depends on T058)
-- [ ] T063 [US1] Implement verify/override/escalate action controls with a React Hook Form + Zod reason form (blocks empty submission; preserves input across a failed submit; the confirming action per FR-078 is a distinct second step — e.g. a "Review & Confirm" button separate from the reason field itself — never implicit in typing the reason) in `frontend/src/features/application-workspace/FindingActions.tsx` (depends on T059, T030)
-- [ ] T064 [US1] Implement the PDF.js rendering layer (first-page-usable-first, no full-document wait) in `frontend/src/features/document-viewer/PdfRenderer.tsx`
-- [ ] T065 [US1] Implement the evidence-highlight coordinate-mapping overlay (page/field-location → rendered coordinates, correct across zoom and rotation) in `frontend/src/features/document-viewer/EvidenceHighlightOverlay.tsx` (depends on T064) — **highest-risk task in this plan; see `plan.md` Risks and Mitigations; prototype before treating as a scheduled, estimable task**
+- [X] T061 [US1] Implement the Application Workspace shell (overview/findings/evidence/documents/Copilot regions, no full reload between them) in `frontend/src/features/application-workspace/ApplicationWorkspace.tsx` (depends on T052–T055) — **no Copilot region: User Story 3, out of scope this session**
+- [X] T062 [US1] Implement the Finding presentation component, type-gated on all five explainability fields, in `frontend/src/features/application-workspace/FindingCard.tsx` (depends on T058)
+- [X] T063 [US1] Implement verify/override action controls with a React Hook Form + Zod reason form (blocks empty submission; preserves input across a failed submit; the confirming action per FR-078 is a distinct second step — e.g. a "Review & Confirm" button separate from the reason field itself — never implicit in typing the reason) in `frontend/src/features/application-workspace/FindingActions.tsx` (depends on T059, T030) — **no escalate control pending T049**
+- [X] T064 [US1] Implement the PDF.js rendering layer (first-page-usable-first, no full-document wait) in `frontend/src/features/document-viewer/PdfRenderer.tsx` — required a new additive `GET .../documents/{id}/content` endpoint (see HANDOFF.md)
+- [ ] T065 [US1] Implement the evidence-highlight coordinate-mapping overlay (page/field-location → rendered coordinates, correct across zoom and rotation) in `frontend/src/features/document-viewer/EvidenceHighlightOverlay.tsx` (depends on T064) — **highest-risk task in this plan; see `plan.md` Risks and Mitigations; prototype before treating as a scheduled, estimable task** — **STOPPED HERE, per instruction; not started**
 - [ ] T066 [US1] Implement Document Viewer navigation (page jump, zoom, pinned-vs-preview tabs) in `frontend/src/features/document-viewer/DocumentViewer.tsx` (depends on T064, T065)
-- [ ] T067 [US1] Implement the Audit Timeline component (read-only, chronological, immutable-feeling presentation) in `frontend/src/features/application-workspace/AuditTimeline.tsx` (depends on T060)
-- [ ] T068 [US1] Implement the stale-record indicator and one-action refresh (FR-036) in `frontend/src/features/application-workspace/StaleRecordBanner.tsx`
-- [ ] T069 [US1] Wire the deep-linkable Application Workspace route in `frontend/src/routes/applications.$applicationId.tsx` (depends on T037, T061)
-- [ ] T128 [US1] Implement the role-gated read-only Application Workspace variant for the auditor/compliance role (FR-037): verify/override/escalate controls are entirely absent from the render tree for this role, not merely disabled-but-visible, while all evidentiary and decision content remains identical, in `frontend/src/features/application-workspace/ApplicationWorkspace.tsx` (depends on T061, T062, T063) — resolves post-analysis finding C3
+- [X] T067 [US1] Implement the Audit Timeline component (read-only, chronological, immutable-feeling presentation) in `frontend/src/features/application-workspace/AuditTimeline.tsx` (depends on T060)
+- [X] T068 [US1] Implement the stale-record indicator and one-action refresh (FR-036) in `frontend/src/features/application-workspace/StaleRecordBanner.tsx`
+- [X] T069 [US1] Wire the deep-linkable Application Workspace route in `frontend/src/routes/applications.$applicationId.tsx` (depends on T037, T061)
+- [X] T128 [US1] Implement the role-gated read-only Application Workspace variant for the auditor/compliance role (FR-037): verify/override/escalate controls are entirely absent from the render tree for this role, not merely disabled-but-visible, while all evidentiary and decision content remains identical, in `frontend/src/features/application-workspace/ApplicationWorkspace.tsx` (depends on T061, T062, T063) — resolves post-analysis finding C3
 
 ### Tests for User Story 1
 
-- [ ] T070 [P] [US1] Component test: `FindingCard` never renders with a missing explainability field, in `frontend/src/features/application-workspace/FindingCard.test.tsx`
-- [ ] T071 [P] [US1] Component test: override submission blocks on empty reason and preserves input on simulated network failure, in `frontend/src/features/application-workspace/FindingActions.test.tsx`
-- [ ] T072 [US1] E2E test covering 002 Acceptance Scenarios 1–5 (explainability, evidence-to-document navigation, override with reason, interrupted-submission recovery, status advance) in `frontend/e2e/application-workspace.spec.ts`
+- [X] T070 [P] [US1] Component test: `FindingCard` never renders with a missing explainability field, in `frontend/src/features/application-workspace/FindingCard.test.tsx`
+- [X] T071 [P] [US1] Component test: override submission blocks on empty reason and preserves input on simulated network failure, in `frontend/src/features/application-workspace/FindingActions.test.tsx`
+- [ ] T072 [US1] E2E test covering 002 Acceptance Scenarios 1–5 (explainability, evidence-to-document navigation, override with reason, interrupted-submission recovery, status advance) in `frontend/e2e/application-workspace.spec.ts` — **not started: scenario 2 (evidence-to-document navigation) depends on T065/T066**
 - [ ] T129 [US1] E2E test: an auditor/compliance-role session renders the Application Workspace with zero action controls present in the DOM (not merely disabled) while all evidentiary content matches the underwriter view, in `frontend/e2e/application-workspace-readonly.spec.ts` (depends on T128) — verifies post-analysis finding C3
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — the MVP.

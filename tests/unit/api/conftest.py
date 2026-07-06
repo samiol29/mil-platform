@@ -160,6 +160,62 @@ def make_copilot_response(*, query_id=None, citations=()):
     )
 
 
+def make_evidence_item(application_id=None, document_id=None, evidence_id=None):
+    """Return an EvidenceItem domain object with test-friendly defaults."""
+    from mil.evidence.models import EvidenceItem
+    from mil.kernel.providers.extraction import EvidenceAttributes, FieldLocation
+
+    attrs = EvidenceAttributes(
+        field_name="gross_monthly_income",
+        field_value="6200.00",
+        document_id=str(document_id or TEST_DOC_ID),
+        source_document_ref="ref-1",
+        page_number=2,
+        field_location=FieldLocation(page_number=2, field_name="gross_monthly_income"),
+        extraction_confidence=0.9,
+        extraction_method="mock-keyword-matcher",
+        extracted_at=datetime(2026, 6, 21, 10, 15, tzinfo=UTC),
+        extraction_version="mock-extraction-1.0.0",
+    )
+    item = EvidenceItem.create(
+        application_id=application_id or TEST_APP_ID,
+        document_id=document_id or TEST_DOC_ID,
+        workflow_run_id=uuid4(),
+        tenant_id=TEST_TENANT_ID,
+        attrs=attrs,
+    )
+    if evidence_id is not None:
+        object.__setattr__(item, "id", evidence_id)
+    return item
+
+
+def make_finding(application_id=None, finding_id=None, evidence_item_ids=None):
+    """Return a Finding domain object with test-friendly defaults."""
+    from decimal import Decimal
+
+    from mil.finding.models import Finding
+
+    finding = Finding.create(
+        application_id=application_id or TEST_APP_ID,
+        tenant_id=TEST_TENANT_ID,
+        workflow_run_id=uuid4(),
+        finding_type="AI_GENERATED_ASSESSMENT",
+        title="Reported income does not match pay stub",
+        rationale="Application states $6,500/month; extracted value is $6,200/month.",
+        evidence_summary="gross_monthly_income=6200.00",
+        confidence_label="HIGH",
+        recommended_action="Confirm current income with the borrower.",
+        confidence_score=Decimal("0.900"),
+        model_version="mock-inference-1.0.0",
+        prompt_version="finding-generation-prompt-v1",
+        extraction_version="mock-extraction-1.0.0",
+        evidence_item_ids=evidence_item_ids or [uuid4()],
+    )
+    if finding_id is not None:
+        object.__setattr__(finding, "id", finding_id)
+    return finding
+
+
 def make_document(application_id=None, doc_id=None) -> Document:
     """Return a Document domain object with test-friendly defaults."""
     doc = Document.create(
@@ -220,6 +276,46 @@ def mock_copilot_service() -> MagicMock:
 
 
 @pytest.fixture()
+def mock_evidence_service() -> MagicMock:
+    """Mocked EvidenceService."""
+    from mil.evidence.service import EvidenceService
+
+    return MagicMock(spec=EvidenceService)
+
+
+@pytest.fixture()
+def mock_finding_service() -> MagicMock:
+    """Mocked FindingService."""
+    from mil.finding.service import FindingService
+
+    return MagicMock(spec=FindingService)
+
+
+@pytest.fixture()
+def mock_finding_review_actions() -> MagicMock:
+    """Mocked FindingReviewActions (the verify/override HTTP composition root)."""
+    from mil.api.deps import FindingReviewActions
+
+    return MagicMock(spec=FindingReviewActions)
+
+
+@pytest.fixture()
+def mock_audit_repository() -> MagicMock:
+    """Mocked AuditRepository."""
+    from mil.audit.repository import AuditRepository
+
+    return MagicMock(spec=AuditRepository)
+
+
+@pytest.fixture()
+def mock_storage_provider() -> MagicMock:
+    """Mocked StorageProvider."""
+    from mil.kernel.providers.storage import StorageProvider
+
+    return MagicMock(spec=StorageProvider)
+
+
+@pytest.fixture()
 def client(
     current_user: AuthenticatedUser,
     mock_app_service: MagicMock,
@@ -227,12 +323,25 @@ def client(
     mock_ingestion_trigger: MagicMock,
     mock_finding_trigger: MagicMock,
     mock_copilot_service: MagicMock,
+    mock_evidence_service: MagicMock,
+    mock_finding_service: MagicMock,
+    mock_finding_review_actions: MagicMock,
+    mock_audit_repository: MagicMock,
+    mock_storage_provider: MagicMock,
 ) -> TestClient:
     """
     Return a synchronous TestClient with all service and auth deps overridden.
 
     The lifespan is disabled so tests do not need a database or DI container.
     """
+    from mil.api.deps import (
+        get_audit_repository,
+        get_evidence_service,
+        get_finding_review_actions,
+        get_finding_service,
+        get_storage_provider,
+    )
+
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: current_user
     app.dependency_overrides[get_application_service] = lambda: mock_app_service
@@ -240,4 +349,9 @@ def client(
     app.dependency_overrides[get_document_ingestion_trigger] = lambda: mock_ingestion_trigger
     app.dependency_overrides[get_finding_trigger] = lambda: mock_finding_trigger
     app.dependency_overrides[get_copilot_service] = lambda: mock_copilot_service
+    app.dependency_overrides[get_evidence_service] = lambda: mock_evidence_service
+    app.dependency_overrides[get_finding_service] = lambda: mock_finding_service
+    app.dependency_overrides[get_finding_review_actions] = lambda: mock_finding_review_actions
+    app.dependency_overrides[get_audit_repository] = lambda: mock_audit_repository
+    app.dependency_overrides[get_storage_provider] = lambda: mock_storage_provider
     return TestClient(app, raise_server_exceptions=True)

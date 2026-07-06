@@ -6,8 +6,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pytest
+
 from mil.evidence.service import EvidenceService
+from mil.kernel.errors import AuthorizationError
 from mil.kernel.providers.extraction import EvidenceAttributes, FieldLocation
+from mil.kernel.security import AuthenticatedUser, Role
+from mil.kernel.types import TenantId, UserId
 
 if TYPE_CHECKING:
     from mil.evidence.models import EvidenceItem
@@ -33,9 +38,13 @@ def _attrs(field_name: str = "gross_monthly_income", **overrides: object) -> Evi
 class FakeEvidenceRepository:
     def __init__(self) -> None:
         self.saved: list[EvidenceItem] = []
+        self.by_application: dict[object, list[EvidenceItem]] = {}
 
     def save(self, item: EvidenceItem) -> None:
         self.saved.append(item)
+
+    def get_for_application(self, application_id: object) -> list[EvidenceItem]:
+        return self.by_application.get(application_id, [])
 
 
 class FakeAuditWriter:
@@ -132,3 +141,40 @@ class TestCreateEvidenceItems:
             party_id=party_id,
         )
         assert repo.saved[0].party_id == party_id
+
+
+def _make_user(*roles: str) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        user_id=UserId(uuid4()),
+        tenant_id=TenantId(uuid4()),
+        roles=frozenset(roles or (Role.ADMIN,)),
+    )
+
+
+class TestListForApplication:
+    def test_returns_items_for_application(self) -> None:
+        service, repo, _ = _make_service()
+        app_id = uuid4()
+        items = [uuid4(), uuid4()]  # placeholder identities, not real EvidenceItems
+        repo.by_application[app_id] = items  # type: ignore[assignment]
+        result = service.list_for_application(_make_user(), application_id=app_id)
+        assert result == items
+
+    def test_unknown_application_returns_empty(self) -> None:
+        service, _, _ = _make_service()
+        result = service.list_for_application(_make_user(), application_id=uuid4())
+        assert result == []
+
+    def test_requires_read_evidence_permission(self) -> None:
+        service, _, _ = _make_service()
+        user = _make_user(Role.AUDIT_TEAM)
+        # AUDIT_TEAM holds read:evidence — should succeed without raising.
+        service.list_for_application(user, application_id=uuid4())
+
+    def test_missing_permission_raises_authorization_error(self) -> None:
+        service, _, _ = _make_service()
+        user = AuthenticatedUser(
+            user_id=UserId(uuid4()), tenant_id=TenantId(uuid4()), roles=frozenset()
+        )
+        with pytest.raises(AuthorizationError):
+            service.list_for_application(user, application_id=uuid4())

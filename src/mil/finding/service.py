@@ -30,6 +30,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 from mil.finding.models import Finding
+from mil.kernel.security import Permission, require_permission
 from mil.kernel.types import Confidence
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
     from mil.evidence.models import EvidenceItem
     from mil.finding.repository import FindingRepository
     from mil.kernel.providers.inference import InferenceResult
+    from mil.kernel.security import AuthenticatedUser
 
 _DEFAULT_FINDING_TYPE = "AI_GENERATED_ASSESSMENT"
 _DEFAULT_RECOMMENDED_ACTION = (
@@ -132,3 +134,25 @@ class FindingService:
             },
         )
         return finding
+
+    def list_for_application(
+        self, user: AuthenticatedUser, *, application_id: UUID
+    ) -> list[Finding]:
+        """
+        Return every finding for an application, most recent first.
+
+        Raises:
+            AuthorizationError: If the user lacks ``read:findings``.
+        """
+        require_permission(user, Permission.READ_FINDINGS)
+        return self._repo.get_for_application(application_id)
+
+    def get_by_id(self, user: AuthenticatedUser, *, finding_id: UUID) -> Finding | None:
+        """
+        Return the finding with the given id, or ``None`` if not found.
+
+        Raises:
+            AuthorizationError: If the user lacks ``read:findings``.
+        """
+        require_permission(user, Permission.READ_FINDINGS)
+        return self._repo.get_by_id(finding_id)

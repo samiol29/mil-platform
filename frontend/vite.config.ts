@@ -4,14 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
+import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-
-// NOTE: the TanStack Router Vite plugin (route-tree codegen) is intentionally not
-// wired in yet — it belongs to Phase 2/T037 (Foundational: "Configure the TanStack
-// Router root route tree"), which is where routing is actually established. Phase 1
-// is infrastructure/tooling only, per tasks.md ("no product/domain code yet").
 
 const dirname =
   typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +25,13 @@ const aliases = {
 };
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    // Must run before @vitejs/plugin-react (TanStack Router docs) — generates
+    // src/routeTree.gen.ts from the file-based route tree under src/routes/.
+    tanstackRouter({ target: 'react', autoCodeSplitting: true }),
+    react(),
+    tailwindcss(),
+  ],
   resolve: {
     alias: aliases,
   },

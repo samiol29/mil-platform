@@ -13,7 +13,15 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 // rule set is a required, non-negotiable part of this configuration, not optional
 // tooling. See plan.md's Accessibility Strategy and CI/CD Considerations.
 export default defineConfig(
-  globalIgnores(['dist', 'storybook-static', 'coverage', 'playwright-report', 'test-results']),
+  globalIgnores([
+    'dist',
+    'storybook-static',
+    'coverage',
+    'playwright-report',
+    'test-results',
+    'src/routeTree.gen.ts',
+    'public/mockServiceWorker.js',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -66,6 +74,19 @@ export default defineConfig(
     files: ['**/*.config.{ts,js}', '.storybook/**/*.ts'],
     languageOptions: {
       globals: globals.node,
+    },
+  },
+  {
+    // TanStack Router's file-based route convention requires every route
+    // module to export a non-component `Route` object alongside its
+    // (usually unexported) component — and `app/router.tsx` similarly
+    // exports the non-component `router` instance next to `AppProviders`.
+    // `react-refresh/only-export-components`'s HMR-purity assumption
+    // doesn't hold for this framework convention; disabled only for these
+    // files, not project-wide.
+    files: ['src/routes/**/*.tsx', 'src/app/router.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
 );
