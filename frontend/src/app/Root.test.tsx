@@ -5,6 +5,7 @@ import { http, HttpResponse } from 'msw';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { queryClient } from '@app/queryClient';
+import { ThemeProvider } from '@design-system/theme/ThemeProvider';
 
 import { routeTree } from '../routeTree.gen';
 import { FIXTURE_APPLICATION_ID } from '../test/msw/handlers';
@@ -17,19 +18,21 @@ function renderAtRoot() {
     context: { queryClient },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <ThemeProvider initialTheme="light">
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>,
   );
 }
 
-describe('Root', () => {
+describe('Root (Home Dashboard)', () => {
   afterEach(() => {
     server.resetHandlers();
     queryClient.clear();
   });
 
-  it('redirects to the first application’s Workspace', async () => {
+  it('renders a workload summary for the applications in the tenant', async () => {
     server.use(
       http.get('/v1/applications', () => {
         return HttpResponse.json({
@@ -55,8 +58,10 @@ describe('Root', () => {
     renderAtRoot();
 
     await waitFor(() => {
-      expect(screen.getByText('Overview')).toBeInTheDocument();
+      expect(screen.getByText("Today's workload")).toBeInTheDocument();
     });
+    expect(screen.getAllByText('In Review').length).toBeGreaterThan(0);
+    expect(screen.getByText('4009123456')).toBeInTheDocument();
   });
 
   it('shows an empty state when there are no applications', async () => {

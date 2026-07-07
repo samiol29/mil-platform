@@ -252,15 +252,19 @@ class ApplicationService:
         *,
         tenant_id: TenantId | UUID,
         status: str | None = None,
+        search: str | None = None,
     ) -> list[MortgageApplication]:
         """
-        Return all applications for a tenant, optionally filtered by status.
+        Return all applications for a tenant, optionally filtered by status
+        and/or a search term matched against LOS reference, loan number,
+        application ID, or borrower display name (see
+        ``ApplicationRepository.get_for_tenant`` for the exact match rules).
 
         Raises:
             AuthorizationError: If the user lacks ``read:application``.
         """
         require_permission(user, Permission.READ_APPLICATION)
-        return self._repo.get_for_tenant(tenant_id, status=status)
+        return self._repo.get_for_tenant(tenant_id, status=status, search=search)
 
     # ------------------------------------------------------------------
     # Party type validation (T036 explicit requirement)

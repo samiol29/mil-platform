@@ -24,12 +24,21 @@
 
 import { useState } from 'react';
 
+import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { LoadingState } from '@design-system/components/LoadingState';
+import { SummaryGrid, type SummaryGridItem } from '@design-system/components/SummaryGrid';
+import type { Application } from '@entities/application/queries';
 import { useApplication } from '@entities/application/queries';
+import {
+  APPLICATION_STATUS_CLASS_NAME,
+  APPLICATION_STATUS_LABEL,
+} from '@entities/application/statusLabel';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
+import { usePartiesForApplication } from '@entities/party/queries';
+import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
@@ -101,15 +110,7 @@ export function ApplicationWorkspace({
 
           {region === 'overview' && (
             <PanelErrorBoundary panelName="Overview">
-              <section aria-label="Overview" className="flex flex-col gap-2">
-                <h2 className="text-heading-page text-text-primary">
-                  Application {applicationQuery.data.loanNumber ?? applicationQuery.data.id}
-                </h2>
-                <p className="text-body text-text-secondary">
-                  Status: {applicationQuery.data.status}
-                </p>
-                <AuditTimeline applicationId={applicationId} />
-              </section>
+              <OverviewRegion applicationId={applicationId} application={applicationQuery.data} />
             </PanelErrorBoundary>
           )}
 
@@ -179,6 +180,7 @@ function FindingsRegion({
 
   return (
     <div className="flex flex-col gap-4">
+      <h2 className="text-heading-section text-text-primary">Findings</h2>
       {findingsQuery.data.map((finding) => (
         <FindingCard
           key={finding.id}
@@ -221,17 +223,124 @@ function EvidenceRegion({ applicationId }: { applicationId: string }) {
     return <EmptyState title="No evidence extracted yet" />;
   }
 
+  const items: SummaryGridItem[] = evidenceQuery.data.map((item) => ({
+    id: item.id,
+    label: item.evidenceType,
+    value: item.valueText ?? item.valueNumeric ?? '—',
+    tabular: item.valueNumeric !== null,
+  }));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-heading-section text-text-primary">Evidence</h2>
+      <SummaryGrid items={items} />
+    </div>
+  );
+}
+
+/**
+ * Overview region (UX audit §5) — a header row (loan number as page title,
+ * a refresh action, and the lifecycle-status label using the exact
+ * `FindingCard`-precedented plain-colored-label pattern, never
+ * `StatusBadge`), a fact-summary grid of every field the Application entity
+ * already returns, and an "Activity" card wrapping the audit trail — two
+ * grouped sections instead of a bare heading, per the reference-frontend
+ * and Stripe/Vercel-Dashboard-benchmark "header + grouped facts" pattern
+ * (see the UX audit doc, §3/§4).
+ */
+function OverviewRegion({
+  applicationId,
+  application,
+}: {
+  applicationId: string;
+  application: Application;
+}) {
+  const applicationQuery = useApplication(applicationId);
+
+  const summaryItems: SummaryGridItem[] = [
+    { label: 'Loan Number', value: application.loanNumber ?? '—', tabular: true },
+    { label: 'LOS Reference', value: application.losReference ?? '—', tabular: true },
+    { label: 'Parties', value: application.partyCount },
+    { label: 'Created', value: new Date(application.createdAt).toLocaleString() },
+    {
+      label: 'Last Updated',
+      value:
+        application.updatedAt !== null ? new Date(application.updatedAt).toLocaleString() : '—',
+    },
+  ];
+
+  return (
+    <section aria-label="Overview" className="flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-heading-page text-text-primary">
+            Application {application.loanNumber ?? application.id}
+          </h2>
+          <span
+            className={`text-caption border-border-subtle rounded-chip border px-2 py-0.5 font-medium ${APPLICATION_STATUS_CLASS_NAME[application.status]}`}
+          >
+            {APPLICATION_STATUS_LABEL[application.status]}
+          </span>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            void applicationQuery.refetch();
+          }}
+        >
+          Refresh
+        </Button>
+      </div>
+
+      <SummaryGrid items={summaryItems} />
+
+      <div className="border-border-subtle bg-surface-raised rounded-container border p-5">
+        <h3 className="text-heading-section text-text-primary mb-3">Borrowers</h3>
+        <BorrowersSummary applicationId={applicationId} />
+      </div>
+
+      <div className="border-border-subtle bg-surface-raised rounded-container border p-5">
+        <h3 className="text-heading-section text-text-primary mb-3">Activity</h3>
+        <AuditTimeline applicationId={applicationId} />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Borrowers card (Product Experience phase, Phase 2) — reflects the parties
+ * captured by the intake wizard (`features/application-intake/`). Kept as a
+ * small supplementary panel rather than a full region: party counts are
+ * typically small and read-only here (editing parties post-creation is out
+ * of this phase's scope).
+ */
+function BorrowersSummary({ applicationId }: { applicationId: string }) {
+  const partiesQuery = usePartiesForApplication(applicationId);
+
+  if (partiesQuery.isPending) return <LoadingState label="Loading borrowers…" />;
+  if (partiesQuery.isError) {
+    return (
+      <ErrorState
+        title="Could not load borrowers"
+        onRetry={() => {
+          void partiesQuery.refetch();
+        }}
+      />
+    );
+  }
+  if (partiesQuery.data.length === 0) {
+    return <EmptyState title="No borrowers registered yet" />;
+  }
+
   return (
     <ul className="flex flex-col gap-2">
-      {evidenceQuery.data.map((item) => (
-        <li
-          key={item.id}
-          className="border-border-subtle bg-surface-raised rounded-container flex items-center justify-between border p-4"
-        >
-          <span className="text-body text-text-primary">{item.evidenceType}</span>
-          <span className="text-body-emphasis text-text-primary">
-            {item.valueText ?? item.valueNumeric ?? '—'}
+      {partiesQuery.data.map((party) => (
+        <li key={party.id} className="flex items-center gap-2">
+          <span className="text-caption border-border-default text-text-secondary rounded-chip border px-2 py-0.5">
+            {PARTY_TYPE_LABEL[party.partyType]}
           </span>
+          <span className="text-body text-text-primary">{party.displayName}</span>
         </li>
       ))}
     </ul>

@@ -148,6 +148,38 @@ class TestListApplications:
         assert data["page"] == 3
         assert data["page_size"] == 10
 
+    def test_search_passed_to_service(
+        self, client: TestClient, mock_app_service: MagicMock
+    ) -> None:
+        mock_app_service.list_applications.return_value = []
+        client.get("/v1/applications?search=Alvarez")
+        call_kwargs = mock_app_service.list_applications.call_args.kwargs
+        assert call_kwargs["search"] == "Alvarez"
+
+    def test_search_omitted_by_default(
+        self, client: TestClient, mock_app_service: MagicMock
+    ) -> None:
+        mock_app_service.list_applications.return_value = []
+        client.get("/v1/applications")
+        call_kwargs = mock_app_service.list_applications.call_args.kwargs
+        assert call_kwargs["search"] is None
+
+    def test_search_and_status_combined(
+        self, client: TestClient, mock_app_service: MagicMock
+    ) -> None:
+        mock_app_service.list_applications.return_value = []
+        client.get("/v1/applications?status=DRAFT&search=LOS-123")
+        call_kwargs = mock_app_service.list_applications.call_args.kwargs
+        assert call_kwargs["status"] == "DRAFT"
+        assert call_kwargs["search"] == "LOS-123"
+
+    def test_search_too_long_returns_422(
+        self, client: TestClient, mock_app_service: MagicMock
+    ) -> None:
+        mock_app_service.list_applications.return_value = []
+        response = client.get(f"/v1/applications?search={'a' * 256}")
+        assert response.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/applications/{id}

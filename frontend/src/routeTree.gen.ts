@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApplicationsIndexRouteImport } from './routes/applications.index'
 import { Route as ApplicationsApplicationIdRouteImport } from './routes/applications.$applicationId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApplicationsIndexRoute = ApplicationsIndexRouteImport.update({
+  id: '/applications/',
+  path: '/applications/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApplicationsApplicationIdRoute =
@@ -27,27 +33,31 @@ const ApplicationsApplicationIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/applications/$applicationId': typeof ApplicationsApplicationIdRoute
+  '/applications/': typeof ApplicationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/applications/$applicationId': typeof ApplicationsApplicationIdRoute
+  '/applications': typeof ApplicationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/applications/$applicationId': typeof ApplicationsApplicationIdRoute
+  '/applications/': typeof ApplicationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/applications/$applicationId'
+  fullPaths: '/' | '/applications/$applicationId' | '/applications/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/applications/$applicationId'
-  id: '__root__' | '/' | '/applications/$applicationId'
+  to: '/' | '/applications/$applicationId' | '/applications'
+  id: '__root__' | '/' | '/applications/$applicationId' | '/applications/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApplicationsApplicationIdRoute: typeof ApplicationsApplicationIdRoute
+  ApplicationsIndexRoute: typeof ApplicationsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -57,6 +67,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/applications/': {
+      id: '/applications/'
+      path: '/applications'
+      fullPath: '/applications/'
+      preLoaderRoute: typeof ApplicationsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/applications/$applicationId': {
@@ -72,6 +89,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApplicationsApplicationIdRoute: ApplicationsApplicationIdRoute,
+  ApplicationsIndexRoute: ApplicationsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

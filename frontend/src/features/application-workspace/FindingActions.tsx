@@ -17,15 +17,26 @@
  * escalated finding is still awaiting exactly the same resolving actions
  * (the backend enforces who may actually resolve it; disabling controls
  * here is a UX nicety, never the authorization boundary).
+ *
+ * Also opens in response to a Command Palette finding-action command (UX
+ * audit §5): `useUiStore`'s `requestedFindingAction` is ephemeral UI state
+ * (plan.md State Management) set when a palette command targeting this
+ * exact finding is chosen. This effect only opens the same dialog a manual
+ * button click opens — it never calls a mutation directly — so the
+ * mandatory second-confirmation step (FR-078) is identical either way.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 
+import { useUiStore } from '@app/uiStore';
 import { Button } from '@design-system/components/Button';
 import { Dialog } from '@design-system/components/Dialog';
+import { Input } from '@design-system/components/Input';
+import { Select } from '@design-system/components/Select';
+import { Textarea } from '@design-system/components/Textarea';
 import type { Finding } from '@entities/finding/queries';
 import {
   useEscalateFinding,
@@ -95,6 +106,34 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
     resolver: zodResolver(escalateFormSchema),
     defaultValues: { reason: '', targetRole: ESCALATION_TARGET_ROLES[0] },
   });
+
+  const requestedFindingAction = useUiStore((state) => state.requestedFindingAction);
+  const clearRequestedFindingAction = useUiStore((state) => state.clearRequestedFindingAction);
+
+  // Render-phase state adjustment (react.dev's own pattern for this case,
+  // already used by `DocumentViewer.tsx`'s `jumpTarget` handling) rather
+  // than a `useEffect` that calls `setState` synchronously in its body —
+  // opens the same dialog a manual button click opens the moment a
+  // matching command-palette request appears, without an extra
+  // post-commit render.
+  const [previousRequestedFindingAction, setPreviousRequestedFindingAction] =
+    useState(requestedFindingAction);
+  if (requestedFindingAction !== previousRequestedFindingAction) {
+    setPreviousRequestedFindingAction(requestedFindingAction);
+    if (requestedFindingAction?.findingId === finding.id) {
+      if (requestedFindingAction.action === 'verify') setVerifyDialogOpen(true);
+      if (requestedFindingAction.action === 'override') setOverrideDialogOpen(true);
+      if (requestedFindingAction.action === 'escalate') setEscalateDialogOpen(true);
+    }
+  }
+
+  // Clearing the shared request is an external-store side effect (not this
+  // component's own render-phase state), so it belongs in an effect.
+  useEffect(() => {
+    if (requestedFindingAction?.findingId === finding.id) {
+      clearRequestedFindingAction();
+    }
+  }, [requestedFindingAction, finding.id, clearRequestedFindingAction]);
 
   const alreadyDecided = finding.state === 'verified' || finding.state === 'overridden';
 
@@ -186,29 +225,27 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         }}
       >
         <form className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1" htmlFor="override-previous-value">
             <span className="text-label text-text-primary">Previous value</span>
-            <input
-              {...register('previousValue')}
-              className="border-border-default rounded-interactive text-body bg-surface-background border px-3 py-2"
-            />
+            <Input id="override-previous-value" {...register('previousValue')} />
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1" htmlFor="override-new-value">
             <span className="text-label text-text-primary">Corrected value</span>
-            <input
+            <Input
+              id="override-new-value"
               {...register('newValue')}
-              className="border-border-default rounded-interactive text-body bg-surface-background border px-3 py-2"
+              invalid={errors.newValue !== undefined}
             />
             {errors.newValue !== undefined && (
               <span className="text-caption text-text-critical">{errors.newValue.message}</span>
             )}
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1" htmlFor="override-reason">
             <span className="text-label text-text-primary">Reason</span>
-            <textarea
+            <Textarea
+              id="override-reason"
               {...register('reason')}
-              rows={3}
-              className="border-border-default rounded-interactive text-body bg-surface-background border px-3 py-2"
+              invalid={errors.reason !== undefined}
             />
             {errors.reason !== undefined && (
               <span className="text-caption text-text-critical">{errors.reason.message}</span>
@@ -231,25 +268,22 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         }}
       >
         <form className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1" htmlFor="escalate-target-role">
             <span className="text-label text-text-primary">Escalate to</span>
-            <select
-              {...registerEscalate('targetRole')}
-              className="border-border-default rounded-interactive text-body bg-surface-background border px-3 py-2"
-            >
+            <Select id="escalate-target-role" {...registerEscalate('targetRole')}>
               {ESCALATION_TARGET_ROLES.map((role) => (
                 <option key={role} value={role}>
                   {role}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1" htmlFor="escalate-reason">
             <span className="text-label text-text-primary">Reason</span>
-            <textarea
+            <Textarea
+              id="escalate-reason"
               {...registerEscalate('reason')}
-              rows={3}
-              className="border-border-default rounded-interactive text-body bg-surface-background border px-3 py-2"
+              invalid={escalateErrors.reason !== undefined}
             />
             {escalateErrors.reason !== undefined && (
               <span className="text-caption text-text-critical">

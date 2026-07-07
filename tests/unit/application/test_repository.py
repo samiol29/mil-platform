@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+from sqlalchemy.dialects import postgresql
+
 from mil.application.models import MortgageApplication, PartyType
 from mil.application.repository import ApplicationRepository
 from mil.audit.writer import AuditWriter
@@ -188,3 +190,48 @@ class TestRepositoryGetForTenant:
         session.scalars.return_value = iter([app1, app2])
         result = repo.get_for_tenant(uuid4())
         assert result == [app1, app2]
+
+    def test_search_none_adds_no_ilike_clause(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value = iter([])
+        repo.get_for_tenant(uuid4())
+        stmt = session.scalars.call_args.args[0]
+        compiled = str(
+            stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        )
+        assert "ILIKE" not in compiled.upper()
+
+    def test_search_adds_ilike_clause_over_los_reference_and_loan_number(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value = iter([])
+        repo.get_for_tenant(uuid4(), search="Alvarez")
+        stmt = session.scalars.call_args.args[0]
+        compiled = str(
+            stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        )
+        assert "ILIKE" in compiled.upper()
+        assert "%Alvarez%" in compiled
+        assert "los_reference" in compiled
+        assert "loan_number" in compiled
+
+    def test_search_matches_against_party_display_name_via_exists(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value = iter([])
+        repo.get_for_tenant(uuid4(), search="Alvarez")
+        stmt = session.scalars.call_args.args[0]
+        compiled = str(
+            stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        )
+        assert "EXISTS" in compiled.upper()
+        assert "display_name" in compiled
+
+    def test_search_and_status_both_applied(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value = iter([])
+        repo.get_for_tenant(uuid4(), status="DRAFT", search="Alvarez")
+        stmt = session.scalars.call_args.args[0]
+        compiled = str(
+            stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        )
+        assert "ILIKE" in compiled.upper()
+        assert "'DRAFT'" in compiled

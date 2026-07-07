@@ -25,8 +25,14 @@ function findingsQueryKey(applicationId: string) {
  * Caching tier: audit-critical — a Finding is never rendered from a cache
  * that cannot supply all five explainability fields (data-model.md); Zod
  * parsing enforces this structurally, not just by convention.
+ *
+ * `enabled` (default `true`) lets a caller that only sometimes knows the
+ * applicationId (e.g. the Command Palette host, mounted globally and only
+ * sometimes inside an application route) call this hook unconditionally,
+ * satisfying rules-of-hooks, while skipping the request when there is no
+ * application in context.
  */
-export function useFindingsForApplication(applicationId: string) {
+export function useFindingsForApplication(applicationId: string, enabled = true) {
   return useQuery({
     queryKey: findingsQueryKey(applicationId),
     queryFn: async () => {
@@ -34,6 +40,7 @@ export function useFindingsForApplication(applicationId: string) {
       return findingSchema.array().parse(response.data);
     },
     staleTime: STALE_TIME.auditCritical,
+    enabled,
   });
 }
 

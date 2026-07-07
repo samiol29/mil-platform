@@ -95,3 +95,19 @@ export const authProvider: AuthProvider = {
 export function useAuthUser(): AuthenticatedUser | null {
   return useSyncExternalStore(authProvider.subscribe, authProvider.getCurrentUser);
 }
+
+/**
+ * Spec 002 FR-037: the auditor/compliance role reviews the identical
+ * evidentiary content with zero action controls in the render tree — not
+ * merely disabled. These are the roles the backend grants only read
+ * permissions to for evidence/findings (`mil.kernel.security
+ * .ROLE_PERMISSIONS`); everyone else (UNDERWRITER, VERIFICATION_OFFICER,
+ * ADMIN) can act. Shared by the Workspace route and any other surface that
+ * needs the same read-only determination (e.g. the Command Palette's
+ * finding-action commands) so the rule is defined exactly once.
+ */
+const READ_ONLY_ROLES: readonly string[] = ['AUDIT_TEAM', 'COMPLIANCE_OFFICER', 'RISK_ANALYST'];
+
+export function isReadOnlyUser(roles: readonly string[]): boolean {
+  return roles.length > 0 && roles.every((role) => READ_ONLY_ROLES.includes(role));
+}

@@ -132,22 +132,18 @@ export function DocumentViewer({ applicationId, jumpTarget = null }: DocumentVie
       {documents.length > 1 && (
         <nav aria-label="Open documents" className="flex flex-wrap gap-2">
           {documents.map((doc) => (
-            <button
+            <Button
               key={doc.id}
-              type="button"
+              variant={doc.id === effectiveActiveDocumentId ? 'primary' : 'secondary'}
+              size="sm"
               aria-current={doc.id === effectiveActiveDocumentId}
               onClick={() => {
                 setActiveDocumentId(doc.id);
                 setPageNumber(1);
               }}
-              className={
-                doc.id === effectiveActiveDocumentId
-                  ? 'text-label border-interactive-primary-default text-text-primary rounded-interactive border-2 px-3 py-1.5'
-                  : 'text-label text-text-secondary border-border-subtle rounded-interactive border px-3 py-1.5'
-              }
             >
               {doc.filename}
-            </button>
+            </Button>
           ))}
         </nav>
       )}

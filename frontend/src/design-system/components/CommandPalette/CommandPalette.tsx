@@ -14,28 +14,38 @@
  * built-in keyboard model (FR-069's composite-component keyboard
  * requirement), not reimplemented here.
  *
- * `CommandResults` deliberately does NOT use cmdk's built-in `<CommandEmpty>`:
- * it renders `role="presentation"`, and when it is `<CommandList>`'s (always
- * `role="listbox"`) only child (the "no commands registered yet" state this
- * component ships in today), that combination violates the WCAG
- * `aria-required-children` rule (a `listbox` must contain `option`/`group`
- * descendants) — caught for real by this task's own Storybook `a11y` gate.
- * Instead, the empty message renders as a single, non-interactive
- * `role="option"` (`aria-disabled`) inside the always-mounted
- * `<CommandList>` — satisfying the required-children rule structurally,
- * while also keeping `<CommandList>`'s id stable so `CommandInput`'s
- * `aria-controls` reference never dangles (unmounting `<CommandList>`
- * entirely was the first fix attempted here and broke that reference —
- * left as a note for the next person tempted to try it again).
+ * `CommandResults` renders registered `children` (`<CommandGroup>`/
+ * `<CommandItem>`) unconditionally rather than gating them on cmdk's
+ * `filtered.count` — an earlier version of this component gated
+ * rendering on that count, which is a chicken-and-egg bug: cmdk items only
+ * register themselves (and thus update `filtered.count`) via a mount
+ * effect, so if they are never placed in the tree because the count
+ * starts at 0, they can never mount to update it, and the palette is
+ * permanently stuck showing "No results found." even with real commands
+ * registered (caught when this shell was first given real commands to
+ * host, UX audit §5 — production never actually populated `children`
+ * before that, so the bug had no way to surface until then).
+ *
+ * When `children` is provided, cmdk's own `<CommandEmpty>` (which
+ * self-toggles on `filtered.count === 0` without gating anything else's
+ * mount) renders the "no results" text for an unmatched search, sitting
+ * alongside the always-rendered items. When `children` is undefined (the
+ * literal no-commands-registered-anywhere shell, still the production
+ * default in some future context), a static, non-interactive `role="option"`
+ * placeholder is used instead — `<CommandList>` (always `role="listbox"`)
+ * would otherwise contain only `<CommandEmpty>` (`role="presentation"`),
+ * violating the WCAG `aria-required-children` rule (a `listbox` must
+ * contain `option`/`group` descendants) — caught for real by this
+ * component's own Storybook `a11y` gate.
  */
 
 import {
   CommandDialog,
+  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-  useCommandState,
 } from 'cmdk';
 import { Search } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -48,14 +58,20 @@ export interface CommandPaletteProps {
   readonly placeholder?: string;
   /** Registered `<CommandGroup>`/`<CommandItem>` children — none by default. */
   readonly children?: ReactNode;
+  /**
+   * Controlled input text (Product Experience phase, Phase 1's Global
+   * Search) — lets the host react to what's typed (e.g. to run a live
+   * application search) instead of cmdk's default uncontrolled input.
+   * Omit both to keep the input uncontrolled, as it was before Phase 1.
+   */
+  readonly value?: string;
+  readonly onValueChange?: (value: string) => void;
 }
 
 function CommandResults({ children }: { children?: ReactNode }) {
-  const resultCount = useCommandState((state) => state.filtered.count);
-
   return (
     <CommandList className="max-h-80 overflow-y-auto p-2">
-      {resultCount === 0 ? (
+      {children === undefined ? (
         <div
           role="option"
           aria-disabled="true"
@@ -65,7 +81,12 @@ function CommandResults({ children }: { children?: ReactNode }) {
           No results found.
         </div>
       ) : (
-        children
+        <>
+          <CommandEmpty className="text-body px-3 py-6 text-center text-text-tertiary">
+            No results found.
+          </CommandEmpty>
+          {children}
+        </>
       )}
     </CommandList>
   );
@@ -76,6 +97,8 @@ export function CommandPalette({
   onOpenChange,
   placeholder = 'Type a command or search…',
   children,
+  value,
+  onValueChange,
 }: CommandPaletteProps) {
   return (
     <CommandDialog
@@ -91,6 +114,8 @@ export function CommandPalette({
         <Search className="size-4 text-text-tertiary" aria-hidden="true" />
         <CommandInput
           placeholder={placeholder}
+          value={value}
+          onValueChange={onValueChange}
           className={cn(
             'text-body h-12 flex-1 bg-transparent text-text-primary outline-none',
             'placeholder:text-text-tertiary',

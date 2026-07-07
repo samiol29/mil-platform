@@ -10,27 +10,13 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
 
-import { useAuthUser } from '@app/auth/authProvider';
+import { isReadOnlyUser, useAuthUser } from '@app/auth/authProvider';
 import { ApplicationWorkspace } from '@features/application-workspace/ApplicationWorkspace';
 import { WORKSPACE_REGIONS, type WorkspaceRegion } from '@features/application-workspace/regions';
 
 const searchSchema = z.object({
   region: z.enum(WORKSPACE_REGIONS).catch('overview'),
 });
-
-/**
- * Spec 002 FR-037: the auditor/compliance role reviews the identical
- * evidentiary content with zero action controls in the render tree — not
- * merely disabled. These are the roles the backend grants only read
- * permissions to for evidence/findings (`mil.kernel.security
- * .ROLE_PERMISSIONS`); everyone else (UNDERWRITER, VERIFICATION_OFFICER,
- * ADMIN) can act.
- */
-const READ_ONLY_ROLES: readonly string[] = ['AUDIT_TEAM', 'COMPLIANCE_OFFICER', 'RISK_ANALYST'];
-
-function isReadOnlyUser(roles: readonly string[]): boolean {
-  return roles.length > 0 && roles.every((role) => READ_ONLY_ROLES.includes(role));
-}
 
 export const Route = createFileRoute('/applications/$applicationId')({
   validateSearch: searchSchema,

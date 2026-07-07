@@ -12,6 +12,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { Button } from '@design-system/components/Button';
+
 const STALE_AFTER_MS = 2 * 60 * 1000;
 const RECHECK_INTERVAL_MS = 15_000;
 
@@ -44,15 +46,15 @@ export function StaleRecordBanner({ queryKey, dataUpdatedAt }: StaleRecordBanner
       <span className="text-body">
         This record may be out of date. Refresh before verifying or overriding a finding.
       </span>
-      <button
-        type="button"
-        className="text-label font-medium underline"
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={() => {
           void queryClient.invalidateQueries({ queryKey });
         }}
       >
         Refresh
-      </button>
+      </Button>
     </div>
   );
 }
