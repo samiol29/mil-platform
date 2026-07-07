@@ -28,6 +28,7 @@ import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { LoadingState } from '@design-system/components/LoadingState';
+import { ProcessingPipeline } from '@design-system/components/ProcessingPipeline';
 import { SummaryGrid, type SummaryGridItem } from '@design-system/components/SummaryGrid';
 import type { Application } from '@entities/application/queries';
 import { useApplication } from '@entities/application/queries';
@@ -35,14 +36,18 @@ import {
   APPLICATION_STATUS_CLASS_NAME,
   APPLICATION_STATUS_LABEL,
 } from '@entities/application/statusLabel';
+import { useDocumentsForApplication } from '@entities/document/queries';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
+import { DocumentProcessingList } from '@features/document-upload/DocumentProcessingList';
+import { UploadSection } from '@features/document-upload/UploadSection';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { AuditTimeline } from './AuditTimeline';
+import { deriveApplicationStages, summarizeDocuments } from './applicationPipelineSummary';
 import { FindingActions } from './FindingActions';
 import { FindingCard } from './FindingCard';
 import { REGION_LABEL, WORKSPACE_REGIONS, type WorkspaceRegion } from './regions';
@@ -135,7 +140,7 @@ export function ApplicationWorkspace({
 
           {region === 'documents' && (
             <PanelErrorBoundary panelName="Documents">
-              <DocumentViewer applicationId={applicationId} jumpTarget={jumpTarget} />
+              <DocumentsRegion applicationId={applicationId} jumpTarget={jumpTarget} />
             </PanelErrorBoundary>
           )}
         </>
@@ -239,6 +244,43 @@ function EvidenceRegion({ applicationId }: { applicationId: string }) {
 }
 
 /**
+ * Documents region (Product Experience phase, Phase 3) — mounts the
+ * upload workflow above the viewer. `uploadExpanded` starts `true` when the
+ * application has zero documents (so the empty state and the expanded
+ * upload panel appear together) and is otherwise lifted here so
+ * `DocumentViewer`'s empty-state action can expand it on demand.
+ */
+function DocumentsRegion({
+  applicationId,
+  jumpTarget,
+}: {
+  applicationId: string;
+  jumpTarget: DocumentJumpTarget | null;
+}) {
+  const documentsQuery = useDocumentsForApplication(applicationId);
+  const [uploadExpanded, setUploadExpanded] = useState(false);
+  const hasNoDocuments = (documentsQuery.data ?? []).length === 0;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <UploadSection
+        applicationId={applicationId}
+        expanded={uploadExpanded || hasNoDocuments}
+        onExpandedChange={setUploadExpanded}
+      />
+      <DocumentProcessingList applicationId={applicationId} />
+      <DocumentViewer
+        applicationId={applicationId}
+        jumpTarget={jumpTarget}
+        onRequestUpload={() => {
+          setUploadExpanded(true);
+        }}
+      />
+    </div>
+  );
+}
+
+/**
  * Overview region (UX audit §5) — a header row (loan number as page title,
  * a refresh action, and the lifecycle-status label using the exact
  * `FindingCard`-precedented plain-colored-label pattern, never
@@ -256,6 +298,8 @@ function OverviewRegion({
   application: Application;
 }) {
   const applicationQuery = useApplication(applicationId);
+  const documentsQuery = useDocumentsForApplication(applicationId);
+  const findingsQuery = useFindingsForApplication(applicationId);
 
   const summaryItems: SummaryGridItem[] = [
     { label: 'Loan Number', value: application.loanNumber ?? '—', tabular: true },
@@ -293,6 +337,17 @@ function OverviewRegion({
         </Button>
       </div>
 
+      {documentsQuery.data !== undefined && (
+        <div className="border-border-subtle bg-surface-raised rounded-container flex flex-col gap-3 border p-5">
+          <h3 className="text-heading-section text-text-primary">Processing Pipeline</h3>
+          <ProcessingPipeline
+            steps={deriveApplicationStages(documentsQuery.data, findingsQuery.data ?? [])}
+            size="md"
+          />
+          <DocumentAggregateSummary counts={summarizeDocuments(documentsQuery.data)} />
+        </div>
+      )}
+
       <SummaryGrid items={summaryItems} />
 
       <div className="border-border-subtle bg-surface-raised rounded-container border p-5">
@@ -305,6 +360,24 @@ function OverviewRegion({
         <AuditTimeline applicationId={applicationId} />
       </div>
     </section>
+  );
+}
+
+/** Aggregate document counts (Product Experience phase, Phase 4) — real counts, computed client-side from `useDocumentsForApplication`. */
+function DocumentAggregateSummary({
+  counts,
+}: {
+  counts: { readonly total: number; readonly ready: number; readonly processing: number; readonly failed: number };
+}) {
+  if (counts.total === 0) return null;
+  return (
+    <p className="text-caption text-text-secondary">
+      {counts.ready} of {counts.total} document{counts.total === 1 ? '' : 's'} ready
+      {counts.processing > 0 && ` · ${String(counts.processing)} processing`}
+      {counts.failed > 0 && (
+        <span className="text-feedback-error-fg"> · {counts.failed} failed</span>
+      )}
+    </p>
   );
 }
 

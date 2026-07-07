@@ -50,6 +50,8 @@ export interface DocumentViewerProps {
   readonly applicationId: string;
   /** Set by another region (e.g. an evidence chip click) to jump directly to a page/highlight — FR-039. */
   readonly jumpTarget?: DocumentJumpTarget | null;
+  /** Product Experience phase, Phase 3 — expands the inline `UploadSection` mounted above this component. Omit to render the empty state with no action. */
+  readonly onRequestUpload?: () => void;
 }
 
 function statusLabel(status: Document['ingestionStatus']): string {
@@ -65,7 +67,11 @@ function statusLabel(status: Document['ingestionStatus']): string {
   }
 }
 
-export function DocumentViewer({ applicationId, jumpTarget = null }: DocumentViewerProps) {
+export function DocumentViewer({
+  applicationId,
+  jumpTarget = null,
+  onRequestUpload,
+}: DocumentViewerProps) {
   const documentsQuery = useDocumentsForApplication(applicationId);
   // Lazy initializers: an initial jumpTarget (present on first mount, e.g.
   // a deep link) must take effect immediately, not only on later changes.
@@ -113,7 +119,20 @@ export function DocumentViewer({ applicationId, jumpTarget = null }: DocumentVie
       />
     );
   }
-  if (documents.length === 0) return <EmptyState title="No documents uploaded yet" />;
+  if (documents.length === 0) {
+    return (
+      <EmptyState
+        title="No documents uploaded yet"
+        action={
+          onRequestUpload !== undefined ? (
+            <Button variant="primary" onClick={onRequestUpload}>
+              Upload documents
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
 
   const activeDocument = documents.find((doc) => doc.id === effectiveActiveDocumentId) ?? null;
   const pageCount = activeDocument?.pageCount ?? null;
