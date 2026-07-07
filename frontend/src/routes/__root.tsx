@@ -36,6 +36,7 @@ import {
   useLocation,
   useNavigate,
   useParams,
+  useSearch,
 } from '@tanstack/react-router';
 import { LogIn, Search } from 'lucide-react';
 
@@ -55,6 +56,7 @@ import {
   APPLICATION_STATUS_LABEL,
 } from '@entities/application/statusLabel';
 import { IntakeWizard } from '@features/application-intake/IntakeWizard';
+import { REGION_LABEL } from '@features/application-workspace/regions';
 import { RouteErrorBoundary } from '@shared/errors/RouteErrorBoundary';
 
 export interface RouterContext {
@@ -160,6 +162,7 @@ function SessionEndedScreen() {
 function PrimaryBreadcrumb() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { applicationId } = useParams({ strict: false });
+  const search = useSearch({ strict: false });
   const navigate = useNavigate();
 
   const items = [
@@ -195,6 +198,7 @@ function PrimaryBreadcrumb() {
           },
         },
         { label: <ActiveApplicationBreadcrumbLabel applicationId={applicationId} /> },
+        ...(search.region !== undefined ? [{ label: REGION_LABEL[search.region] }] : []),
       ]}
       className="hidden md:flex"
     />

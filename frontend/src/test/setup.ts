@@ -35,6 +35,20 @@ if (typeof globalThis.DOMMatrix === 'undefined') {
   globalThis.DOMMatrix = DOMMatrixPolyfill;
 }
 
+/**
+ * jsdom does not implement `Element.prototype.scrollIntoView` at all (not
+ * even as a no-op — it's `undefined`), unlike every real browser. Several
+ * regions (`EvidenceRegion`/`FindingsRegion` in `ApplicationWorkspace.tsx`)
+ * call it to scroll a focused item into view after cross-region navigation
+ * — a no-op stand-in here is enough to satisfy that call in tests; the
+ * real scrolling behavior is a browser concern, exercised live, not here.
+ */
+if (typeof Element.prototype.scrollIntoView === 'undefined') {
+  Element.prototype.scrollIntoView = () => {
+    // no-op — see comment above.
+  };
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: 'error' });
 });

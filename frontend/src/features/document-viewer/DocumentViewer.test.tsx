@@ -49,7 +49,7 @@ describe('DocumentViewer', () => {
   it('shows the processing state for a document that is not yet complete', async () => {
     mockDocuments([makeDocument({ ingestionStatus: 'IN_PROGRESS' })]);
     renderWithClient(<DocumentViewer applicationId={APPLICATION_ID} />);
-    expect(await screen.findByText('Processing…')).toBeInTheDocument();
+    expect(await screen.findByText('Processing: active')).toBeInTheDocument();
   });
 
   it('shows the ingestion error for a failed document', async () => {
@@ -57,29 +57,19 @@ describe('DocumentViewer', () => {
       makeDocument({ ingestionStatus: 'FAILED', ingestionError: 'Unsupported file format' }),
     ]);
     renderWithClient(<DocumentViewer applicationId={APPLICATION_ID} />);
-    expect(await screen.findByText('Processing failed')).toBeInTheDocument();
-    expect(screen.getByText('Unsupported file format')).toBeInTheDocument();
+    expect(await screen.findByText('Unsupported file format')).toBeInTheDocument();
   });
 
-  it('renders a document switcher only when there are multiple documents', async () => {
+  it('still renders the page/zoom toolbar for a FAILED document — a document remains viewable regardless of processing outcome', async () => {
     mockDocuments([
-      makeDocument({
-        id: 'aaaaaaaa-1111-4111-a111-111111111111',
-        filename: 'doc-1.pdf',
-        ingestionStatus: 'IN_PROGRESS',
-      }),
-      makeDocument({
-        id: 'bbbbbbbb-2222-4222-a222-222222222222',
-        filename: 'doc-2.pdf',
-        ingestionStatus: 'IN_PROGRESS',
-      }),
+      makeDocument({ ingestionStatus: 'FAILED', ingestionError: 'Unsupported file format' }),
     ]);
     renderWithClient(<DocumentViewer applicationId={APPLICATION_ID} />);
-    expect(await screen.findByRole('button', { name: 'doc-1.pdf' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'doc-2.pdf' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Previous page' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
   });
 
-  it('switches the active document when its tab is clicked', async () => {
+  it('switches the active document when `selectedDocumentId` changes', async () => {
     mockDocuments([
       makeDocument({
         id: 'aaaaaaaa-1111-4111-a111-111111111111',
@@ -94,11 +84,26 @@ describe('DocumentViewer', () => {
         ingestionError: 'second',
       }),
     ]);
-    const user = userEvent.setup();
-    renderWithClient(<DocumentViewer applicationId={APPLICATION_ID} />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <DocumentViewer
+          applicationId={APPLICATION_ID}
+          selectedDocumentId="aaaaaaaa-1111-4111-a111-111111111111"
+        />
+      </QueryClientProvider>,
+    );
 
     expect(await screen.findByText('first')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'doc-2.pdf' }));
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <DocumentViewer
+          applicationId={APPLICATION_ID}
+          selectedDocumentId="bbbbbbbb-2222-4222-a222-222222222222"
+        />
+      </QueryClientProvider>,
+    );
     expect(await screen.findByText('second')).toBeInTheDocument();
   });
 
@@ -127,8 +132,8 @@ describe('DocumentViewer', () => {
       />,
     );
 
-    const doc2Tab = await screen.findByRole('button', { name: 'doc-2.pdf' });
-    expect(doc2Tab).toHaveAttribute('aria-current', 'true');
+    const pageInput = await screen.findByRole('spinbutton');
+    expect(pageInput).toHaveValue(3);
   });
 
   it('disables "Previous page" on the first page', async () => {

@@ -136,6 +136,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
   }, [requestedFindingAction, finding.id, clearRequestedFindingAction]);
 
   const alreadyDecided = finding.state === 'verified' || finding.state === 'overridden';
+  const addToast = useUiStore((state) => state.addToast);
 
   const onOverrideSubmit = handleSubmit((values) => {
     overrideMutation.mutate(
@@ -143,6 +144,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
       {
         onSuccess: () => {
           setOverrideDialogOpen(false);
+          addToast({ title: 'Finding overridden', variant: 'success' });
         },
       },
     );
@@ -154,6 +156,11 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
       {
         onSuccess: () => {
           setEscalateDialogOpen(false);
+          addToast({
+            title: 'Finding escalated',
+            description: `Sent to ${values.targetRole}`,
+            variant: 'success',
+          });
         },
       },
     );
@@ -204,6 +211,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
             verifyMutation.mutate(finding.id, {
               onSuccess: () => {
                 setVerifyDialogOpen(false);
+                addToast({ title: 'Finding verified', variant: 'success' });
               },
             });
           },

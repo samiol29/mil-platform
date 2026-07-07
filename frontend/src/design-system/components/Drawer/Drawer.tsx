@@ -26,10 +26,18 @@ import { cn } from '@design-system/lib/cn';
 export type DrawerSide = 'left' | 'right';
 export type DrawerSize = 'sm' | 'md' | 'lg';
 
+/**
+ * `max-w-full` (Product Experience phase, Phase 10 — the Intake Wizard,
+ * the one `size="lg"` consumer, had no narrow-viewport fallback: a fixed
+ * 36rem/576px drawer would overflow any viewport narrower than that) so
+ * every size clamps to the viewport instead of overflowing it on narrow
+ * screens, without changing its width on any viewport wide enough for the
+ * fixed size to already fit.
+ */
 const sizeClassName: Record<DrawerSize, string> = {
-  sm: 'w-80',
-  md: 'w-[28rem]',
-  lg: 'w-[36rem]',
+  sm: 'w-80 max-w-full',
+  md: 'w-[28rem] max-w-full',
+  lg: 'w-[36rem] max-w-full',
 };
 
 export interface DrawerProps {

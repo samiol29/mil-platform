@@ -70,8 +70,11 @@ export function BorrowersStep({ form }: BorrowersStepProps) {
           const isLast = index === fields.length - 1;
           const rowErrors = errors.borrowers?.[index];
           return (
-            <div key={field.id} className="border-border-subtle flex items-start gap-2 rounded-container border p-3">
-              <div className="w-40 shrink-0">
+            <div
+              key={field.id}
+              className="border-border-subtle flex flex-col gap-2 rounded-container border p-3 sm:flex-row sm:items-start"
+            >
+              <div className="w-full sm:w-40 sm:shrink-0">
                 <Select {...register(`borrowers.${String(index)}.partyType`)}>
                   {PARTY_TYPES.map((type) => (
                     <option key={type} value={type}>
@@ -103,7 +106,7 @@ export function BorrowersStep({ form }: BorrowersStepProps) {
                   remove(index);
                 }}
                 className={cn(
-                  'rounded-interactive text-text-tertiary shrink-0 p-2',
+                  'rounded-interactive text-text-tertiary shrink-0 self-end p-2 sm:self-auto',
                   'hover:bg-surface-disabled hover:text-text-critical disabled:pointer-events-none disabled:opacity-40',
                   'outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2',
                 )}

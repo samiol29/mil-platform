@@ -15,9 +15,11 @@
 import { ChevronDown, ChevronRight, Upload } from 'lucide-react';
 import { useState } from 'react';
 
+import { useUiStore } from '@app/uiStore';
 import { Button } from '@design-system/components/Button';
 import { Dropzone } from '@design-system/components/Dropzone';
 import { Select } from '@design-system/components/Select';
+import { COLLAPSIBLE_GROUP_HEADER_CLASS } from '@design-system/lib/collapsibleGroupHeader';
 import { cn } from '@design-system/lib/cn';
 import { useDocumentsForApplication, useUploadDocument } from '@entities/document/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
@@ -38,20 +40,22 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Mirrors the real backend default, 
 const MAX_UPLOAD_MB = 25;
 const MAX_CONCURRENT_UPLOADS = 3;
 
-async function runWithConcurrencyLimit<T>(
+async function runWithConcurrencyLimit<T, R>(
   items: readonly T[],
   limit: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> {
+  worker: (item: T) => Promise<R>,
+): Promise<readonly R[]> {
+  const results: R[] = [];
   let index = 0;
   async function next(): Promise<void> {
     const current = index;
     index += 1;
     if (current >= items.length) return;
-    await worker(items[current]);
+    results[current] = await worker(items[current]);
     await next();
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => next()));
+  return results;
 }
 
 export interface UploadSectionProps {
@@ -68,6 +72,7 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
   const documentsQuery = useDocumentsForApplication(applicationId);
   const partiesQuery = usePartiesForApplication(applicationId);
   const uploadDocument = useUploadDocument(applicationId);
+  const addToast = useUiStore((state) => state.addToast);
   const existingDocuments = documentsQuery.data ?? [];
 
   function updateRow(id: string, patch: Partial<UploadRow>) {
@@ -113,7 +118,7 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
     }
   }
 
-  async function uploadOneRow(row: UploadRow) {
+  async function uploadOneRow(row: UploadRow): Promise<boolean> {
     updateRow(row.id, { status: 'uploading', uploadProgress: 0, uploadError: null });
     try {
       const document = await uploadDocument.mutateAsync({
@@ -129,11 +134,13 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
         },
       });
       updateRow(row.id, { status: 'uploaded', uploadProgress: 100, documentId: document.id });
+      return true;
     } catch (error) {
       updateRow(row.id, {
         status: 'error',
         uploadError: extractErrorMessage(error, 'Upload failed — please try again.'),
       });
+      return false;
     }
   }
 
@@ -144,7 +151,22 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
         row.validationError === null &&
         (!row.isDuplicate || row.duplicateAcknowledged),
     );
-    await runWithConcurrencyLimit(uploadable, MAX_CONCURRENT_UPLOADS, uploadOneRow);
+    const results = await runWithConcurrencyLimit(uploadable, MAX_CONCURRENT_UPLOADS, uploadOneRow);
+    const succeededCount = results.filter(Boolean).length;
+    const failedCount = results.length - succeededCount;
+
+    if (failedCount === 0) {
+      addToast({
+        title: `${String(succeededCount)} document${succeededCount === 1 ? '' : 's'} uploaded`,
+        variant: 'success',
+      });
+    } else {
+      addToast({
+        title: `${String(succeededCount)} of ${String(results.length)} documents uploaded`,
+        description: `${String(failedCount)} failed — see the row${failedCount === 1 ? '' : 's'} below for details.`,
+        variant: 'error',
+      });
+    }
   }
 
   const staged = rows.filter((row) => row.status === 'staged');
@@ -190,7 +212,7 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
             onClick={() => {
               onExpandedChange(false);
             }}
-            className="text-caption text-text-tertiary hover:text-text-primary"
+            className="text-caption text-text-tertiary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
           >
             Collapse
           </button>
@@ -252,7 +274,7 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
                         return next;
                       });
                     }}
-                    className="bg-surface-secondary text-label text-text-secondary flex w-full items-center gap-1.5 px-3 py-1.5 font-medium"
+                    className={cn(COLLAPSIBLE_GROUP_HEADER_CLASS, 'py-1.5')}
                   >
                     {isCollapsed ? (
                       <ChevronRight className="size-3.5" aria-hidden="true" />

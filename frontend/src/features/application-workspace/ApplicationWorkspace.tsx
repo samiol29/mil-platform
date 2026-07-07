@@ -16,40 +16,66 @@
  *
  * The Document Viewer region renders `DocumentViewer` (tasks.md T064–T066):
  * PDF rendering, page/zoom navigation, and the evidence-highlight overlay.
- * Clicking an evidence chip in the Findings region switches to the
- * Documents region and jumps the viewer directly to that evidence's page
- * and highlight (FR-039) — `jumpTarget` is lifted to this component since
- * it coordinates between the two regions.
+ * Clicking an evidence chip in the Findings *or* Evidence region switches to
+ * the Documents region and jumps the viewer directly to that evidence's
+ * page and highlight (FR-039) — `jumpTarget` is lifted to this component
+ * since it coordinates between regions. `focusDocumentId` (Product
+ * Experience phase, Phase 5) is the same pattern in the opposite direction:
+ * a Documents-region "View evidence" click carries which document to focus
+ * once the Evidence region renders, closing the bidirectional-navigation
+ * loop the investigation-workspace refinement calls for.
+ *
+ * The region nav below is `Tabs`/`TabsList`/`TabsTrigger`
+ * (`design-system/components/Tabs`, built in Phase 0 but never actually
+ * wired in until now) rather than the hand-rolled `role="tab"` button row
+ * this file used before — real Arrow/Home/End keyboard navigation between
+ * regions, one definition of the tab-nav pattern instead of two.
  */
 
-import { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
+import { EvidenceChip } from '@design-system/components/EvidenceChip';
 import { LoadingState } from '@design-system/components/LoadingState';
 import { ProcessingPipeline } from '@design-system/components/ProcessingPipeline';
 import { SummaryGrid, type SummaryGridItem } from '@design-system/components/SummaryGrid';
+import { Tabs, TabsList, TabsTrigger } from '@design-system/components/Tabs';
+import { COLLAPSIBLE_GROUP_HEADER_CLASS } from '@design-system/lib/collapsibleGroupHeader';
+import { cn } from '@design-system/lib/cn';
 import type { Application } from '@entities/application/queries';
 import { useApplication } from '@entities/application/queries';
 import {
   APPLICATION_STATUS_CLASS_NAME,
   APPLICATION_STATUS_LABEL,
 } from '@entities/application/statusLabel';
+import { useAuditTrail } from '@entities/audit/queries';
+import type { Document } from '@entities/document/queries';
 import { useDocumentsForApplication } from '@entities/document/queries';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
+import { DocumentInspector } from '@features/document-viewer/DocumentInspector';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 import { DocumentProcessingList } from '@features/document-upload/DocumentProcessingList';
 import { UploadSection } from '@features/document-upload/UploadSection';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
+import { ApplicationTimeline } from './ApplicationTimeline';
 import { AuditTimeline } from './AuditTimeline';
 import { deriveApplicationStages, summarizeDocuments } from './applicationPipelineSummary';
+import { buildApplicationTimeline } from './buildApplicationTimeline';
+import { EvidenceCard } from './EvidenceCard';
+import { buildEvidenceToFindingsIndex } from './evidenceFindingIndex';
 import { FindingActions } from './FindingActions';
 import { FindingCard } from './FindingCard';
+import { groupReviewHistoryByFinding } from './findingReviewHistory';
+import { STATE_CLASS_NAME, STATE_LABEL } from './findingState';
+import { groupEvidenceByDocument } from './groupEvidenceByDocument';
+import { groupFindingsByPolicyVersion } from './groupFindingsByPolicyVersion';
 import { REGION_LABEL, WORKSPACE_REGIONS, type WorkspaceRegion } from './regions';
 import { StaleRecordBanner } from './StaleRecordBanner';
 
@@ -69,32 +95,30 @@ export function ApplicationWorkspace({
 }: ApplicationWorkspaceProps) {
   const applicationQuery = useApplication(applicationId);
   const [jumpTarget, setJumpTarget] = useState<DocumentJumpTarget | null>(null);
+  const [focusDocumentId, setFocusDocumentId] = useState<string | null>(null);
+  const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
+
+  function activateEvidenceJump(jump: DocumentJumpTarget) {
+    setJumpTarget(jump);
+    onRegionChange('documents');
+  }
+
+  function viewFinding(findingId: string) {
+    setFocusFindingId(findingId);
+    onRegionChange('findings');
+  }
 
   return (
     <div className="flex flex-col gap-4 p-6">
-      <nav
-        aria-label="Application Workspace sections"
-        className="border-border-subtle flex gap-1 border-b"
-      >
-        {WORKSPACE_REGIONS.map((candidate) => (
-          <button
-            key={candidate}
-            type="button"
-            role="tab"
-            aria-selected={candidate === region}
-            onClick={() => {
-              onRegionChange(candidate);
-            }}
-            className={
-              candidate === region
-                ? 'text-label border-interactive-primary-default text-text-primary border-b-2 px-3 py-2 font-medium'
-                : 'text-label text-text-secondary hover:text-text-primary border-b-2 border-transparent px-3 py-2'
-            }
-          >
-            {REGION_LABEL[candidate]}
-          </button>
-        ))}
-      </nav>
+      <Tabs value={region} onValueChange={onRegionChange}>
+        <TabsList aria-label="Application Workspace sections">
+          {WORKSPACE_REGIONS.map((candidate) => (
+            <TabsTrigger key={candidate} value={candidate}>
+              {REGION_LABEL[candidate]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {applicationQuery.isPending && <LoadingState label="Loading application…" />}
       {applicationQuery.isError && (
@@ -115,7 +139,11 @@ export function ApplicationWorkspace({
 
           {region === 'overview' && (
             <PanelErrorBoundary panelName="Overview">
-              <OverviewRegion applicationId={applicationId} application={applicationQuery.data} />
+              <OverviewRegion
+                applicationId={applicationId}
+                application={applicationQuery.data}
+                onRegionChange={onRegionChange}
+              />
             </PanelErrorBoundary>
           )}
 
@@ -124,23 +152,57 @@ export function ApplicationWorkspace({
               <FindingsRegion
                 applicationId={applicationId}
                 readOnly={readOnly}
-                onEvidenceChipActivate={(jump) => {
-                  setJumpTarget(jump);
-                  onRegionChange('documents');
-                }}
+                focusFindingId={focusFindingId}
+                onEvidenceChipActivate={activateEvidenceJump}
               />
             </PanelErrorBoundary>
           )}
 
           {region === 'evidence' && (
             <PanelErrorBoundary panelName="Evidence">
-              <EvidenceRegion applicationId={applicationId} />
+              <EvidenceRegion
+                applicationId={applicationId}
+                focusDocumentId={focusDocumentId}
+                onEvidenceChipActivate={activateEvidenceJump}
+                onViewFindings={() => {
+                  onRegionChange('findings');
+                }}
+              />
             </PanelErrorBoundary>
           )}
 
           {region === 'documents' && (
             <PanelErrorBoundary panelName="Documents">
-              <DocumentsRegion applicationId={applicationId} jumpTarget={jumpTarget} />
+              <DocumentsRegion
+                applicationId={applicationId}
+                jumpTarget={jumpTarget}
+                onViewEvidence={(documentId) => {
+                  setFocusDocumentId(documentId);
+                  onRegionChange('evidence');
+                }}
+                onEvidenceChipActivate={activateEvidenceJump}
+                onViewFinding={viewFinding}
+              />
+            </PanelErrorBoundary>
+          )}
+
+          {region === 'policy' && (
+            <PanelErrorBoundary panelName="Policy">
+              <PolicyRegion
+                applicationId={applicationId}
+                onEvidenceChipActivate={activateEvidenceJump}
+                onViewFinding={viewFinding}
+              />
+            </PanelErrorBoundary>
+          )}
+
+          {region === 'timeline' && (
+            <PanelErrorBoundary panelName="Timeline">
+              <TimelineRegion
+                applicationId={applicationId}
+                onEvidenceChipActivate={activateEvidenceJump}
+                onViewFinding={viewFinding}
+              />
             </PanelErrorBoundary>
           )}
         </>
@@ -149,17 +211,42 @@ export function ApplicationWorkspace({
   );
 }
 
+/**
+ * Findings region. `focusFindingId` (Product Experience phase, Phase 7 —
+ * set by a Policy-region "View finding" click) scrolls the target finding
+ * into view on arrival, mirroring `EvidenceRegion`'s existing
+ * `focusDocumentId` handling exactly (same ref-map + scroll-into-view
+ * pattern, not a third navigation mechanism).
+ */
 function FindingsRegion({
   applicationId,
   readOnly,
+  focusFindingId = null,
   onEvidenceChipActivate,
 }: {
   applicationId: string;
   readOnly: boolean;
+  focusFindingId?: string | null;
   onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
 }) {
   const findingsQuery = useFindingsForApplication(applicationId);
   const evidenceQuery = useEvidenceForApplication(applicationId);
+  const auditQuery = useAuditTrail(applicationId);
+  const findingRefs = useRef(new Map<string, HTMLDivElement>());
+
+  // One O(audit entries) pass for every finding's review history, computed
+  // once per render (Product Experience phase, Phase 10 audit) rather than
+  // one re-scan-and-sort per finding in the render loop below.
+  const reviewHistoryByFinding = useMemo(
+    () => groupReviewHistoryByFinding(auditQuery.data ?? []),
+    [auditQuery.data],
+  );
+
+  useEffect(() => {
+    if (focusFindingId === null) return;
+    const node = findingRefs.current.get(focusFindingId);
+    node?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focusFindingId]);
 
   if (findingsQuery.isPending) return <LoadingState label="Loading findings…" />;
   if (findingsQuery.isError) {
@@ -187,31 +274,89 @@ function FindingsRegion({
     <div className="flex flex-col gap-4">
       <h2 className="text-heading-section text-text-primary">Findings</h2>
       {findingsQuery.data.map((finding) => (
-        <FindingCard
+        <div
           key={finding.id}
-          finding={finding}
-          evidenceItems={evidenceItems}
-          onEvidenceChipActivate={(item) => {
-            onEvidenceChipActivate({
-              documentId: item.documentId,
-              pageNumber: item.pageNumber ?? 1,
-              boundingBox: item.fieldLocation?.boundingBox ?? null,
-              label: item.evidenceType,
-            });
+          ref={(node) => {
+            if (node) findingRefs.current.set(finding.id, node);
+            else findingRefs.current.delete(finding.id);
           }}
-          actions={
-            readOnly ? undefined : (
-              <FindingActions applicationId={applicationId} finding={finding} />
-            )
-          }
-        />
+        >
+          <FindingCard
+            finding={finding}
+            evidenceItems={evidenceItems}
+            reviewHistory={reviewHistoryByFinding.get(finding.id) ?? []}
+            onEvidenceChipActivate={(item) => {
+              onEvidenceChipActivate({
+                documentId: item.documentId,
+                pageNumber: item.pageNumber ?? 1,
+                boundingBox: item.fieldLocation?.boundingBox ?? null,
+                label: item.evidenceType,
+              });
+            }}
+            actions={
+              readOnly ? undefined : (
+                <FindingActions applicationId={applicationId} finding={finding} />
+              )
+            }
+          />
+        </div>
       ))}
     </div>
   );
 }
 
-function EvidenceRegion({ applicationId }: { applicationId: string }) {
+/**
+ * Evidence region (Product Experience phase, Phase 5 — investigation-grade,
+ * replacing the previous flat `SummaryGrid`). Groups evidence by its source
+ * document — "which document produced it" is the organizing question the
+ * investigation-workspace refinement asks for — with each group headed by
+ * the real filename (resolved against `useDocumentsForApplication`, not a
+ * bare document id).
+ *
+ * `focusDocumentId` (set by a Documents-region "View evidence" click) is
+ * the return half of the bidirectional navigation loop: it ensures that
+ * document's group is expanded and scrolled into view on arrival.
+ */
+function EvidenceRegion({
+  applicationId,
+  focusDocumentId,
+  onEvidenceChipActivate,
+  onViewFindings,
+}: {
+  applicationId: string;
+  focusDocumentId: string | null;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
+  onViewFindings: () => void;
+}) {
   const evidenceQuery = useEvidenceForApplication(applicationId);
+  const documentsQuery = useDocumentsForApplication(applicationId);
+  const findingsQuery = useFindingsForApplication(applicationId);
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
+  const groupRefs = useRef(new Map<string, HTMLDivElement>());
+  const [previousFocusDocumentId, setPreviousFocusDocumentId] = useState(focusDocumentId);
+
+  // A Documents-region "View evidence" click always wins: ensure the target
+  // group is expanded and scroll it into view. Adjusting state during
+  // render (react.dev's own pattern, already used for `jumpTarget` in
+  // `DocumentViewer.tsx`) rather than an effect avoids an extra post-commit
+  // render.
+  if (focusDocumentId !== previousFocusDocumentId) {
+    setPreviousFocusDocumentId(focusDocumentId);
+    if (focusDocumentId !== null) {
+      setCollapsedGroups((prev) => {
+        if (!prev.has(focusDocumentId)) return prev;
+        const next = new Set(prev);
+        next.delete(focusDocumentId);
+        return next;
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (focusDocumentId === null) return;
+    const node = groupRefs.current.get(focusDocumentId);
+    node?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focusDocumentId]);
 
   if (evidenceQuery.isPending) return <LoadingState label="Loading evidence…" />;
   if (evidenceQuery.isError) {
@@ -228,17 +373,77 @@ function EvidenceRegion({ applicationId }: { applicationId: string }) {
     return <EmptyState title="No evidence extracted yet" />;
   }
 
-  const items: SummaryGridItem[] = evidenceQuery.data.map((item) => ({
-    id: item.id,
-    label: item.evidenceType,
-    value: item.valueText ?? item.valueNumeric ?? '—',
-    tabular: item.valueNumeric !== null,
-  }));
+  const documents = documentsQuery.data ?? [];
+  const evidenceToFindings = buildEvidenceToFindingsIndex(findingsQuery.data ?? []);
+  const evidenceById = new Map(evidenceQuery.data.map((item) => [item.id, item]));
+  const groups = groupEvidenceByDocument(evidenceQuery.data);
 
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-heading-section text-text-primary">Evidence</h2>
-      <SummaryGrid items={items} />
+      <div className="flex flex-col gap-4">
+        {Array.from(groups.entries()).map(([documentId, items]) => {
+          const isCollapsed = collapsedGroups.has(documentId);
+          const filename = documents.find((doc) => doc.id === documentId)?.filename ?? 'Document';
+          return (
+            <div
+              key={documentId}
+              ref={(node) => {
+                if (node) groupRefs.current.set(documentId, node);
+                else groupRefs.current.delete(documentId);
+              }}
+              className="border-border-subtle rounded-container border"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setCollapsedGroups((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(documentId)) next.delete(documentId);
+                    else next.add(documentId);
+                    return next;
+                  });
+                }}
+                className={cn(COLLAPSIBLE_GROUP_HEADER_CLASS, 'rounded-t-container')}
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="size-3.5" aria-hidden="true" />
+                )}
+                {filename}
+                <span className="text-text-tertiary">({items.length})</span>
+              </button>
+              {!isCollapsed && (
+                <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {items.map((item) => {
+                    const supersededItem =
+                      item.supersedesId !== null ? evidenceById.get(item.supersedesId) : undefined;
+                    const relatedFindings = evidenceToFindings.get(item.id) ?? [];
+                    return (
+                      <EvidenceCard
+                        key={item.id}
+                        item={item}
+                        supersededItem={supersededItem}
+                        relatedFindingsCount={relatedFindings.length}
+                        onViewInDocument={() => {
+                          onEvidenceChipActivate({
+                            documentId: item.documentId,
+                            pageNumber: item.pageNumber ?? 1,
+                            boundingBox: item.fieldLocation?.boundingBox ?? null,
+                            label: item.evidenceType,
+                          });
+                        }}
+                        onViewFindings={relatedFindings.length > 0 ? onViewFindings : undefined}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -249,32 +454,318 @@ function EvidenceRegion({ applicationId }: { applicationId: string }) {
  * application has zero documents (so the empty state and the expanded
  * upload panel appear together) and is otherwise lifted here so
  * `DocumentViewer`'s empty-state action can expand it on demand.
+ *
+ * `selectedDocumentId` (Product Experience phase, Phase 4.5) is lifted here
+ * so `DocumentProcessingList`'s rows can drive `DocumentViewer`'s active
+ * document — the two are no longer independent, unconnected lists.
+ *
+ * `activeDocument` (Product Experience phase, Phase 8) is set by
+ * `DocumentViewer`'s new `onActiveDocumentChange` callback — its own
+ * already-existing `jumpTarget`/`selectedDocumentId` precedence logic is
+ * reused, not duplicated, to know which document `DocumentInspector`
+ * should scope to. The viewer and its inspector sit side by side (a
+ * persistent split, not a `Drawer` overlay — the inspector must stay
+ * visible alongside the PDF at all times) so the document remains the
+ * anchor of the investigation, per this phase's guiding principle.
  */
 function DocumentsRegion({
   applicationId,
   jumpTarget,
+  onViewEvidence,
+  onEvidenceChipActivate,
+  onViewFinding,
 }: {
   applicationId: string;
   jumpTarget: DocumentJumpTarget | null;
+  onViewEvidence: (documentId: string) => void;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
+  onViewFinding: (findingId: string) => void;
 }) {
   const documentsQuery = useDocumentsForApplication(applicationId);
   const [uploadExpanded, setUploadExpanded] = useState(false);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [activeDocument, setActiveDocument] = useState<Document | null>(null);
   const hasNoDocuments = (documentsQuery.data ?? []).length === 0;
 
   return (
     <div className="flex flex-col gap-4">
+      <h2 className="text-heading-section text-text-primary">Documents</h2>
       <UploadSection
         applicationId={applicationId}
         expanded={uploadExpanded || hasNoDocuments}
         onExpandedChange={setUploadExpanded}
       />
-      <DocumentProcessingList applicationId={applicationId} />
-      <DocumentViewer
+      <DocumentProcessingList
         applicationId={applicationId}
-        jumpTarget={jumpTarget}
-        onRequestUpload={() => {
-          setUploadExpanded(true);
+        selectedDocumentId={selectedDocumentId}
+        onSelectDocument={setSelectedDocumentId}
+        onViewEvidence={onViewEvidence}
+      />
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_380px]">
+        <DocumentViewer
+          applicationId={applicationId}
+          jumpTarget={jumpTarget}
+          selectedDocumentId={selectedDocumentId}
+          onRequestUpload={() => {
+            setUploadExpanded(true);
+          }}
+          onActiveDocumentChange={setActiveDocument}
+        />
+        {activeDocument !== null && (
+          <DocumentInspector
+            applicationId={applicationId}
+            document={activeDocument}
+            onEvidenceChipActivate={onEvidenceChipActivate}
+            onViewFinding={onViewFinding}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Policy region (Product Experience phase, Phase 7) — the fourth link in
+ * the investigation chain (Document → Evidence → Finding → **Policy**).
+ * Not the decision-maker: **AI identified → Policy evaluated → Human
+ * decided** — this region shows the middle step only.
+ *
+ * Ground truth (confirmed by direct backend inspection): no policy-pack
+ * HTTP route exists anywhere — `Application.activePolicyPackId` reaches
+ * the frontend as a bare, unresolvable UUID, and `Finding.policyVersion`
+ * (independently set per finding) is the only real "which evaluation" the
+ * backend exposes. Critically, **the backend has no concept of a rule
+ * passing** — a satisfied policy check produces no `Finding` at all, so
+ * this region can never show "which rules passed"; the permanent
+ * disclosure below states that plainly rather than omitting it silently.
+ * `awaitingJudgmentCount`/`resolvedCount` reuse `Finding.state` — the only
+ * real "has a human judged this yet" signal (`escalated` is non-terminal,
+ * still awaiting resolution, per `src/mil/review/service.py`'s own
+ * docstring).
+ *
+ * Grouping reuses `groupFindingsByPolicyVersion`'s `policyVersion !== null`
+ * signal — the same one `applicationPipelineSummary.ts`'s
+ * `deriveApplicationStages` already uses for the Overview pipeline's
+ * "Policy" stage. Evidence chips and the "View finding" action reuse the
+ * exact same `DocumentJumpTarget`/scroll-into-view mechanisms Evidence and
+ * Findings already use — no new navigation channel.
+ *
+ * Deliberately not built (no backend endpoint exists for any of it):
+ * individual rule cards, rule rationale, version comparison, regulatory
+ * references. This region's summary-header-plus-version-groups shape is
+ * the seam a future rule-level endpoint would extend into, not a
+ * placeholder graphic simulating one.
+ */
+function PolicyRegion({
+  applicationId,
+  onEvidenceChipActivate,
+  onViewFinding,
+}: {
+  applicationId: string;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
+  onViewFinding: (findingId: string) => void;
+}) {
+  const applicationQuery = useApplication(applicationId);
+  const findingsQuery = useFindingsForApplication(applicationId);
+  const evidenceQuery = useEvidenceForApplication(applicationId);
+
+  if (findingsQuery.isPending) return <LoadingState label="Loading policy evaluation…" />;
+  if (findingsQuery.isError) {
+    return (
+      <ErrorState
+        title="Could not load policy evaluation"
+        onRetry={() => {
+          void findingsQuery.refetch();
         }}
+      />
+    );
+  }
+
+  const findings = findingsQuery.data;
+  const evidenceById = new Map((evidenceQuery.data ?? []).map((item) => [item.id, item]));
+  const groups = groupFindingsByPolicyVersion(findings);
+  const evaluatedCount = findings.filter((f) => f.policyVersion !== null).length;
+  const awaitingJudgmentCount = findings.filter(
+    (f) => f.state === 'unreviewed' || f.state === 'escalated',
+  ).length;
+  const activePolicyPackId = applicationQuery.data?.activePolicyPackId ?? null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-heading-section text-text-primary">Policy</h2>
+
+      <div className="border-border-subtle bg-surface-raised rounded-container flex flex-col gap-3 border p-5">
+        <div>
+          <p className="text-caption text-text-secondary">Active policy pack</p>
+          <p className="text-body text-text-primary font-mono">
+            {activePolicyPackId ?? 'No active policy pack'}
+          </p>
+          {activePolicyPackId !== null && (
+            <p className="text-caption text-text-tertiary">
+              No policy pack registry endpoint exists yet to resolve this to a name.
+            </p>
+          )}
+        </div>
+
+        <div className="border-border-subtle grid grid-cols-2 gap-4 border-t pt-3 sm:grid-cols-4">
+          <div>
+            <p className="text-caption text-text-secondary">Findings</p>
+            <p className="text-heading-section text-text-primary">{findings.length}</p>
+          </div>
+          <div>
+            <p className="text-caption text-text-secondary">Evaluated</p>
+            <p className="text-heading-section text-text-primary">{evaluatedCount}</p>
+          </div>
+          <div>
+            <p className="text-caption text-text-secondary">Awaiting judgment</p>
+            <p className="text-heading-section text-text-primary">{awaitingJudgmentCount}</p>
+          </div>
+          <div>
+            <p className="text-caption text-text-secondary">Resolved</p>
+            <p className="text-heading-section text-text-primary">
+              {findings.length - awaitingJudgmentCount}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-feedback-warning-border bg-feedback-warning-bg rounded-container border p-4">
+        <p className="text-caption text-feedback-warning-fg">
+          This workspace shows findings that were flagged during policy evaluation. It cannot show
+          checks that passed silently, individual rule names, or rule-level rationale — no such
+          data exists in the backend today.
+        </p>
+      </div>
+
+      {findings.length === 0 ? (
+        <EmptyState title="No findings to evaluate against policy yet" />
+      ) : (
+        groups.map((group) => (
+          <div
+            key={group.policyVersion ?? '__not_evaluated__'}
+            className="border-border-subtle rounded-container border"
+          >
+            <div className="bg-surface-secondary rounded-t-container flex items-center justify-between gap-2 px-3 py-2">
+              <span className="text-label text-text-primary font-medium">
+                {group.policyVersion !== null
+                  ? `Policy ${group.policyVersion}`
+                  : 'Not yet evaluated'}
+              </span>
+              <span className="text-caption text-text-secondary">
+                {group.findings.length} finding{group.findings.length === 1 ? '' : 's'}
+                {group.awaitingJudgmentCount > 0 &&
+                  ` · ${String(group.awaitingJudgmentCount)} awaiting judgment`}
+              </span>
+            </div>
+            <ul className="flex flex-col gap-1 p-3">
+              {group.findings.map((finding) => (
+                <li
+                  key={finding.id}
+                  className="border-border-subtle flex flex-col gap-1.5 border-b pb-3 last:border-b-0 last:pb-0"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-body text-text-primary">{finding.what}</span>
+                    <span className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}>
+                      {STATE_LABEL[finding.state]}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {finding.evidenceRefs.map((evidenceId) => {
+                      const item = evidenceById.get(evidenceId);
+                      return (
+                        <EvidenceChip
+                          key={evidenceId}
+                          label={item !== undefined ? item.evidenceType : 'Evidence'}
+                          onClick={
+                            item !== undefined
+                              ? () => {
+                                  onEvidenceChipActivate({
+                                    documentId: item.documentId,
+                                    pageNumber: item.pageNumber ?? 1,
+                                    boundingBox: item.fieldLocation?.boundingBox ?? null,
+                                    label: item.evidenceType,
+                                  });
+                                }
+                              : undefined
+                          }
+                          disabled={item === undefined}
+                        />
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onViewFinding(finding.id);
+                      }}
+                      className="text-caption text-text-secondary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                    >
+                      View finding →
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * Timeline region (Product Experience phase, Phase 9) — "the Timeline
+ * should evolve beyond an audit log into the application's case history."
+ * A pure client-side transform (`buildApplicationTimeline`) of the exact
+ * same data `AuditTimeline`/`useAuditTrail` already fetch — not a second
+ * source of truth. `AuditTimeline` itself, mounted in `OverviewRegion`'s
+ * "Activity" card, is completely unchanged: it remains the immutable,
+ * verbatim compliance record, one click away.
+ *
+ * Trace actions reuse the exact same `activateEvidenceJump`/`viewFinding`
+ * callbacks every other region already receives — a document trace builds
+ * a plain `DocumentJumpTarget` (page 1, no highlight, since a timeline
+ * entry doesn't concern a specific field location) through the same
+ * mechanism Evidence/Findings/Policy chips already use.
+ */
+function TimelineRegion({
+  applicationId,
+  onEvidenceChipActivate,
+  onViewFinding,
+}: {
+  applicationId: string;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
+  onViewFinding: (findingId: string) => void;
+}) {
+  const auditQuery = useAuditTrail(applicationId);
+  const documentsQuery = useDocumentsForApplication(applicationId);
+  const findingsQuery = useFindingsForApplication(applicationId);
+
+  if (auditQuery.isPending) return <LoadingState label="Loading case history…" />;
+  if (auditQuery.isError) {
+    return (
+      <ErrorState
+        title="Could not load case history"
+        onRetry={() => {
+          void auditQuery.refetch();
+        }}
+      />
+    );
+  }
+
+  const documents = documentsQuery.data ?? [];
+  const documentsById = new Map(documents.map((doc) => [doc.id, doc]));
+  const timeline = buildApplicationTimeline(auditQuery.data, documents, findingsQuery.data ?? []);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-heading-section text-text-primary">Timeline</h2>
+      <ApplicationTimeline
+        entries={timeline}
+        onTraceDocument={(documentId) => {
+          const filename = documentsById.get(documentId)?.filename ?? 'Document';
+          onEvidenceChipActivate({ documentId, pageNumber: 1, boundingBox: null, label: filename });
+        }}
+        onTraceFinding={onViewFinding}
       />
     </div>
   );
@@ -293,9 +784,11 @@ function DocumentsRegion({
 function OverviewRegion({
   applicationId,
   application,
+  onRegionChange,
 }: {
   applicationId: string;
   application: Application;
+  onRegionChange: (region: WorkspaceRegion) => void;
 }) {
   const applicationQuery = useApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
@@ -356,7 +849,18 @@ function OverviewRegion({
       </div>
 
       <div className="border-border-subtle bg-surface-raised rounded-container border p-5">
-        <h3 className="text-heading-section text-text-primary mb-3">Activity</h3>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-heading-section text-text-primary">Activity</h3>
+          <button
+            type="button"
+            onClick={() => {
+              onRegionChange('timeline');
+            }}
+            className="text-caption text-text-secondary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+          >
+            View full timeline →
+          </button>
+        </div>
         <AuditTimeline applicationId={applicationId} />
       </div>
     </section>

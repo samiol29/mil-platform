@@ -47,7 +47,12 @@ export function useDocument(applicationId: string, documentId: string) {
     queryKey: ['document', documentId],
     url: `/applications/${applicationId}/documents/${documentId}`,
     schema: documentSchema,
-    staleTime: STALE_TIME.informational,
+    // Wired to the document's own already-fetched `ingestionStatus`
+    // (Product Experience phase, Phase 10 audit — `staleTimeFor` was
+    // written and documented above but never actually called; a terminal
+    // document was still being treated as `informational`, contrary to
+    // this file's own doc comment).
+    staleTime: (query: Query<Document>) => staleTimeFor(query.state.data),
   });
 }
 
@@ -59,7 +64,18 @@ export function useDocumentsForApplication(applicationId: string) {
       const response = await httpClient.get<unknown>(`/applications/${applicationId}/documents`);
       return documentSchema.array().parse(response.data);
     },
-    staleTime: STALE_TIME.informational,
+    // The list-level equivalent of `staleTimeFor`: informational while any
+    // document is still ingesting (mirrors `refetchInterval` below exactly
+    // — the list is only "stable" once every document reaches a terminal
+    // state), long-lived once every document has.
+    staleTime: (query: Query<Document[]>) => {
+      const documents = query.state.data;
+      if (documents === undefined) return STALE_TIME.informational;
+      const stillIngesting = documents.some(
+        (d) => d.ingestionStatus === 'PENDING' || d.ingestionStatus === 'IN_PROGRESS',
+      );
+      return stillIngesting ? STALE_TIME.informational : STALE_TIME.longLived;
+    },
     refetchInterval: (query: Query<Document[]>) => {
       const documents = query.state.data;
       if (documents === undefined) return false;
