@@ -25,3 +25,22 @@ export const APPLICATION_STATUS_CLASS_NAME: Record<ApplicationStatus, string> = 
   REVIEW_COMPLETE: 'text-feedback-success-fg',
   WITHDRAWN: 'text-text-tertiary',
 };
+
+/**
+ * The one lifecycle-status chip (Product Experience phase, Phase 11) —
+ * soft-tinted, borderless, shared by the header's active-application chip,
+ * the Workspace header, and the Queue's Stage column, replacing three
+ * hand-rolled variants. Color only where it communicates state (in-review
+ * warning tint, complete success tint); neutral lifecycle stages stay
+ * neutral. Still deliberately not `StatusBadge` (see module docstring).
+ */
+export const APPLICATION_STATUS_CHIP_CLASS_NAME: Record<ApplicationStatus, string> = {
+  DRAFT: 'bg-surface-sunken text-text-secondary',
+  SUBMITTED: 'bg-surface-sunken text-text-secondary',
+  IN_REVIEW: 'bg-feedback-warning-bg text-feedback-warning-fg',
+  REVIEW_COMPLETE: 'bg-feedback-success-bg text-feedback-success-fg',
+  WITHDRAWN: 'bg-surface-sunken text-text-tertiary',
+};
+
+export const APPLICATION_STATUS_CHIP_BASE_CLASS =
+  'rounded-chip px-2 py-0.5 text-caption font-medium';

@@ -72,7 +72,7 @@ export function BorrowersStep({ form }: BorrowersStepProps) {
           return (
             <div
               key={field.id}
-              className="border-border-subtle flex flex-col gap-2 rounded-container border p-3 sm:flex-row sm:items-start"
+              className="bg-surface-secondary flex flex-col gap-2 rounded-container p-3 sm:flex-row sm:items-start"
             >
               <div className="w-full sm:w-40 sm:shrink-0">
                 <Select {...register(`borrowers.${String(index)}.partyType`)}>

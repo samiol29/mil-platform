@@ -149,7 +149,8 @@ describe('ApplicationWorkspace — Evidence Workspace (Phase 5)', () => {
     const [firstButton] = await screen.findAllByText('View in document');
     await user.click(firstButton);
 
-    expect(await screen.findByText('Document Package')).toBeInTheDocument();
+    // Phase 11: evidence/trace deep links land directly in viewer mode.
+    expect(await screen.findByText('← All documents')).toBeInTheDocument();
   });
 
   it('clicking "View evidence" on a Documents row switches to Evidence, focused on that document', async () => {
@@ -218,7 +219,8 @@ describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: /gross_monthly_income/i }));
-    expect(await screen.findByText('Document Package')).toBeInTheDocument();
+    // Phase 11: evidence/trace deep links land directly in viewer mode.
+    expect(await screen.findByText('← All documents')).toBeInTheDocument();
   });
 
   it('clicking "View finding" switches to the Findings region and scrolls that finding into view', async () => {
@@ -232,23 +234,49 @@ describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
   });
 });
 
-describe('ApplicationWorkspace — Document Viewer as investigation workspace (Phase 8)', () => {
+describe('ApplicationWorkspace — Documents list ⇄ viewer (Phases 8 + 11)', () => {
   async function inspectorTabList() {
     return screen.findByRole('tablist', { name: 'Document inspector sections' });
   }
 
-  it('mounts the inspector beside the viewer, scoped to the active (first) document', async () => {
+  it('list mode is the default: the file list renders, the inspector does not', async () => {
+    mockWorkspaceData();
+    renderWorkspace('documents');
+
+    expect(await screen.findByText('Document Package')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tablist', { name: 'Document inspector sections' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opening a document enters viewer mode with the inspector scoped to it', async () => {
     mockWorkspaceData();
     renderWorkspace('documents');
     const user = userEvent.setup();
 
+    await user.click(await screen.findByText('paystub.pdf'));
     const tabs = await inspectorTabList();
     await user.click(within(tabs).getByRole('tab', { name: /Evidence/ }));
     expect(await screen.findByText('gross monthly income')).toBeInTheDocument();
     expect(screen.queryByText('account balance')).not.toBeInTheDocument();
   });
 
-  it("switching the selected document in the list re-scopes the inspector to the newly selected document", async () => {
+  it('"All documents" returns from viewer mode to the list', async () => {
+    mockWorkspaceData();
+    renderWorkspace('documents');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('paystub.pdf'));
+    await inspectorTabList();
+    await user.click(screen.getByText('← All documents'));
+
+    expect(await screen.findByText('Document Package')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('tablist', { name: 'Document inspector sections' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opening a different document scopes the inspector to that document', async () => {
     mockWorkspaceData();
     renderWorkspace('documents');
     const user = userEvent.setup();
@@ -265,19 +293,46 @@ describe('ApplicationWorkspace — Document Viewer as investigation workspace (P
     renderWorkspace('documents');
     const user = userEvent.setup();
 
+    await user.click(await screen.findByText('paystub.pdf'));
     const tabs = await inspectorTabList();
     await user.click(within(tabs).getByRole('tab', { name: /Evidence/ }));
     expect(await screen.findByText('View in document')).toBeInTheDocument();
   });
 
-  it('the Findings tab in the inspector shows the finding tied to the active document\'s evidence', async () => {
+  it('the Findings tab in the inspector shows the finding tied to the open document\'s evidence', async () => {
     mockWorkspaceData();
     renderWorkspace('documents');
     const user = userEvent.setup();
 
+    await user.click(await screen.findByText('paystub.pdf'));
     const tabs = await inspectorTabList();
     await user.click(within(tabs).getByRole('tab', { name: /Findings/ }));
     expect(await screen.findByText('Income mismatch')).toBeInTheDocument();
+  });
+
+  it('an evidence-chip deep link from another region lands directly in viewer mode', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    const [firstButton] = await screen.findAllByText('View in document');
+    await user.click(firstButton);
+
+    // Viewer mode, not the list: the slim header's back affordance renders.
+    expect(await screen.findByText('← All documents')).toBeInTheDocument();
+  });
+
+  it('"Hide details" collapses the inspector so the document takes the full width', async () => {
+    mockWorkspaceData();
+    renderWorkspace('documents');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('paystub.pdf'));
+    await inspectorTabList();
+    await user.click(screen.getByRole('button', { name: 'Hide details' }));
+    expect(
+      screen.queryByRole('tablist', { name: 'Document inspector sections' }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -331,7 +386,8 @@ describe('ApplicationWorkspace — Timeline: the application\'s case history (Ph
     const user = userEvent.setup();
 
     await user.click(await screen.findByText('View document →'));
-    expect(await screen.findByText('Document Package')).toBeInTheDocument();
+    // Phase 11: evidence/trace deep links land directly in viewer mode.
+    expect(await screen.findByText('← All documents')).toBeInTheDocument();
   });
 
   it('a finding trace click switches to Findings with that finding scrolled into view', async () => {

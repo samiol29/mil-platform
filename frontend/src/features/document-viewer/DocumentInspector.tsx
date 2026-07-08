@@ -107,14 +107,14 @@ export function DocumentInspector({
 
   if (evidenceQuery.isError || findingsQuery.isError) {
     return (
-      <div className="border-border-subtle bg-surface-raised rounded-container border p-4">
-        <ErrorState title="Could not load this document's investigation context" />
+      <div className="bg-surface-raised shadow-raised rounded-container p-4">
+        <ErrorState variant="inline" title="Could not load this document's investigation context" />
       </div>
     );
   }
   if (evidenceQuery.isPending || findingsQuery.isPending) {
     return (
-      <div className="border-border-subtle bg-surface-raised rounded-container border p-4">
+      <div className="bg-surface-raised shadow-raised rounded-container p-4">
         <LoadingState label="Loading investigation context…" />
       </div>
     );
@@ -141,7 +141,7 @@ export function DocumentInspector({
     document.partyId !== null ? parties.find((party) => party.id === document.partyId) : undefined;
 
   return (
-    <div className="border-border-subtle bg-surface-raised rounded-container flex flex-col border">
+    <div className="bg-surface-raised shadow-raised rounded-container flex flex-col">
       <Tabs
         value={tab}
         onValueChange={(value) => {

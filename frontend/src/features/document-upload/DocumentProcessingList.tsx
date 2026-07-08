@@ -97,7 +97,7 @@ export function DocumentProcessingList({
   return (
     <section
       aria-label="Document package"
-      className="border-border-subtle bg-surface-raised rounded-container flex flex-col gap-3 border p-4"
+      className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-3 p-4"
     >
       <div className="flex items-center justify-between">
         <h3 className="text-heading-section text-text-primary">Document Package</h3>

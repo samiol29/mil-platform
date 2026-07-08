@@ -47,8 +47,10 @@ export function ReviewStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="border-border-subtle rounded-container border p-3">
-        <p className="text-caption text-text-secondary">Application</p>
+      <div className="bg-surface-secondary rounded-container p-3">
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">
+          System-generated reference
+        </p>
         <p className="text-body-emphasis text-text-primary">{values.losReference}</p>
         {values.loanNumber.length > 0 && (
           <p className="text-caption text-text-tertiary">Loan #{values.loanNumber}</p>
@@ -61,7 +63,7 @@ export function ReviewStep({
         )}
       </div>
 
-      <div className="border-border-subtle flex flex-col gap-2 rounded-container border p-3">
+      <div className="bg-surface-secondary flex flex-col gap-2 rounded-container p-3">
         <p className="text-caption text-text-secondary">
           Borrowers ({values.borrowers.length})
         </p>

@@ -97,9 +97,14 @@
   /* 2. Semantic tokens — light theme (default; 003 FR-030)               */
   /* ------------------------------------------------------------------ */
 
-  /* Surfaces (003 FR-019) */
-  --surface-background: var(--color-neutral-0);
-  --surface-secondary: var(--color-neutral-50);
+  /* Surfaces (003 FR-019).
+     `background` sits one step below `raised` (Product Experience phase,
+     Phase 11): panels lift off the page by fill + `--elevation-raised-shadow`
+     alone — previously both were neutral-0, forcing every panel to carry a
+     border to be visible at all, which is exactly the "wall of boxes"
+     register this phase retires. Dark theme already had this separation. */
+  --surface-background: var(--color-neutral-50);
+  --surface-secondary: var(--color-neutral-100);
   --surface-raised: var(--color-neutral-0);
   --surface-overlay: var(--color-neutral-0);
   --surface-disabled: var(--color-neutral-100);

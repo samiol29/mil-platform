@@ -42,11 +42,11 @@ import { useAddParty } from '@entities/party/queries';
 
 import { ApplicationStep } from './ApplicationStep';
 import { BorrowersStep } from './BorrowersStep';
+import { generateDemoIdentifiers } from './generateDemoIdentifiers';
 import type { BorrowerRowStatus } from './ReviewStep';
 import { ReviewStep } from './ReviewStep';
 import {
-  APPLICATION_STEP_FIELDS,
-  DEFAULT_INTAKE_VALUES,
+  DEFAULT_BORROWER_ROWS,
   intakeFormSchema,
   type IntakeFormValues,
   type WizardStep,
@@ -86,9 +86,13 @@ function IntakeWizardBody() {
   const addToast = useUiStore((state) => state.addToast);
   const navigate = useNavigate();
 
+  // Generated once per wizard session (this component remounts fresh under
+  // a new `key` each time the Drawer opens — see the module docstring), not
+  // recomputed on every render.
+  const [identifiers] = useState(() => generateDemoIdentifiers());
   const form = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeFormSchema),
-    defaultValues: DEFAULT_INTAKE_VALUES,
+    defaultValues: { ...identifiers, borrowers: DEFAULT_BORROWER_ROWS },
   });
 
   const [step, setStep] = useState<WizardStep>('application');
@@ -101,9 +105,10 @@ function IntakeWizardBody() {
   const createApplication = useCreateApplication();
   const addParty = useAddParty();
 
-  async function goToBorrowers() {
-    const valid = await form.trigger(APPLICATION_STEP_FIELDS);
-    if (valid) setStep('borrowers');
+  function goToBorrowers() {
+    // Nothing to validate on this step anymore — the identifiers are
+    // system-generated, not typed.
+    setStep('borrowers');
   }
 
   async function goToReview() {
@@ -174,9 +179,7 @@ function IntakeWizardBody() {
       <WizardSteps current={step} />
 
       <div className="flex-1">
-        {step === 'application' && (
-          <ApplicationStep form={form} onNext={() => void goToBorrowers()} />
-        )}
+        {step === 'application' && <ApplicationStep form={form} />}
         {step === 'borrowers' && <BorrowersStep form={form} />}
         {step === 'review' && (
           <ReviewStep
@@ -205,7 +208,7 @@ function IntakeWizardBody() {
           <Button
             variant="primary"
             onClick={() => {
-              if (step === 'application') void goToBorrowers();
+              if (step === 'application') goToBorrowers();
               else void goToReview();
             }}
           >

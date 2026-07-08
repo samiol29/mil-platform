@@ -34,7 +34,11 @@ import { Skeleton } from '@design-system/components/LoadingState';
 import { Table } from '@design-system/components/Table';
 import { cn } from '@design-system/lib/cn';
 import { useApplicationSearch } from '@entities/application/queries';
-import { APPLICATION_STATUS_CLASS_NAME, APPLICATION_STATUS_LABEL } from '@entities/application/statusLabel';
+import {
+  APPLICATION_STATUS_CHIP_BASE_CLASS,
+  APPLICATION_STATUS_CHIP_CLASS_NAME,
+  APPLICATION_STATUS_LABEL,
+} from '@entities/application/statusLabel';
 import type { Application, ApplicationStatus } from '@entities/application/types';
 
 import { STATUS_FILTERS } from './filters';
@@ -64,7 +68,7 @@ const columns: ColumnDef<Application>[] = [
     cell: (info) => {
       const status = info.getValue<ApplicationStatus>();
       return (
-        <span className={cn('text-label font-medium', APPLICATION_STATUS_CLASS_NAME[status])}>
+        <span className={cn(APPLICATION_STATUS_CHIP_BASE_CLASS, APPLICATION_STATUS_CHIP_CLASS_NAME[status])}>
           {APPLICATION_STATUS_LABEL[status]}
         </span>
       );

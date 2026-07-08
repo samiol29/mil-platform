@@ -71,7 +71,7 @@ export function EvidenceCard({
   onViewFindings,
 }: EvidenceCardProps) {
   return (
-    <article className="border-border-subtle bg-surface-raised flex flex-col gap-3 rounded-container border p-4">
+    <article className="bg-surface-raised shadow-raised flex flex-col gap-2 rounded-container p-3">
       <div className="flex items-center justify-between gap-3">
         <AiSignalBadge variant="signal" />
         <span className="text-caption text-text-tertiary">
@@ -80,7 +80,7 @@ export function EvidenceCard({
       </div>
 
       <div>
-        <p className="text-caption text-text-secondary capitalize">
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">
           {formatEvidenceType(item.evidenceType)}
         </p>
         <p className="text-heading-section text-text-primary">{formatValue(item)}</p>

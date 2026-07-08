@@ -203,7 +203,7 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
   }
 
   return (
-    <section aria-label="Upload documents" className="border-border-subtle bg-surface-raised rounded-container flex flex-col gap-4 border p-4">
+    <section aria-label="Upload documents" className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-heading-section text-text-primary">Upload documents</h3>
         {rows.length > 0 && (

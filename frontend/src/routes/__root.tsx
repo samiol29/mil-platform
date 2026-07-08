@@ -52,7 +52,8 @@ import { EmptyState } from '@design-system/components/EmptyState';
 import { cn } from '@design-system/lib/cn';
 import { useApplication } from '@entities/application/queries';
 import {
-  APPLICATION_STATUS_CLASS_NAME,
+  APPLICATION_STATUS_CHIP_BASE_CLASS,
+  APPLICATION_STATUS_CHIP_CLASS_NAME,
   APPLICATION_STATUS_LABEL,
 } from '@entities/application/statusLabel';
 import { IntakeWizard } from '@features/application-intake/IntakeWizard';
@@ -69,9 +70,9 @@ function RootLayout() {
 
   return (
     <div className="bg-surface-background min-h-screen">
-      <header className="border-border-subtle bg-surface-raised flex items-center justify-between border-b px-6 py-3">
-        <div className="flex items-center gap-4">
-          <span className="text-label text-text-primary font-medium">MIL</span>
+      <header className="border-border-subtle bg-surface-raised flex items-center justify-between border-b px-6 py-2.5">
+        <div className="flex items-center gap-5">
+          <span className="text-body-emphasis text-text-primary tracking-tight">MIL</span>
           <PrimaryNav />
           <PrimaryBreadcrumb />
           <ActiveApplicationStatus />
@@ -101,15 +102,22 @@ function RootLayout() {
 
 function PrimaryNav() {
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
 
   return (
     <nav aria-label="Primary" className="flex items-center gap-1">
       {NAV_SECTIONS.map((section) => {
         const Icon = section.icon;
+        // Active state (Product Experience phase, Phase 11): exact match for
+        // the root section, prefix match for sections with sub-routes — so
+        // an open application still marks Queue as the active section.
+        const isActive =
+          section.path === '/' ? pathname === '/' : pathname.startsWith(section.path);
         return (
           <button
             key={section.id}
             type="button"
+            aria-current={isActive ? 'page' : undefined}
             onClick={() => {
               // `section.path` is a plain string (config-driven, per navConfig.ts's
               // docstring) rather than one of the router's generated route-id
@@ -117,9 +125,11 @@ function PrimaryNav() {
               void navigate({ to: section.path as unknown as '/' });
             }}
             className={cn(
-              'text-label text-text-secondary hover:text-text-primary hover:bg-surface-disabled',
-              'flex items-center gap-1.5 rounded-interactive px-2 py-1 font-medium',
+              'text-label flex items-center gap-1.5 rounded-interactive px-2 py-1 font-medium',
               'outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2',
+              isActive
+                ? 'bg-surface-sunken text-text-primary'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-disabled',
             )}
           >
             <Icon className="size-3.5" aria-hidden="true" />
@@ -234,8 +244,8 @@ function ActiveApplicationStatusLabel({ applicationId }: { applicationId: string
   return (
     <span
       className={cn(
-        'text-caption border-border-subtle rounded-chip border px-2 py-0.5 font-medium',
-        APPLICATION_STATUS_CLASS_NAME[status],
+        APPLICATION_STATUS_CHIP_BASE_CLASS,
+        APPLICATION_STATUS_CHIP_CLASS_NAME[status],
       )}
     >
       {APPLICATION_STATUS_LABEL[status]}

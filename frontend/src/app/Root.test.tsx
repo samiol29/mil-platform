@@ -58,8 +58,11 @@ describe('Root (Home Dashboard)', () => {
     renderAtRoot();
 
     await waitFor(() => {
-      expect(screen.getByText("Today's workload")).toBeInTheDocument();
+      // Phase 11's command-center stat row: quiet uppercase labels, no
+      // visible section heading (the section carries an aria-label).
+      expect(screen.getByText('In review')).toBeInTheDocument();
     });
+    expect(screen.getByText('Needs attention')).toBeInTheDocument();
     expect(screen.getAllByText('In Review').length).toBeGreaterThan(0);
     expect(screen.getByText('4009123456')).toBeInTheDocument();
   });

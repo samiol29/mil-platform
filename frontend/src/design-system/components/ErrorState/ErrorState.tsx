@@ -27,6 +27,14 @@ export interface ErrorStateProps {
   readonly description?: string;
   readonly details?: string;
   readonly onRetry?: () => void;
+  /**
+   * `panel` (default): the full centered treatment for a region/page that
+   * failed outright. `inline` (Product Experience phase, Phase 11): a
+   * compact left-aligned strip for a failed *sub*-panel — clearly an
+   * error, but proportionate: a failed side query must not visually
+   * dominate the content a reviewer actually came to read.
+   */
+  readonly variant?: 'panel' | 'inline';
   readonly className?: string;
 }
 
@@ -35,8 +43,30 @@ export function ErrorState({
   description = 'This content could not be loaded. You can try again.',
   details,
   onRetry,
+  variant = 'panel',
   className,
 }: ErrorStateProps) {
+  if (variant === 'inline') {
+    return (
+      <div
+        role="alert"
+        className={cn(
+          'bg-feedback-error-bg rounded-container flex flex-wrap items-center gap-2.5 px-3 py-2',
+          className,
+        )}
+      >
+        <AlertCircle className="text-feedback-error-fg size-4 shrink-0" aria-hidden="true" />
+        <span className="text-label text-feedback-error-fg font-medium">{title}</span>
+        <span className="text-caption text-text-secondary">{description}</span>
+        {onRetry !== undefined && (
+          <Button variant="secondary" size="sm" onClick={onRetry} className="ml-auto">
+            Try again
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       role="alert"

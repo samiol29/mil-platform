@@ -110,7 +110,7 @@ export function FindingCard({
   return (
     <article
       className={cn(
-        'border-border-subtle bg-surface-raised flex flex-col gap-3 rounded-container border p-5',
+        'bg-surface-raised shadow-raised flex flex-col gap-3 rounded-container p-5',
         className,
       )}
     >
@@ -125,17 +125,17 @@ export function FindingCard({
       </div>
 
       <div>
-        <p className="text-caption text-text-secondary">Issue</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Issue</p>
         <h3 className="text-heading-section text-text-primary">{finding.what}</h3>
       </div>
 
       <div>
-        <p className="text-caption text-text-secondary">Why it matters</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Why it matters</p>
         <p className="text-body text-text-secondary max-w-[68ch]">{finding.why}</p>
       </div>
 
       <div>
-        <p className="text-caption text-text-secondary mb-2">Supporting evidence</p>
+        <p className="text-caption text-text-tertiary mb-2 tracking-wide uppercase">Supporting evidence</p>
         <div className="flex flex-wrap items-center gap-2">
           {finding.evidenceRefs.map((evidenceId) => {
             const item = evidenceById.get(evidenceId);
@@ -158,7 +158,7 @@ export function FindingCard({
       </div>
 
       <div>
-        <p className="text-caption text-text-secondary">Impact</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Impact</p>
         <p className="text-body text-text-primary">{deriveFindingImpact(finding)}</p>
         <p className="text-caption text-text-tertiary">
           Derived from confidence and evidence count — not a backend-assigned severity.
@@ -168,7 +168,7 @@ export function FindingCard({
       <ConfidenceIndicator level={finding.confidence} />
 
       <div className="border-border-subtle border-t pt-3">
-        <p className="text-caption text-text-secondary">Policy</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Policy</p>
         <p className="text-body text-text-tertiary">
           {finding.policyVersion !== null
             ? `Evaluated under policy ${finding.policyVersion}`
@@ -177,7 +177,7 @@ export function FindingCard({
       </div>
 
       <div className="bg-surface-secondary rounded-container flex flex-col gap-2 p-3">
-        <p className="text-caption text-text-secondary">Your decision</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Your decision</p>
         <p className="text-label text-text-primary">
           <span className="text-text-secondary">Recommended reviewer action: </span>
           {finding.recommendedAction}

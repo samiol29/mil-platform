@@ -180,7 +180,12 @@ export function Table<TData>({
               }
               className={cn(
                 'border-border-subtle flex items-center border-b',
-                isSelected && 'bg-interactive-primary-disabled',
+                // Selected state (Product Experience phase, Phase 11): a
+                // brand left edge + subtle fill — unmistakable without
+                // washing the whole row in color.
+                isSelected
+                  ? 'border-l-interactive-primary-default bg-surface-secondary border-l-2'
+                  : 'border-l-2 border-l-transparent',
                 isInteractive &&
                   'hover:bg-surface-secondary cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2',
               )}

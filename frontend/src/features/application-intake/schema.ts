@@ -18,7 +18,9 @@ export const borrowerRowSchema = z.object({
 });
 
 export const intakeFormSchema = z.object({
-  losReference: z.string().min(1, 'LOS reference is required.'),
+  // System-generated (Phase 12, `generateDemoIdentifiers.ts`) — no longer
+  // typed by the user, so no user-facing validation message is needed here.
+  losReference: z.string(),
   loanNumber: z.string(),
   borrowers: z.array(borrowerRowSchema).min(1, 'Add at least one borrower.'),
 });
@@ -26,14 +28,9 @@ export const intakeFormSchema = z.object({
 export type IntakeFormValues = z.infer<typeof intakeFormSchema>;
 export type BorrowerRow = z.infer<typeof borrowerRowSchema>;
 
-/** Field names step 1 ("Application") owns — passed to RHF's `trigger()` before advancing. */
-export const APPLICATION_STEP_FIELDS = ['losReference', 'loanNumber'] as const;
-
-export const DEFAULT_INTAKE_VALUES: IntakeFormValues = {
-  losReference: '',
-  loanNumber: '',
-  borrowers: [{ partyType: 'APPLICANT', displayName: '' }],
-};
+export const DEFAULT_BORROWER_ROWS: IntakeFormValues['borrowers'] = [
+  { partyType: 'APPLICANT', displayName: '' },
+];
 
 export type WizardStep = 'application' | 'borrowers' | 'review';
 

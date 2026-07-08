@@ -37,7 +37,7 @@ async function openWizard(user: ReturnType<typeof userEvent.setup>) {
   });
   await user.click(screen.getByRole('button', { name: /new application/i }));
   await waitFor(() => {
-    expect(screen.getByLabelText('LOS reference')).toBeInTheDocument();
+    expect(screen.getByText('LOS reference')).toBeInTheDocument();
   });
 }
 
@@ -48,21 +48,19 @@ describe('IntakeWizard', () => {
     useUiStore.getState().closeIntakeWizard();
   });
 
-  it('blocks advancing to Borrowers when LOS reference is empty', async () => {
+  it('shows system-generated identifiers on the Application step, with nothing to type', async () => {
     const user = userEvent.setup();
     await openWizard(user);
 
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
-
-    expect(await screen.findByText('LOS reference is required.')).toBeInTheDocument();
-    expect(screen.queryByText('Add another borrower')).not.toBeInTheDocument();
+    expect(screen.getByText('LOS reference')).toBeInTheDocument();
+    expect(screen.getByText('Loan number')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
-  it('advances to Borrowers once LOS reference is filled, and Enter in the last row adds another row', async () => {
+  it('advances to Borrowers on Continue with no validation to pass, and Enter in the last row adds another row', async () => {
     const user = userEvent.setup();
     await openWizard(user);
 
-    await user.type(screen.getByLabelText('LOS reference'), 'LOS-9999');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => {
@@ -120,7 +118,6 @@ describe('IntakeWizard', () => {
     const user = userEvent.setup();
     await openWizard(user);
 
-    await user.type(screen.getByLabelText('LOS reference'), 'LOS-9999');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => {
       expect(screen.getByText('Add another borrower')).toBeInTheDocument();
