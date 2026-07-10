@@ -64,9 +64,7 @@ export function ReviewStep({
       </div>
 
       <div className="bg-surface-secondary flex flex-col gap-2 rounded-container p-3">
-        <p className="text-caption text-text-secondary">
-          Borrowers ({values.borrowers.length})
-        </p>
+        <p className="text-caption text-text-secondary">Borrowers ({values.borrowers.length})</p>
         {values.borrowers.map((borrower, index) => (
           <div key={index} className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -98,7 +96,13 @@ export function ReviewStep({
   );
 }
 
-function RowStatus({ status, className }: { readonly status: BorrowerRowStatus; readonly className?: string }) {
+function RowStatus({
+  status,
+  className,
+}: {
+  readonly status: BorrowerRowStatus;
+  readonly className?: string;
+}) {
   if (status === 'idle') return null;
   if (status === 'pending') {
     return (

@@ -11,7 +11,9 @@
 import type { Document } from '@entities/document/queries';
 
 /** Maps `contentHash` to every document sharing it — only hashes with more than one document are real duplicates. */
-export function findDuplicateGroups(documents: readonly Document[]): ReadonlyMap<string, readonly Document[]> {
+export function findDuplicateGroups(
+  documents: readonly Document[],
+): ReadonlyMap<string, readonly Document[]> {
   const byHash = new Map<string, Document[]>();
   for (const doc of documents) {
     const existing = byHash.get(doc.contentHash);

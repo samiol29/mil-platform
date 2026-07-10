@@ -73,7 +73,13 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
 describe('buildDocumentTimeline', () => {
   it('includes a DOCUMENT_UPLOADED event matched by entityType/entityId, not eventData', () => {
     const timeline = buildDocumentTimeline(
-      [makeAuditEntry({ eventType: 'DOCUMENT_UPLOADED', entityType: 'DOCUMENT', entityId: DOCUMENT_ID })],
+      [
+        makeAuditEntry({
+          eventType: 'DOCUMENT_UPLOADED',
+          entityType: 'DOCUMENT',
+          entityId: DOCUMENT_ID,
+        }),
+      ],
       DOCUMENT_ID,
       [],
       [],
@@ -109,7 +115,7 @@ describe('buildDocumentTimeline', () => {
     expect(timeline[0]?.label).toBe('Evidence extracted from this document');
   });
 
-  it('includes a REVIEW_FINDING_OVERRIDDEN event only when its finding cites this document\'s evidence', () => {
+  it("includes a REVIEW_FINDING_OVERRIDDEN event only when its finding cites this document's evidence", () => {
     const evidenceItems = [makeEvidenceItem({ documentId: DOCUMENT_ID })];
     const findings = [makeFinding({ evidenceRefs: [EVIDENCE_ID] })];
     const timeline = buildDocumentTimeline(
@@ -128,7 +134,7 @@ describe('buildDocumentTimeline', () => {
     expect(timeline[0]?.label).toBe('A finding on this document was overridden');
   });
 
-  it('excludes a REVIEW_FINDING_* event whose finding cites a different document\'s evidence', () => {
+  it("excludes a REVIEW_FINDING_* event whose finding cites a different document's evidence", () => {
     const evidenceItems = [makeEvidenceItem({ documentId: OTHER_DOCUMENT_ID })];
     const findings = [makeFinding({ evidenceRefs: [EVIDENCE_ID] })];
     const timeline = buildDocumentTimeline(

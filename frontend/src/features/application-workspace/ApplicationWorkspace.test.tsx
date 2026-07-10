@@ -58,7 +58,10 @@ function makeEvidence(id: string, documentId: string, evidenceType: string) {
 function mockWorkspaceData() {
   server.use(
     http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/documents`, () =>
-      HttpResponse.json([makeDocument(DOC_A, 'paystub.pdf'), makeDocument(DOC_B, 'bank-statement.pdf')]),
+      HttpResponse.json([
+        makeDocument(DOC_A, 'paystub.pdf'),
+        makeDocument(DOC_B, 'bank-statement.pdf'),
+      ]),
     ),
     http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/evidence`, () =>
       HttpResponse.json([
@@ -94,7 +97,11 @@ function mockWorkspaceData() {
 function Harness({ initialRegion }: { initialRegion: WorkspaceRegion }) {
   const [region, setRegion] = useState<WorkspaceRegion>(initialRegion);
   return (
-    <ApplicationWorkspace applicationId={FIXTURE_APPLICATION_ID} region={region} onRegionChange={setRegion} />
+    <ApplicationWorkspace
+      applicationId={FIXTURE_APPLICATION_ID}
+      region={region}
+      onRegionChange={setRegion}
+    />
   );
 }
 
@@ -281,7 +288,9 @@ describe('ApplicationWorkspace — honest no-findings messaging (Phase 12)', () 
     mockZeroFindings('IN_PROGRESS');
     renderWorkspace('policy');
 
-    expect(await screen.findByText('No findings to evaluate against policy yet')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No findings to evaluate against policy yet'),
+    ).toBeInTheDocument();
   });
 
   it('Policy region: collapses to one calm "no material issues" state only when every document actually COMPLETED', async () => {
@@ -369,7 +378,7 @@ describe('ApplicationWorkspace — Documents list ⇄ viewer (Phases 8 + 11)', (
     expect(await screen.findByText('View in document')).toBeInTheDocument();
   });
 
-  it('the Findings tab in the inspector shows the finding tied to the open document\'s evidence', async () => {
+  it("the Findings tab in the inspector shows the finding tied to the open document's evidence", async () => {
     mockWorkspaceData();
     renderWorkspace('documents');
     const user = userEvent.setup();
@@ -439,7 +448,7 @@ function mockAuditTrail() {
   );
 }
 
-describe('ApplicationWorkspace — Timeline: the application\'s case history (Phase 9)', () => {
+describe("ApplicationWorkspace — Timeline: the application's case history (Phase 9)", () => {
   it('shows a real, friendly narrative for real audit events, grouped and traceable', async () => {
     mockWorkspaceData();
     mockAuditTrail();

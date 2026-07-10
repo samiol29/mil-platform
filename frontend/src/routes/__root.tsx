@@ -91,7 +91,9 @@ function RootLayout() {
         </div>
       </header>
       <main>
-        <RouteErrorBoundary>{user === null ? <SessionEndedScreen /> : <Outlet />}</RouteErrorBoundary>
+        <RouteErrorBoundary>
+          {user === null ? <SessionEndedScreen /> : <Outlet />}
+        </RouteErrorBoundary>
       </main>
       <CommandPaletteHost />
       <ToastHost />
@@ -190,10 +192,7 @@ function PrimaryBreadcrumb() {
 
   if (applicationId === undefined) {
     return (
-      <Breadcrumb
-        items={[...items, { label: 'Application Queue' }]}
-        className="hidden md:flex"
-      />
+      <Breadcrumb items={[...items, { label: 'Application Queue' }]} className="hidden md:flex" />
     );
   }
 
@@ -243,10 +242,7 @@ function ActiveApplicationStatusLabel({ applicationId }: { applicationId: string
 
   return (
     <span
-      className={cn(
-        APPLICATION_STATUS_CHIP_BASE_CLASS,
-        APPLICATION_STATUS_CHIP_CLASS_NAME[status],
-      )}
+      className={cn(APPLICATION_STATUS_CHIP_BASE_CLASS, APPLICATION_STATUS_CHIP_CLASS_NAME[status])}
     >
       {APPLICATION_STATUS_LABEL[status]}
     </span>

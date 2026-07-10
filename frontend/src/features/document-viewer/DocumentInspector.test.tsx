@@ -6,7 +6,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Document } from '@entities/document/queries';
 
-import { FIXTURE_APPLICATION_ID, FIXTURE_DOCUMENT_ID, FIXTURE_FINDING_ID } from '../../test/msw/handlers';
+import {
+  FIXTURE_APPLICATION_ID,
+  FIXTURE_DOCUMENT_ID,
+  FIXTURE_FINDING_ID,
+} from '../../test/msw/handlers';
 import { server } from '../../test/msw/server';
 import { DocumentInspector } from './DocumentInspector';
 
@@ -32,10 +36,15 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
 }
 
 function mockParties() {
-  server.use(http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/parties`, () => HttpResponse.json([])));
+  server.use(
+    http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/parties`, () => HttpResponse.json([])),
+  );
 }
 
-function renderInspector(document: Document, overrides: Partial<React.ComponentProps<typeof DocumentInspector>> = {}) {
+function renderInspector(
+  document: Document,
+  overrides: Partial<React.ComponentProps<typeof DocumentInspector>> = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -76,10 +85,12 @@ describe('DocumentInspector', () => {
     renderInspector(makeDocument({ id: OTHER_DOCUMENT_ID }));
 
     await user.click(await screen.findByRole('tab', { name: /Evidence/ }));
-    expect(await screen.findByText('No evidence extracted from this document yet')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No evidence extracted from this document yet'),
+    ).toBeInTheDocument();
   });
 
-  it("shows only findings whose evidence belongs to this document", async () => {
+  it('shows only findings whose evidence belongs to this document', async () => {
     mockParties();
     const user = userEvent.setup();
     renderInspector(makeDocument());

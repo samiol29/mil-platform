@@ -54,7 +54,8 @@ const STATUS_CLASS_NAME: Readonly<Record<PipelineStepStatus, string>> = {
 /** Node fill/ring treatment per status — `md` size only (Phase 11's enterprise progress tracker). */
 const NODE_CLASS_NAME: Readonly<Record<PipelineStepStatus, string>> = {
   pending: 'bg-surface-secondary text-text-tertiary',
-  active: 'bg-surface-raised text-interactive-primary-default ring-2 ring-interactive-primary-default',
+  active:
+    'bg-surface-raised text-interactive-primary-default ring-2 ring-interactive-primary-default',
   complete: 'bg-feedback-success-bg text-feedback-success-fg',
   failed: 'bg-feedback-error-bg text-feedback-error-fg',
   skipped: 'bg-surface-secondary text-text-disabled',
@@ -85,7 +86,9 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
                   )}
                   aria-hidden="true"
                 />
-                <span className="sr-only">{step.label}: {step.status}</span>
+                <span className="sr-only">
+                  {step.label}: {step.status}
+                </span>
               </div>
               {!isLast && (
                 <div
@@ -109,7 +112,11 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
   // no fabricated progress; `detail` (always real backend text) renders as
   // a caption under its step.
   return (
-    <div role="group" aria-label="Processing pipeline" className={cn('flex items-start', className)}>
+    <div
+      role="group"
+      aria-label="Processing pipeline"
+      className={cn('flex items-start', className)}
+    >
       {steps.map((step, index) => {
         const Icon = STATUS_ICON[step.status];
         const isLast = index === steps.length - 1;
@@ -143,7 +150,9 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
               {step.detail !== undefined && (
                 <span className="text-caption text-text-tertiary">{step.detail}</span>
               )}
-              <span className="sr-only">{step.label}: {step.status}</span>
+              <span className="sr-only">
+                {step.label}: {step.status}
+              </span>
             </div>
             {!isLast && (
               <div

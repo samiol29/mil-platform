@@ -75,12 +75,24 @@ export function buildDocumentTimeline(
 
   for (const entry of auditEntries) {
     const documentLabel = DOCUMENT_EVENT_LABEL[entry.eventType];
-    if (documentLabel !== undefined && entry.entityType === 'DOCUMENT' && entry.entityId === documentId) {
-      entries.push({ id: entry.id, occurredAt: entry.occurredAt, actorType: entry.actorType, label: documentLabel });
+    if (
+      documentLabel !== undefined &&
+      entry.entityType === 'DOCUMENT' &&
+      entry.entityId === documentId
+    ) {
+      entries.push({
+        id: entry.id,
+        occurredAt: entry.occurredAt,
+        actorType: entry.actorType,
+        label: documentLabel,
+      });
       continue;
     }
 
-    if (entry.eventType === 'EVIDENCE_CREATED' && asString(entry.eventData.documentId) === documentId) {
+    if (
+      entry.eventType === 'EVIDENCE_CREATED' &&
+      asString(entry.eventData.documentId) === documentId
+    ) {
       entries.push({
         id: entry.id,
         occurredAt: entry.occurredAt,
@@ -91,8 +103,16 @@ export function buildDocumentTimeline(
     }
 
     const reviewLabel = REVIEW_EVENT_LABEL[entry.eventType];
-    if (reviewLabel !== undefined && documentFindingIds.has(asString(entry.eventData.findingId) ?? '')) {
-      entries.push({ id: entry.id, occurredAt: entry.occurredAt, actorType: entry.actorType, label: reviewLabel });
+    if (
+      reviewLabel !== undefined &&
+      documentFindingIds.has(asString(entry.eventData.findingId) ?? '')
+    ) {
+      entries.push({
+        id: entry.id,
+        occurredAt: entry.occurredAt,
+        actorType: entry.actorType,
+        label: reviewLabel,
+      });
     }
   }
 

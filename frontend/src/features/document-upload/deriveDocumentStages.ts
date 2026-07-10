@@ -20,7 +20,10 @@
 
 import type { Document } from '@entities/document/queries';
 
-import type { PipelineStep, PipelineStepStatus } from '@design-system/components/ProcessingPipeline';
+import type {
+  PipelineStep,
+  PipelineStepStatus,
+} from '@design-system/components/ProcessingPipeline';
 
 export function deriveDocumentStages(document: Document): readonly PipelineStep[] {
   const { ingestionStatus, evidenceItemCount, ingestionError } = document;

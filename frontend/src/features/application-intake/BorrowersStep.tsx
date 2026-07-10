@@ -76,7 +76,9 @@ export function BorrowersStep({ form }: BorrowersStepProps) {
             >
               <div className="w-full sm:w-40 sm:shrink-0">
                 <Select
-                  {...register(`borrowers.${String(index)}.partyType` as `borrowers.${number}.partyType`)}
+                  {...register(
+                    `borrowers.${String(index)}.partyType` as `borrowers.${number}.partyType`,
+                  )}
                 >
                   {PARTY_TYPES.map((type) => (
                     <option key={type} value={type}>

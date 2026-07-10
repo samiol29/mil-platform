@@ -180,7 +180,9 @@ describe('FindingCard', () => {
     );
     expect(screen.getByText('High confidence, supported by 1 evidence item.')).toBeInTheDocument();
     expect(
-      screen.getByText('Derived from confidence and evidence count — not a backend-assigned severity.'),
+      screen.getByText(
+        'Derived from confidence and evidence count — not a backend-assigned severity.',
+      ),
     ).toBeInTheDocument();
   });
 

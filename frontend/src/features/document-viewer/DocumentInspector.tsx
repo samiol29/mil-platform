@@ -161,7 +161,9 @@ export function DocumentInspector({
             <dt className="text-text-tertiary">Document type</dt>
             <dd className="text-text-primary">{document.documentType}</dd>
             <dt className="text-text-tertiary">Status</dt>
-            <dd className="text-text-primary">{INGESTION_STATUS_LABEL[document.ingestionStatus]}</dd>
+            <dd className="text-text-primary">
+              {INGESTION_STATUS_LABEL[document.ingestionStatus]}
+            </dd>
             <dt className="text-text-tertiary">Uploaded</dt>
             <dd className="text-text-primary">{formatDateTime(document.uploadedAt)}</dd>
             <dt className="text-text-tertiary">Pages</dt>
@@ -228,7 +230,9 @@ export function DocumentInspector({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-body text-text-primary">{finding.what}</span>
-                    <span className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}>
+                    <span
+                      className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}
+                    >
                       {STATE_LABEL[finding.state]}
                     </span>
                   </div>
@@ -260,10 +264,15 @@ export function DocumentInspector({
             />
           ) : (
             policyGroups.map((group) => (
-              <div key={group.policyVersion ?? '__not_evaluated__'} className="border-border-subtle rounded-container border">
+              <div
+                key={group.policyVersion ?? '__not_evaluated__'}
+                className="border-border-subtle rounded-container border"
+              >
                 <div className="bg-surface-secondary rounded-t-container flex items-center justify-between gap-2 px-3 py-2">
                   <span className="text-label text-text-primary font-medium">
-                    {group.policyVersion !== null ? `Policy ${group.policyVersion}` : 'Not yet evaluated'}
+                    {group.policyVersion !== null
+                      ? `Policy ${group.policyVersion}`
+                      : 'Not yet evaluated'}
                   </span>
                   <span className="text-caption text-text-secondary">
                     {group.findings.length} finding{group.findings.length === 1 ? '' : 's'}
@@ -271,7 +280,10 @@ export function DocumentInspector({
                 </div>
                 <ul className="flex flex-col gap-1 p-3">
                   {group.findings.map((finding) => (
-                    <li key={finding.id} className="text-caption text-text-secondary flex items-center justify-between gap-2">
+                    <li
+                      key={finding.id}
+                      className="text-caption text-text-secondary flex items-center justify-between gap-2"
+                    >
                       <span className="truncate">{finding.what}</span>
                       <EvidenceChip
                         label="View"
@@ -297,7 +309,8 @@ export function DocumentInspector({
             <ul className="flex flex-col gap-2">
               {timeline.map((entry) => (
                 <li key={entry.id} className="text-caption text-text-secondary">
-                  <span className="text-text-primary">{entry.label}</span> — {formatDateTime(entry.occurredAt)}{' '}
+                  <span className="text-text-primary">{entry.label}</span> —{' '}
+                  {formatDateTime(entry.occurredAt)}{' '}
                   <span className="text-text-tertiary">
                     ({entry.actorType === 'SYSTEM' ? 'system' : 'reviewer'})
                   </span>

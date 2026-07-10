@@ -31,13 +31,19 @@ function makeItem(overrides: Partial<EvidenceItem> = {}): EvidenceItem {
 describe('EvidenceCard', () => {
   it('shows the evidence type, value, confidence, and provenance', () => {
     render(
-      <EvidenceCard item={makeItem()} relatedFindingsCount={0} onViewInDocument={() => undefined} />,
+      <EvidenceCard
+        item={makeItem()}
+        relatedFindingsCount={0}
+        onViewInDocument={() => undefined}
+      />,
     );
 
     expect(screen.getByText('gross monthly income')).toBeInTheDocument();
     expect(screen.getByText('6200.00')).toBeInTheDocument();
     expect(screen.getByRole('meter')).toBeInTheDocument();
-    expect(screen.getByText(/Extracted via LLM_EXTRACTION_V1 · model 2026.06.1/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Extracted via LLM_EXTRACTION_V1 · model 2026.06.1/),
+    ).toBeInTheDocument();
   });
 
   it('shows the page number honestly, never a fabricated fallback, when it is null', () => {
@@ -55,7 +61,11 @@ describe('EvidenceCard', () => {
     const onViewInDocument = vi.fn();
     const user = userEvent.setup();
     render(
-      <EvidenceCard item={makeItem()} relatedFindingsCount={0} onViewInDocument={onViewInDocument} />,
+      <EvidenceCard
+        item={makeItem()}
+        relatedFindingsCount={0}
+        onViewInDocument={onViewInDocument}
+      />,
     );
 
     await user.click(screen.getByText('View in document'));
@@ -64,7 +74,11 @@ describe('EvidenceCard', () => {
 
   it('only shows a "used in finding(s)" link when relatedFindingsCount is greater than zero', () => {
     const { rerender } = render(
-      <EvidenceCard item={makeItem()} relatedFindingsCount={0} onViewInDocument={() => undefined} />,
+      <EvidenceCard
+        item={makeItem()}
+        relatedFindingsCount={0}
+        onViewInDocument={() => undefined}
+      />,
     );
     expect(screen.queryByText(/Used in/)).not.toBeInTheDocument();
 
@@ -81,7 +95,11 @@ describe('EvidenceCard', () => {
 
   it('shows a supersedes line only when a resolved prior item is provided', () => {
     const { rerender } = render(
-      <EvidenceCard item={makeItem()} relatedFindingsCount={0} onViewInDocument={() => undefined} />,
+      <EvidenceCard
+        item={makeItem()}
+        relatedFindingsCount={0}
+        onViewInDocument={() => undefined}
+      />,
     );
     expect(screen.queryByText(/Supersedes/)).not.toBeInTheDocument();
 

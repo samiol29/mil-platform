@@ -27,9 +27,9 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
 
 describe('deriveFindingImpact', () => {
   it('describes a high-confidence finding with its real evidence count', () => {
-    expect(deriveFindingImpact(makeFinding({ confidence: 'high', evidenceRefs: ['e1', 'e2'] }))).toBe(
-      'High confidence, supported by 2 evidence items.',
-    );
+    expect(
+      deriveFindingImpact(makeFinding({ confidence: 'high', evidenceRefs: ['e1', 'e2'] })),
+    ).toBe('High confidence, supported by 2 evidence items.');
   });
 
   it('uses singular "item" for exactly one piece of evidence', () => {

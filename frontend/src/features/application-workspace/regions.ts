@@ -1,10 +1,5 @@
 export type WorkspaceRegion =
-  | 'overview'
-  | 'findings'
-  | 'evidence'
-  | 'documents'
-  | 'policy'
-  | 'timeline';
+  'overview' | 'findings' | 'evidence' | 'documents' | 'policy' | 'timeline';
 
 /**
  * Tab order matches the product's own investigation chain (Product

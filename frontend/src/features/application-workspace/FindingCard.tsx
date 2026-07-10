@@ -135,7 +135,9 @@ export function FindingCard({
       </div>
 
       <div>
-        <p className="text-caption text-text-tertiary mb-2 tracking-wide uppercase">Supporting evidence</p>
+        <p className="text-caption text-text-tertiary mb-2 tracking-wide uppercase">
+          Supporting evidence
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           {finding.evidenceRefs.map((evidenceId) => {
             const item = evidenceById.get(evidenceId);

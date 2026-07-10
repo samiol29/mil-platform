@@ -142,10 +142,7 @@ describe('deriveApplicationStages', () => {
   });
 
   it('findings exist but not all policy-evaluated: Policy active', () => {
-    const steps = deriveApplicationStages(
-      [makeDocument()],
-      [makeFinding({ policyVersion: null })],
-    );
+    const steps = deriveApplicationStages([makeDocument()], [makeFinding({ policyVersion: null })]);
     expect(statusOf(steps, 'findings')).toBe('complete');
     expect(statusOf(steps, 'policy')).toBe('active');
   });

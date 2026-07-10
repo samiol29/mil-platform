@@ -29,7 +29,9 @@ function renderApp() {
 
 async function openWizard(user: ReturnType<typeof userEvent.setup>) {
   server.use(
-    http.get('/v1/applications', () => HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 })),
+    http.get('/v1/applications', () =>
+      HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 }),
+    ),
   );
   renderApp();
   await waitFor(() => {

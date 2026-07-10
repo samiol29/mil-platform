@@ -51,7 +51,11 @@ function ageInDays(createdAt: string): number {
 
 function formatDate(value: string | null): string {
   if (value === null) return '—';
-  return new Date(value).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(value).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 const columns: ColumnDef<Application>[] = [
@@ -68,7 +72,12 @@ const columns: ColumnDef<Application>[] = [
     cell: (info) => {
       const status = info.getValue<ApplicationStatus>();
       return (
-        <span className={cn(APPLICATION_STATUS_CHIP_BASE_CLASS, APPLICATION_STATUS_CHIP_CLASS_NAME[status])}>
+        <span
+          className={cn(
+            APPLICATION_STATUS_CHIP_BASE_CLASS,
+            APPLICATION_STATUS_CHIP_CLASS_NAME[status],
+          )}
+        >
           {APPLICATION_STATUS_LABEL[status]}
         </span>
       );
@@ -148,7 +157,11 @@ export function ApplicationQueueTable({ status, onStatusChange }: ApplicationQue
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by stage">
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Filter by stage"
+        >
           <FilterChip
             label="All"
             isActive={status === null}
@@ -201,7 +214,11 @@ export function ApplicationQueueTable({ status, onStatusChange }: ApplicationQue
           }}
           emptyState={
             <EmptyState
-              title={search.length > 0 || status !== null ? 'No matching applications' : 'No applications yet'}
+              title={
+                search.length > 0 || status !== null
+                  ? 'No matching applications'
+                  : 'No applications yet'
+              }
               description={
                 search.length > 0 || status !== null
                   ? 'Try a different search term or clear the stage filter.'

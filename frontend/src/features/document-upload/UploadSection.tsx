@@ -86,7 +86,9 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
         const isDuplicate =
           existingHashes.has(hash) ||
           prev.some((row) => row.id !== rowId && row.contentHash === hash);
-        return prev.map((row) => (row.id === rowId ? { ...row, contentHash: hash, isDuplicate } : row));
+        return prev.map((row) =>
+          row.id === rowId ? { ...row, contentHash: hash, isDuplicate } : row,
+        );
       });
     });
   }
@@ -172,7 +174,9 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
   const staged = rows.filter((row) => row.status === 'staged');
   const uploading = rows.filter((row) => row.status === 'uploading');
   const errored = rows.filter((row) => row.status === 'error');
-  const duplicatesUnacknowledged = rows.filter((row) => row.isDuplicate && !row.duplicateAcknowledged);
+  const duplicatesUnacknowledged = rows.filter(
+    (row) => row.isDuplicate && !row.duplicateAcknowledged,
+  );
   const readyToUploadCount = staged.filter(
     (row) => row.validationError === null && (!row.isDuplicate || row.duplicateAcknowledged),
   ).length;
@@ -203,7 +207,10 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
   }
 
   return (
-    <section aria-label="Upload documents" className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-4 p-4">
+    <section
+      aria-label="Upload documents"
+      className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-4 p-4"
+    >
       <div className="flex items-center justify-between">
         <h3 className="text-heading-section text-text-primary">Upload documents</h3>
         {rows.length > 0 && (
@@ -244,12 +251,15 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
       {rows.length > 0 && (
         <>
           <div className="text-caption text-text-secondary flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>{rows.length} file{rows.length === 1 ? '' : 's'}</span>
+            <span>
+              {rows.length} file{rows.length === 1 ? '' : 's'}
+            </span>
             {staged.length > 0 && <span>· {staged.length} staged</span>}
             {uploading.length > 0 && <span>· {uploading.length} uploading</span>}
             {duplicatesUnacknowledged.length > 0 && (
               <span className="text-feedback-warning-fg">
-                · {duplicatesUnacknowledged.length} duplicate{duplicatesUnacknowledged.length === 1 ? '' : 's'} flagged
+                · {duplicatesUnacknowledged.length} duplicate
+                {duplicatesUnacknowledged.length === 1 ? '' : 's'} flagged
               </span>
             )}
             {errored.length > 0 && (
@@ -290,7 +300,9 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
                         <UploadFileRow
                           key={row.id}
                           row={row}
-                          polledDocument={existingDocuments.find((doc) => doc.id === row.documentId)}
+                          polledDocument={existingDocuments.find(
+                            (doc) => doc.id === row.documentId,
+                          )}
                           onDocumentTypeChange={(type_) => {
                             updateRow(row.id, { documentType: type_, detectionSource: 'manual' });
                           }}

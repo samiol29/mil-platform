@@ -57,7 +57,11 @@ describe('DocumentProcessingList', () => {
   it('shows the package summary with real counts', async () => {
     mockDocuments([
       makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', ingestionStatus: 'COMPLETED' }),
-      makeDocument({ id: 'bbbbbbbb-2222-4222-a222-222222222222', ingestionStatus: 'FAILED', ingestionError: 'boom' }),
+      makeDocument({
+        id: 'bbbbbbbb-2222-4222-a222-222222222222',
+        ingestionStatus: 'FAILED',
+        ingestionError: 'boom',
+      }),
     ]);
     renderList();
     expect(await screen.findByText(/2 documents/)).toBeInTheDocument();
@@ -76,7 +80,9 @@ describe('DocumentProcessingList', () => {
   });
 
   it('calls onSelectDocument when a row is clicked', async () => {
-    mockDocuments([makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', filename: 'paystub.pdf' })]);
+    mockDocuments([
+      makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', filename: 'paystub.pdf' }),
+    ]);
     const { onSelectDocument } = renderList();
     const user = userEvent.setup();
 
@@ -86,8 +92,16 @@ describe('DocumentProcessingList', () => {
 
   it('shows a "View evidence" link only when evidenceItemCount is greater than zero', async () => {
     mockDocuments([
-      makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', filename: 'has-evidence.pdf', evidenceItemCount: 2 }),
-      makeDocument({ id: 'bbbbbbbb-2222-4222-a222-222222222222', filename: 'no-evidence.pdf', evidenceItemCount: 0 }),
+      makeDocument({
+        id: 'aaaaaaaa-1111-4111-a111-111111111111',
+        filename: 'has-evidence.pdf',
+        evidenceItemCount: 2,
+      }),
+      makeDocument({
+        id: 'bbbbbbbb-2222-4222-a222-222222222222',
+        filename: 'no-evidence.pdf',
+        evidenceItemCount: 0,
+      }),
     ]);
     renderList();
     expect(await screen.findByText('View 2 evidence items →')).toBeInTheDocument();
@@ -95,7 +109,9 @@ describe('DocumentProcessingList', () => {
   });
 
   it('calls onViewEvidence with the document id when the evidence link is clicked', async () => {
-    mockDocuments([makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', evidenceItemCount: 1 })]);
+    mockDocuments([
+      makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', evidenceItemCount: 1 }),
+    ]);
     const { onViewEvidence } = renderList();
     const user = userEvent.setup();
 
@@ -105,7 +121,11 @@ describe('DocumentProcessingList', () => {
 
   it('never implies the whole package is broken when one document FAILED — the row shows its own real error (in Details), others are unaffected', async () => {
     mockDocuments([
-      makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', filename: 'ok.pdf', ingestionStatus: 'COMPLETED' }),
+      makeDocument({
+        id: 'aaaaaaaa-1111-4111-a111-111111111111',
+        filename: 'ok.pdf',
+        ingestionStatus: 'COMPLETED',
+      }),
       makeDocument({
         id: 'bbbbbbbb-2222-4222-a222-222222222222',
         filename: 'broken.pdf',

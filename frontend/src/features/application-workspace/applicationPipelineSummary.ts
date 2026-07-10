@@ -53,7 +53,9 @@ export function summarizeDocuments(documents: readonly Document[]): DocumentAggr
 export function allDocumentsTerminal(documents: readonly Document[]): boolean {
   return (
     documents.length > 0 &&
-    documents.every((doc) => doc.ingestionStatus === 'COMPLETED' || doc.ingestionStatus === 'FAILED')
+    documents.every(
+      (doc) => doc.ingestionStatus === 'COMPLETED' || doc.ingestionStatus === 'FAILED',
+    )
   );
 }
 

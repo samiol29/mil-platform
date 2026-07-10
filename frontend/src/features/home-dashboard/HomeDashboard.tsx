@@ -143,9 +143,7 @@ function DashboardContent({ applications }: { readonly applications: readonly Ap
 
   const inReview = applications.filter((app) => app.status === 'IN_REVIEW');
   const oldestInReviewDays =
-    inReview.length > 0
-      ? Math.max(...inReview.map((app) => ageInDays(app.createdAt)))
-      : null;
+    inReview.length > 0 ? Math.max(...inReview.map((app) => ageInDays(app.createdAt))) : null;
 
   // Urgency ordering: within IN_REVIEW oldest-first (a decision is actually
   // waiting), then SUBMITTED, then DRAFT — each group oldest-first.

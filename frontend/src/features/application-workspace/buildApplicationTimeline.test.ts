@@ -68,7 +68,12 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
 describe('buildApplicationTimeline', () => {
   it('labels APPLICATION_STATE_CHANGED using real from/to status fields', () => {
     const timeline = buildApplicationTimeline(
-      [makeAuditEntry({ eventType: 'APPLICATION_STATE_CHANGED', eventData: { fromStatus: 'DRAFT', toStatus: 'SUBMITTED' } })],
+      [
+        makeAuditEntry({
+          eventType: 'APPLICATION_STATE_CHANGED',
+          eventData: { fromStatus: 'DRAFT', toStatus: 'SUBMITTED' },
+        }),
+      ],
       [],
       [],
     );
@@ -105,12 +110,20 @@ describe('buildApplicationTimeline', () => {
       [makeDocument()],
       [],
     );
-    expect(timeline[0]?.label).toBe('Processing completed: bank-statement.pdf (3 pages, 2 evidence items)');
+    expect(timeline[0]?.label).toBe(
+      'Processing completed: bank-statement.pdf (3 pages, 2 evidence items)',
+    );
   });
 
   it('resolves the real finding text for FINDING_GENERATED via entityId', () => {
     const timeline = buildApplicationTimeline(
-      [makeAuditEntry({ eventType: 'FINDING_GENERATED', entityType: 'FINDING', entityId: FINDING_ID })],
+      [
+        makeAuditEntry({
+          eventType: 'FINDING_GENERATED',
+          entityType: 'FINDING',
+          entityId: FINDING_ID,
+        }),
+      ],
       [],
       [makeFinding()],
     );
@@ -149,13 +162,19 @@ describe('buildApplicationTimeline', () => {
           eventType: 'POLICY_EVALUATED',
           entityType: 'POLICY_RESULT',
           entityId: 'result-id',
-          eventData: { findingId: FINDING_ID, policyVersion: 'policy-pack-2026.2', outcome: 'flagged' },
+          eventData: {
+            findingId: FINDING_ID,
+            policyVersion: 'policy-pack-2026.2',
+            outcome: 'flagged',
+          },
         }),
       ],
       [],
       [makeFinding()],
     );
-    expect(timeline[0]?.label).toBe('Policy evaluated (vpolicy-pack-2026.2) for Income mismatch: flagged');
+    expect(timeline[0]?.label).toBe(
+      'Policy evaluated (vpolicy-pack-2026.2) for Income mismatch: flagged',
+    );
   });
 
   it('silently omits unrecognized event types (e.g. Copilot activity) rather than showing a raw fallback', () => {
@@ -181,7 +200,12 @@ describe('buildApplicationTimeline', () => {
 
   it('never fabricates a reason for events that carry none (APPLICATION_STATE_CHANGED)', () => {
     const timeline = buildApplicationTimeline(
-      [makeAuditEntry({ eventType: 'APPLICATION_STATE_CHANGED', eventData: { fromStatus: 'SUBMITTED', toStatus: 'IN_REVIEW' } })],
+      [
+        makeAuditEntry({
+          eventType: 'APPLICATION_STATE_CHANGED',
+          eventData: { fromStatus: 'SUBMITTED', toStatus: 'IN_REVIEW' },
+        }),
+      ],
       [],
       [],
     );

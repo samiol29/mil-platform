@@ -114,7 +114,7 @@ describe('buildFindingReviewHistory', () => {
 });
 
 describe('groupReviewHistoryByFinding', () => {
-  it('groups every finding\'s history in a single pass, equivalent to calling buildFindingReviewHistory per finding', () => {
+  it("groups every finding's history in a single pass, equivalent to calling buildFindingReviewHistory per finding", () => {
     const entries = [
       makeEntry({ id: 'a', eventData: { findingId: FINDING_ID } }),
       makeEntry({ id: 'b', eventData: { findingId: OTHER_FINDING_ID } }),
@@ -132,14 +132,24 @@ describe('groupReviewHistoryByFinding', () => {
   });
 
   it('returns undefined for a finding with no review history', () => {
-    const grouped = groupReviewHistoryByFinding([makeEntry({ eventData: { findingId: FINDING_ID } })]);
+    const grouped = groupReviewHistoryByFinding([
+      makeEntry({ eventData: { findingId: FINDING_ID } }),
+    ]);
     expect(grouped.get(OTHER_FINDING_ID)).toBeUndefined();
   });
 
-  it('sorts each finding\'s group chronologically independently', () => {
+  it("sorts each finding's group chronologically independently", () => {
     const entries = [
-      makeEntry({ id: 'later', occurredAt: '2026-06-23T09:00:00Z', eventData: { findingId: FINDING_ID } }),
-      makeEntry({ id: 'earlier', occurredAt: '2026-06-20T09:00:00Z', eventData: { findingId: FINDING_ID } }),
+      makeEntry({
+        id: 'later',
+        occurredAt: '2026-06-23T09:00:00Z',
+        eventData: { findingId: FINDING_ID },
+      }),
+      makeEntry({
+        id: 'earlier',
+        occurredAt: '2026-06-20T09:00:00Z',
+        eventData: { findingId: FINDING_ID },
+      }),
     ];
     const grouped = groupReviewHistoryByFinding(entries);
     expect(grouped.get(FINDING_ID)?.map((h) => h.id)).toEqual(['earlier', 'later']);

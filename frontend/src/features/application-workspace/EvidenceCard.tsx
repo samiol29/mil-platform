@@ -74,9 +74,7 @@ export function EvidenceCard({
     <article className="bg-surface-raised shadow-raised flex flex-col gap-2 rounded-container p-3">
       <div className="flex items-center justify-between gap-3">
         <AiSignalBadge variant="signal" />
-        <span className="text-caption text-text-tertiary">
-          Page {item.pageNumber ?? '—'}
-        </span>
+        <span className="text-caption text-text-tertiary">Page {item.pageNumber ?? '—'}</span>
       </div>
 
       <div>

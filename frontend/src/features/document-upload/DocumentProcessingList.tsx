@@ -123,7 +123,9 @@ export function DocumentProcessingList({
           const isDuplicate = duplicateIds.has(document.id);
           const isFailed = document.ingestionStatus === 'FAILED';
           const assignedParty =
-            document.partyId !== null ? parties.find((party) => party.id === document.partyId) : undefined;
+            document.partyId !== null
+              ? parties.find((party) => party.id === document.partyId)
+              : undefined;
 
           return (
             <li

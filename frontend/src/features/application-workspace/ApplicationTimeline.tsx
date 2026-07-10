@@ -50,7 +50,11 @@ function isFailureEntry(entry: ApplicationTimelineEntry): boolean {
   return entry.label.startsWith('Processing failed');
 }
 
-export function ApplicationTimeline({ entries, onTraceDocument, onTraceFinding }: ApplicationTimelineProps) {
+export function ApplicationTimeline({
+  entries,
+  onTraceDocument,
+  onTraceFinding,
+}: ApplicationTimelineProps) {
   if (entries.length === 0) {
     return <EmptyState title="No case history yet" />;
   }
@@ -84,7 +88,8 @@ export function ApplicationTimeline({ entries, onTraceDocument, onTraceFinding }
                     type="button"
                     onClick={() => {
                       if (entry.trace?.kind === 'document') onTraceDocument(entry.trace.documentId);
-                      else if (entry.trace?.kind === 'finding') onTraceFinding(entry.trace.findingId);
+                      else if (entry.trace?.kind === 'finding')
+                        onTraceFinding(entry.trace.findingId);
                     }}
                     className="text-caption text-text-secondary hover:text-text-primary shrink-0 outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
                   >

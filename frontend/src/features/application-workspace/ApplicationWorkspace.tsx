@@ -769,8 +769,8 @@ function PolicyRegion({
       <div className="border-feedback-warning-border bg-feedback-warning-bg rounded-container border p-4">
         <p className="text-caption text-feedback-warning-fg">
           This workspace shows findings that were flagged during policy evaluation. It cannot show
-          checks that passed silently, individual rule names, or rule-level rationale — no such
-          data exists in the backend today.
+          checks that passed silently, individual rule names, or rule-level rationale — no such data
+          exists in the backend today.
         </p>
       </div>
 
@@ -802,7 +802,9 @@ function PolicyRegion({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-body text-text-primary">{finding.what}</span>
-                    <span className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}>
+                    <span
+                      className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}
+                    >
                       {STATE_LABEL[finding.state]}
                     </span>
                   </div>
@@ -952,7 +954,9 @@ function OverviewRegion({
   const documents = documentsQuery.data ?? [];
   const findings = findingsQuery.data ?? [];
   const counts = summarizeDocuments(documents);
-  const recentActivity = buildApplicationTimeline(auditQuery.data ?? [], documents, findings).slice(-5);
+  const recentActivity = buildApplicationTimeline(auditQuery.data ?? [], documents, findings).slice(
+    -5,
+  );
 
   const metadataParts = [
     application.losReference !== null ? `LOS ${application.losReference}` : null,

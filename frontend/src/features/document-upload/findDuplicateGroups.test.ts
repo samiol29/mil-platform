@@ -39,7 +39,12 @@ describe('findDuplicateGroups', () => {
       makeDocument({ id: 'c', contentHash: 'c'.repeat(64) }),
     ]);
     expect(groups.size).toBe(1);
-    expect(groups.get('a'.repeat(64))?.map((d) => d.id).sort()).toEqual(['a', 'b']);
+    expect(
+      groups
+        .get('a'.repeat(64))
+        ?.map((d) => d.id)
+        .sort(),
+    ).toEqual(['a', 'b']);
   });
 
   it('a single document with a unique hash is never flagged as a duplicate group', () => {

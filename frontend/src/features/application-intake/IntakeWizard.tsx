@@ -170,7 +170,11 @@ function IntakeWizardBody() {
 
     const allSucceeded = values.borrowers.every((_, index) => statuses[index] === 'success');
     if (allSucceeded) {
-      addToast({ title: 'Application created', description: values.losReference, variant: 'success' });
+      addToast({
+        title: 'Application created',
+        description: values.losReference,
+        variant: 'success',
+      });
       closeWizard();
       void navigate({
         to: '/applications/$applicationId',

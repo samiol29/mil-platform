@@ -70,7 +70,8 @@ export function TabsList({ children, className, ...rest }: TabsListProps) {
 
     let nextIndex: number | null = null;
     if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % triggers.length;
-    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + triggers.length) % triggers.length;
+    else if (event.key === 'ArrowLeft')
+      nextIndex = (currentIndex - 1 + triggers.length) % triggers.length;
     else if (event.key === 'Home') nextIndex = 0;
     else if (event.key === 'End') nextIndex = triggers.length - 1;
 
