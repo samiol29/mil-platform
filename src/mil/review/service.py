@@ -35,10 +35,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mil.kernel.errors import ValidationError
+from mil.kernel.errors import ConflictError, ValidationError
 from mil.review.models import (
     ACTION_APPROVED,
     ACTION_ASSIGNED,
+    ACTION_ESCALATED,
     ACTION_OVERRIDDEN,
     ACTION_REJECTED,
     ACTION_SESSION_STARTED,
@@ -82,13 +83,22 @@ class ReviewService:
         tenant_id: UUID,
         workflow_run_id: UUID,
         policy_result_id: UUID,
-    ) -> ReviewSession:
+    ) -> tuple[ReviewSession, bool]:
         """
         Create a new ``ReviewSession`` in ``PENDING_REVIEW`` status for a
         Finding, handing it off for human review.
 
         Records a ``SESSION_STARTED`` action (system-attributed, no human
         actor yet) and a synchronous ``REVIEW_SESSION_STARTED`` audit event.
+
+        Idempotent replay (ADR-008 §5): if a session already exists for this
+        Finding — the race the caller's own up-front ``exists_for_finding``
+        check cannot fully close under concurrent workers — that pre-existing
+        session is returned instead of raising, paired with ``False``.
+
+        Returns:
+            A ``(session, created)`` pair: ``created`` is ``True`` only when
+            this call newly persisted the session.
         """
         session = ReviewSession.create(
             finding_id=finding_id,
@@ -97,7 +107,14 @@ class ReviewService:
             workflow_run_id=workflow_run_id,
             policy_result_id=policy_result_id,
         )
-        self._repo.save_session(session)
+        if not self._repo.create_session_if_not_exists(session):
+            existing = self._repo.get_session_for_finding(finding_id)
+            if existing is None:
+                raise ConflictError(
+                    f"Review session for finding {finding_id} could not be "
+                    "recovered after a uniqueness conflict."
+                )
+            return existing, False
 
         action = ReviewAction.create(
             review_session_id=session.id,
@@ -115,7 +132,7 @@ class ReviewService:
             application_id=application_id,
             event_data={"finding_id": str(finding_id), "policy_result_id": str(policy_result_id)},
         )
-        return session
+        return session, True
 
     # ------------------------------------------------------------------
     # Human-triggered actions (Principle I — every call requires a human actor)
@@ -260,6 +277,62 @@ class ReviewService:
                 "reason": reason,
                 "previous_value": previous_value,
                 "new_value": new_value,
+            },
+        )
+        return session
+
+    def escalate_finding(
+        self,
+        session: ReviewSession,
+        *,
+        actor_user_id: UUID,
+        reason: str,
+        target_role: str,
+        target_user_id: UUID | None = None,
+    ) -> ReviewSession:
+        """
+        Escalate the Finding under review to another role's queue.
+
+        ``ESCALATED`` is deliberately not terminal (module docstring):
+        ownership transfers away from the escalating reviewer (their
+        ``assigned_reviewer_id`` is cleared — see ``ReviewSession.escalate``)
+        into the target role's queue, and the same ``approve_finding``,
+        ``reject_finding``, and ``override_finding`` methods resolve it —
+        there is no separate "resolve escalation" action.
+        """
+        if not reason or not reason.strip():
+            raise ValidationError("reason must not be empty", field="reason")
+        if not target_role or not target_role.strip():
+            raise ValidationError("target_role must not be empty", field="target_role")
+
+        previous_status = session.status
+        session.escalate(target_role=target_role, target_user_id=target_user_id)
+        self._repo.save_session(session)
+
+        action = ReviewAction.create(
+            review_session_id=session.id,
+            action_type=ACTION_ESCALATED,
+            actor_user_id=actor_user_id,
+            previous_status=previous_status,
+            new_status=session.status,
+            reason=reason,
+            target_role=target_role,
+            target_user_id=target_user_id,
+        )
+        self._repo.save_action(action)
+
+        self._audit.record(
+            event_type="REVIEW_FINDING_ESCALATED",
+            entity_type="REVIEW_SESSION",
+            entity_id=session.id,
+            tenant_id=session.tenant_id,
+            application_id=session.application_id,
+            actor_id=actor_user_id,
+            event_data={
+                "finding_id": str(session.finding_id),
+                "reason": reason,
+                "target_role": target_role,
+                "target_user_id": str(target_user_id) if target_user_id is not None else None,
             },
         )
         return session

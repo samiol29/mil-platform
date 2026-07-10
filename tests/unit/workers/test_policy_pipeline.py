@@ -16,7 +16,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from mil.kernel.errors import (
-    ConflictError,
     NotFoundError,
     ProviderError,
     ProviderVersionMissingError,
@@ -115,14 +114,18 @@ class FakeFindingRepository:
 
 
 class FakePolicyService:
-    def __init__(self) -> None:
+    def __init__(self, *, force_collision: bool = False) -> None:
         self.calls: list[dict[str, object]] = []
+        self._force_collision = force_collision
+        self._existing = _FakePolicyResult(policy_version="existing", outcome="PASS")
 
-    def record_policy_result(self, **kwargs: object) -> _FakePolicyResult:
+    def record_policy_result(self, **kwargs: object) -> tuple[_FakePolicyResult, bool]:
         self.calls.append(kwargs)
+        if self._force_collision:
+            return self._existing, False
         result = kwargs["result"]
         assert isinstance(result, PolicyEvaluationResult)
-        return _FakePolicyResult(policy_version=result.policy_version, outcome=result.outcome)
+        return _FakePolicyResult(policy_version=result.policy_version, outcome=result.outcome), True
 
 
 class FakePolicyRepo:
@@ -383,16 +386,34 @@ class TestNextStepDispatch:
 
 
 class TestNoActivePack:
-    def test_no_active_pack_raises_conflict_error(self) -> None:
+    def test_no_active_pack_is_terminal_not_raised(self) -> None:
+        """
+        Terminal, handled internally (not re-raised) — a bare raise would
+        propagate past this method entirely, and `process_next`'s generic
+        exception handler requeues unconditionally on ANY exception with no
+        retryability check, turning this into a poison job that starves the
+        POLICY queue forever (the identical bug found and fixed in
+        `finding_pipeline.py`'s no-evidence guard — confirmed live: a stuck
+        no-active-pack job looped every poll interval indefinitely).
+        """
         h = _Harness(active_pack=None)
-        with pytest.raises(ConflictError):
-            h.run_processor()
+        assert h.run_processor() is PolicyProcessingOutcome.FAILED_TERMINAL
 
     def test_no_active_pack_does_not_call_evaluate(self) -> None:
         h = _Harness(active_pack=None)
-        with pytest.raises(ConflictError):
-            h.run_processor()
+        h.run_processor()
         assert h.provider.calls == 0
+
+    def test_no_active_pack_marks_step_failed(self) -> None:
+        h = _Harness(active_pack=None)
+        h.run_processor()
+        assert h.step.status == StepStatus.FAILED  # type: ignore[attr-defined]
+
+    def test_no_active_pack_does_not_dead_letter(self) -> None:
+        """Not a retry-exhaustion case — there was never anything to retry."""
+        h = _Harness(active_pack=None)
+        h.run_processor()
+        assert h.dead_letter.records == []
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +498,34 @@ class TestIdempotentReplay:
         h.policy_repo.seed(h.finding_id, _POLICY_VERSION)
         h.run_processor()
         assert h.run.status == WorkflowStatus.COMPLETED
+
+
+class TestConcurrentReplayCollision:
+    """
+    ADR-008 §5: the up-front `exists_for_finding_and_version` check
+    (`TestIdempotentReplay` above) cannot close the race between two
+    concurrent workers — both can pass it before either commits. A
+    collision at insert time must still complete the step/run and dispatch
+    the next step, but must not publish a duplicate audit event or
+    ``PolicyEvaluated``.
+    """
+
+    def test_returns_completed_not_an_exception(self) -> None:
+        h = _Harness()
+        h.policy._force_collision = True
+        assert h.run_processor() is PolicyProcessingOutcome.COMPLETED
+
+    def test_emits_no_duplicate_event(self) -> None:
+        h = _Harness()
+        h.policy._force_collision = True
+        h.run_processor()
+        assert h.outbox.added == []
+
+    def test_marks_step_completed_despite_collision(self) -> None:
+        h = _Harness()
+        h.policy._force_collision = True
+        h.run_processor()
+        assert h.step.status == StepStatus.COMPLETED  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

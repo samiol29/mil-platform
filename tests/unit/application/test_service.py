@@ -84,6 +84,12 @@ class TestCreateApplication:
         app = service.create_application(user, tenant_id=uuid4(), los_reference="LOS-001")
         assert app.los_reference == "LOS-001"
 
+    def test_create_stores_loan_number(self) -> None:
+        service, _ = _make_service()
+        user = _make_admin()
+        app = service.create_application(user, tenant_id=uuid4(), loan_number="LN-001")
+        assert app.loan_number == "LN-001"
+
     def test_create_requires_write_application_permission(self) -> None:
         service, _ = _make_service()
         # AUDIT_TEAM has read:application but not write:application
@@ -387,3 +393,27 @@ class TestReadOperations:
         repo.get_for_tenant.return_value = apps
         result = service.list_applications(user, tenant_id=uuid4())
         assert result == apps
+
+    def test_list_applications_passes_search_to_repository(self) -> None:
+        service, repo = _make_service()
+        user = AuthenticatedUser(
+            user_id=UserId(uuid4()),
+            tenant_id=TenantId(uuid4()),
+            roles=frozenset({Role.VERIFICATION_OFFICER}),
+        )
+        repo.get_for_tenant.return_value = []
+        tenant_id = uuid4()
+        service.list_applications(user, tenant_id=tenant_id, search="Alvarez")
+        repo.get_for_tenant.assert_called_once_with(tenant_id, status=None, search="Alvarez")
+
+    def test_list_applications_defaults_search_to_none(self) -> None:
+        service, repo = _make_service()
+        user = AuthenticatedUser(
+            user_id=UserId(uuid4()),
+            tenant_id=TenantId(uuid4()),
+            roles=frozenset({Role.VERIFICATION_OFFICER}),
+        )
+        repo.get_for_tenant.return_value = []
+        tenant_id = uuid4()
+        service.list_applications(user, tenant_id=tenant_id)
+        repo.get_for_tenant.assert_called_once_with(tenant_id, status=None, search=None)

@@ -8,8 +8,10 @@ import pytest
 
 from mil.kernel.errors import InvalidStateTransitionError, ValidationError
 from mil.review.models import (
+    ACTION_ESCALATED,
     ACTION_SESSION_STARTED,
     APPROVED,
+    ESCALATED,
     IN_REVIEW,
     OVERRIDDEN,
     PENDING_REVIEW,
@@ -29,6 +31,13 @@ class FakeReviewRepository:
 
     def save_session(self, session: ReviewSession) -> None:
         self.saved_sessions.append(session)
+
+    def create_session_if_not_exists(self, session: ReviewSession) -> bool:
+        self.saved_sessions.append(session)
+        return True
+
+    def get_session_for_finding(self, finding_id: object) -> ReviewSession | None:
+        return None
 
     def save_action(self, action: ReviewAction) -> None:
         self.saved_actions.append(action)
@@ -53,13 +62,14 @@ def _make_service() -> tuple[ReviewService, FakeReviewRepository, FakeAuditWrite
 
 
 def _start_review(service: ReviewService) -> ReviewSession:
-    return service.start_review(
+    session, _created = service.start_review(
         finding_id=uuid4(),
         application_id=uuid4(),
         tenant_id=uuid4(),
         workflow_run_id=uuid4(),
         policy_result_id=uuid4(),
     )
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +113,45 @@ class TestStartReview:
         )
         assert repo.saved_sessions[0].finding_id == finding_id
         assert repo.saved_sessions[0].policy_result_id == policy_result_id
+
+    def test_returns_created_true_on_first_call(self) -> None:
+        service, _, _ = _make_service()
+        _, created = service.start_review(
+            finding_id=uuid4(),
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_result_id=uuid4(),
+        )
+        assert created is True
+
+    def test_replay_collision_returns_existing_session_without_duplicate_action_or_audit(
+        self,
+    ) -> None:
+        """ADR-008 §5: a uniqueness collision on create is a no-op, not an error."""
+        service, repo, audit = _make_service()
+        existing = ReviewSession.create(
+            finding_id=uuid4(),
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            workflow_run_id=uuid4(),
+            policy_result_id=uuid4(),
+        )
+        repo.create_session_if_not_exists = lambda _session: False  # type: ignore[method-assign]
+        repo.get_session_for_finding = lambda _finding_id: existing  # type: ignore[method-assign]
+
+        session, created = service.start_review(
+            finding_id=existing.finding_id,
+            application_id=existing.application_id,
+            tenant_id=existing.tenant_id,
+            workflow_run_id=existing.workflow_run_id,
+            policy_result_id=existing.policy_result_id,
+        )
+
+        assert created is False
+        assert session is existing
+        assert repo.saved_actions == []
+        assert audit.records == []
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +347,139 @@ class TestOverrideFinding:
         with pytest.raises(InvalidStateTransitionError):
             service.override_finding(
                 session, actor_user_id=uuid4(), reason="r", previous_value="a", new_value="b"
+            )
+
+
+# ---------------------------------------------------------------------------
+# escalate_finding
+# ---------------------------------------------------------------------------
+
+
+class TestEscalateFinding:
+    def test_transitions_to_escalated(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session,
+            actor_user_id=uuid4(),
+            reason="Possible fair-lending concern",
+            target_role="COMPLIANCE_OFFICER",
+        )
+        assert session.status == ESCALATED
+
+    def test_sets_target_role_on_session(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="reason", target_role="RISK_ANALYST"
+        )
+        assert session.escalated_to_role == "RISK_ANALYST"
+
+    def test_sets_optional_target_user(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        target_user_id = uuid4()
+        service.escalate_finding(
+            session,
+            actor_user_id=uuid4(),
+            reason="reason",
+            target_role="UNDERWRITER",
+            target_user_id=target_user_id,
+        )
+        assert session.escalated_to_user_id == target_user_id
+
+    def test_saves_session_and_action(self) -> None:
+        service, repo, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="reason", target_role="COMPLIANCE_OFFICER"
+        )
+        assert session in repo.saved_sessions
+        assert repo.saved_actions[-1].action_type == ACTION_ESCALATED
+
+    def test_action_records_target_role_and_reason(self) -> None:
+        service, repo, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session,
+            actor_user_id=uuid4(),
+            reason="Possible fair-lending concern",
+            target_role="COMPLIANCE_OFFICER",
+        )
+        action = repo.saved_actions[-1]
+        assert action.reason == "Possible fair-lending concern"
+        assert action.target_role == "COMPLIANCE_OFFICER"
+
+    def test_emits_escalated_audit_event(self) -> None:
+        service, _, audit = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="reason", target_role="COMPLIANCE_OFFICER"
+        )
+        assert audit.records[-1]["event_type"] == "REVIEW_FINDING_ESCALATED"
+
+    def test_audit_event_includes_target_role(self) -> None:
+        service, _, audit = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="reason", target_role="RISK_ANALYST"
+        )
+        event_data = audit.records[-1]["event_data"]
+        assert event_data["target_role"] == "RISK_ANALYST"  # type: ignore[index]
+
+    def test_empty_reason_raises(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        with pytest.raises(ValidationError):
+            service.escalate_finding(
+                session, actor_user_id=uuid4(), reason="", target_role="COMPLIANCE_OFFICER"
+            )
+
+    def test_empty_target_role_raises(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        with pytest.raises(ValidationError):
+            service.escalate_finding(
+                session, actor_user_id=uuid4(), reason="reason", target_role=""
+            )
+
+    def test_can_escalate_directly_from_pending_review(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="reason", target_role="COMPLIANCE_OFFICER"
+        )
+        assert session.status == ESCALATED
+
+    def test_escalated_finding_can_still_be_approved(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="reason", target_role="COMPLIANCE_OFFICER"
+        )
+        service.approve_finding(session, actor_user_id=uuid4())
+        assert session.status == APPROVED
+
+    def test_escalated_finding_can_be_re_escalated(self) -> None:
+        service, repo, _ = _make_service()
+        session = _start_review(service)
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="first reason", target_role="COMPLIANCE_OFFICER"
+        )
+        service.escalate_finding(
+            session, actor_user_id=uuid4(), reason="second reason", target_role="RISK_ANALYST"
+        )
+        assert session.escalated_to_role == "RISK_ANALYST"
+        assert len(repo.saved_actions) == 3  # SESSION_STARTED + two ESCALATED
+
+    def test_cannot_escalate_a_terminal_session(self) -> None:
+        service, _, _ = _make_service()
+        session = _start_review(service)
+        session.transition_to(IN_REVIEW)
+        service.approve_finding(session, actor_user_id=uuid4())
+        with pytest.raises(InvalidStateTransitionError):
+            service.escalate_finding(
+                session, actor_user_id=uuid4(), reason="reason", target_role="COMPLIANCE_OFFICER"
             )
 
 

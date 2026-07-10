@@ -213,13 +213,17 @@ class GeminiInferenceProvider(InferenceProvider):
         )
         max_output_tokens = context.max_tokens or self._default_max_output_tokens
 
+        generation_config: dict[str, object] = {
+            "temperature": temperature,
+            "maxOutputTokens": max_output_tokens,
+        }
+        if context.thinking_budget is not None:
+            generation_config["thinkingConfig"] = {"thinkingBudget": context.thinking_budget}
+
         return {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": _build_user_content(context)}]}],
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_output_tokens,
-            },
+            "generationConfig": generation_config,
         }
 
     # ------------------------------------------------------------------

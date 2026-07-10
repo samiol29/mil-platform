@@ -30,9 +30,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, or_, select
 
-from mil.application.models import MortgageApplication
+from mil.application.models import MortgageApplication, Party
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -125,6 +125,7 @@ class ApplicationRepository:
         tenant_id: TenantId | UUID,
         *,
         status: str | None = None,
+        search: str | None = None,
     ) -> list[MortgageApplication]:
         """
         Return all applications belonging to a tenant.
@@ -132,9 +133,23 @@ class ApplicationRepository:
         Optionally filter by ``status`` (e.g. ``ApplicationStatus.DRAFT``).
         Results are ordered by ``created_at`` descending (newest first).
 
+        ``search`` performs a case-insensitive substring match against fields
+        that already exist on the aggregate — ``los_reference``,
+        ``loan_number``, the application's own ``id`` (as text), and any
+        registered party's ``display_name`` (via an ``EXISTS`` subquery over
+        the ``parties`` relationship, not a join that could duplicate rows).
+        This is plain ``ILIKE`` matching, not full-text search — no new
+        search infrastructure (indexes, extensions, external index) is
+        introduced; if search performance against the ``parties`` subquery
+        or these columns becomes a problem at scale, that is a follow-up
+        indexing decision, not a change to this method's contract.
+
         Args:
             tenant_id: The tenant whose applications to return.
             status: Optional status string to filter by.
+            search: Optional case-insensitive substring to match against
+                LOS reference, loan number, application ID, or borrower
+                display name.
         """
         stmt = (
             select(MortgageApplication)
@@ -143,6 +158,16 @@ class ApplicationRepository:
         )
         if status is not None:
             stmt = stmt.where(MortgageApplication.status == status)
+        if search is not None:
+            pattern = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    MortgageApplication.los_reference.ilike(pattern),
+                    MortgageApplication.loan_number.ilike(pattern),
+                    cast(MortgageApplication.id, String).ilike(pattern),
+                    MortgageApplication.parties.any(Party.display_name.ilike(pattern)),
+                )
+            )
         return list(self._session.scalars(stmt))
 
     def exists(self, application_id: ApplicationId | UUID) -> bool:

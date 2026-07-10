@@ -39,6 +39,19 @@ paths:
           in: query
           schema:
             type: string
+        - name: search
+          in: query
+          description: >
+            Optional, additive, backward-compatible. Case-insensitive substring
+            match against fields that already exist on the domain model: LOS
+            reference, loan number, application ID, or a registered party's
+            display name. Plain substring (ILIKE) matching only — not
+            full-text/fuzzy search. Omitting this parameter preserves the
+            exact behavior of every existing client.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
         - name: page
           in: query
           schema:
@@ -156,6 +169,9 @@ components:
         los_reference:
           type: string
           description: External LOS application identifier
+        loan_number:
+          type: string
+          description: Lender loan identifier, distinct from los_reference
 
     Application:
       type: object
@@ -168,6 +184,9 @@ components:
           type: string
           format: uuid
         los_reference:
+          type: string
+          nullable: true
+        loan_number:
           type: string
           nullable: true
         status:

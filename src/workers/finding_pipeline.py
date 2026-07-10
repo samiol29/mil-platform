@@ -98,7 +98,7 @@ from mil.orchestrator.retry import (
 )
 from mil.orchestrator.service import IntelligenceOrchestrator
 from mil.outbox.repository import OutboxRepository
-from workers.bootstrap import build_worker_context, process_next
+from workers.bootstrap import build_worker_context, process_next, run_forever
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -196,9 +196,12 @@ class FindingJobProcessor:
         """
         Process one Finding job end-to-end within the caller's transaction.
 
+        An application with no evidence to evaluate is a terminal (not
+        retryable) failure handled internally via ``_handle_failure`` — it
+        does not raise, so the job is acknowledged rather than requeued.
+
         Raises:
             NotFoundError: If the workflow run or step is missing.
-            ValidationError: If the application has no evidence to evaluate.
             ProviderError: Re-raised for a retryable failure with attempts
                 remaining, so the Unit of Work rolls back and the job requeues.
         """
@@ -233,14 +236,33 @@ class FindingJobProcessor:
             return FindingProcessingOutcome.ALREADY_DONE
 
         evidence_items = self._c.evidence_items.get_for_application(application_id)
-        if not evidence_items:
-            raise ValidationError(
-                "Cannot generate a Finding: application has no evidence",
-                field="application_id",
-            )
-
         step.mark_in_progress()
         step.record_retry(job.retry_count)
+
+        if not evidence_items:
+            # Terminal, not retryable — no amount of retrying makes evidence
+            # appear. Routed through the same terminal-failure handling as a
+            # non-retryable ProviderError, rather than a bare raise: this
+            # previously propagated straight past this method, and
+            # `process_next`'s generic exception handler requeues
+            # unconditionally on ANY exception with no retryability check —
+            # confirmed live, this turned into a poison job that starved the
+            # entire FINDING queue (`RedisJobQueue.reject` requeues via
+            # `LPUSH`, i.e. back to the head, so the same failing job is
+            # redelivered first on every poll, ahead of legitimate jobs,
+            # forever).
+            return self._handle_failure(
+                run=run,
+                step=step,
+                workflow_run_id=workflow_run_id,
+                tenant_id=tenant_id,
+                correlation_id=correlation_id,
+                job=job,
+                exc=ValidationError(
+                    "Cannot generate a Finding: application has no evidence",
+                    field="application_id",
+                ),
+            )
 
         try:
             context = _build_context(application_id, evidence_items, run.pinned_versions.prompt)
@@ -259,7 +281,7 @@ class FindingJobProcessor:
 
         # Success: persist the immutable Finding, complete the step (and run,
         # since FINDING is the sole step), publish.
-        finding = self._c.finding.generate_finding(
+        finding, created = self._c.finding.generate_finding(
             application_id=application_id,
             tenant_id=tenant_id,
             workflow_run_id=workflow_run_id,
@@ -271,16 +293,23 @@ class FindingJobProcessor:
         if _is_last_step(run, step):
             run.mark_completed()
         self._c.workflows.save(run)
-        self._c.outbox.add(
-            FindingGenerated(
-                tenant_id=TenantId(tenant_id),
-                finding_id=FindingId(finding.id),
-                application_id=ApplicationId(application_id),
-                finding_type=finding.finding_type,
-                policy_version=run.pinned_versions.policy,
-                correlation_id=correlation_id,
+        if created:
+            # Lost a race against another worker otherwise (ADR-008 §5): the
+            # audit event and FindingGenerated were already published by
+            # whichever worker actually committed the Finding — do not
+            # duplicate them here, but still dispatch the next step below,
+            # since the queue's own idempotency key makes that a safe no-op
+            # too if it was already dispatched.
+            self._c.outbox.add(
+                FindingGenerated(
+                    tenant_id=TenantId(tenant_id),
+                    finding_id=FindingId(finding.id),
+                    application_id=ApplicationId(application_id),
+                    finding_type=finding.finding_type,
+                    policy_version=run.pinned_versions.policy,
+                    correlation_id=correlation_id,
+                )
             )
-        )
         self._dispatch_next_step(
             run=run,
             completed_step=step,
@@ -345,7 +374,7 @@ class FindingJobProcessor:
         tenant_id: UUID,
         correlation_id: str,
         job: Job,
-        exc: ProviderError,
+        exc: ProviderError | ValidationError,
     ) -> FindingProcessingOutcome:
         decision = self._retry.classify(
             exc, retry_count=job.retry_count, max_retries=job.max_retries
@@ -451,10 +480,32 @@ def _build_context(
     return InferenceContext(
         application_id=str(application_id),
         evidence_items=entries,
+        # Deliberately does not ask about "application {id}" as if it were a
+        # fact to be looked up inside the grounding records — it isn't; the
+        # grounding block is the evidence field/value pairs themselves. The
+        # shared system prompt (`gemini_inference.py`) instructs the model to
+        # answer strictly from grounding and refuse if a fact isn't present,
+        # so a query phrased as a lookup question about an external "application"
+        # entity reliably produced a refusal ("grounding does not contain
+        # information related to application X") instead of an assessment —
+        # confirmed live against the real Gemini backend. This phrasing asks
+        # the model to synthesize directly from the records already supplied.
         query=(
-            f"Assess the collected evidence for application {application_id} and produce a finding."
+            "The records above are the evidence extracted from this mortgage "
+            "application's uploaded documents. Review them for anything a human "
+            "underwriter should look at — inconsistencies between records, "
+            "figures that seem unusual, or information that should be confirmed "
+            "with the borrower. Summarize your assessment in plain language, "
+            "citing the reference of every record you rely on."
         ),
         prompt_version=prompt_version,
+        # Disable extended thinking (confirmed live: Gemini 2.5's dynamic
+        # thinking-token consumption varies enough between otherwise-identical
+        # calls to truncate the visible answer even at a generous
+        # max_output_tokens). This is a deterministic, mechanical task —
+        # compare records, list discrepancies — where a complete answer
+        # matters more than any quality gain extended reasoning might add.
+        thinking_budget=0,
     )
 
 
@@ -611,8 +662,7 @@ def main() -> None:  # pragma: no cover - process entry point
     """
     ctx = build_worker_context()
     handler = make_finding_handler(ctx.container)
-    while True:
-        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=FINDING_STEP_NAME)
+    run_forever(ctx, handler, job_type=FINDING_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":  # pragma: no cover

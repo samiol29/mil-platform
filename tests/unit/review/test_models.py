@@ -9,9 +9,11 @@ import pytest
 from mil.kernel.errors import InvalidStateTransitionError, ValidationError
 from mil.review.models import (
     ACTION_APPROVED,
+    ACTION_ESCALATED,
     ACTION_OVERRIDDEN,
     ACTION_SESSION_STARTED,
     APPROVED,
+    ESCALATED,
     IN_REVIEW,
     OVERRIDDEN,
     PENDING_REVIEW,
@@ -187,6 +189,80 @@ class TestAssignReviewer:
             session.assign_reviewer(uuid4())
 
 
+class TestEscalate:
+    def test_pending_review_to_escalated_allowed(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        assert session.status == ESCALATED
+
+    def test_in_review_to_escalated_allowed(self) -> None:
+        session = _make_session()
+        session.transition_to(IN_REVIEW)
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        assert session.status == ESCALATED
+
+    def test_sets_target_role(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="RISK_ANALYST")
+        assert session.escalated_to_role == "RISK_ANALYST"
+
+    def test_sets_optional_target_user(self) -> None:
+        session = _make_session()
+        target_user_id = uuid4()
+        session.escalate(target_role="UNDERWRITER", target_user_id=target_user_id)
+        assert session.escalated_to_user_id == target_user_id
+
+    def test_defaults_target_user_to_none(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        assert session.escalated_to_user_id is None
+
+    def test_clears_assigned_reviewer(self) -> None:
+        session = _make_session()
+        session.assign_reviewer(uuid4())
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        assert session.assigned_reviewer_id is None
+
+    def test_is_not_terminal(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        assert session.is_terminal is False
+        assert session.closed_at is None
+
+    def test_escalated_resolves_via_approved(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        session.transition_to(APPROVED)
+        assert session.status == APPROVED
+        assert session.is_terminal is True
+
+    def test_escalated_resolves_via_rejected(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        session.transition_to(REJECTED)
+        assert session.status == REJECTED
+
+    def test_escalated_resolves_via_overridden(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        session.transition_to(OVERRIDDEN)
+        assert session.status == OVERRIDDEN
+
+    def test_escalated_can_be_re_escalated(self) -> None:
+        session = _make_session()
+        session.escalate(target_role="COMPLIANCE_OFFICER")
+        session.escalate(target_role="RISK_ANALYST")
+        assert session.status == ESCALATED
+        assert session.escalated_to_role == "RISK_ANALYST"
+
+    def test_terminal_sessions_cannot_be_escalated(self) -> None:
+        session = _make_session()
+        session.transition_to(IN_REVIEW)
+        session.transition_to(APPROVED)
+        with pytest.raises(InvalidStateTransitionError):
+            session.escalate(target_role="COMPLIANCE_OFFICER")
+
+
 class TestReviewSessionOrmMetadata:
     def test_table_in_review_schema(self) -> None:
         assert ReviewSession.__table__.schema == "review"
@@ -260,6 +336,23 @@ class TestReviewActionCreate:
         session_id = uuid4()
         action = _make_action(review_session_id=session_id)
         assert action.review_session_id == session_id
+
+    def test_records_target_role_and_user_for_escalation(self) -> None:
+        target_user_id = uuid4()
+        action = _make_action(
+            action_type=ACTION_ESCALATED,
+            new_status=ESCALATED,
+            reason="Possible fair-lending concern",
+            target_role="COMPLIANCE_OFFICER",
+            target_user_id=target_user_id,
+        )
+        assert action.target_role == "COMPLIANCE_OFFICER"
+        assert action.target_user_id == target_user_id
+
+    def test_target_role_and_user_default_to_none(self) -> None:
+        action = _make_action()
+        assert action.target_role is None
+        assert action.target_user_id is None
 
 
 class TestReviewActionOrmMetadata:

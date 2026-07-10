@@ -70,6 +70,7 @@ class ApplicationService:
         *,
         tenant_id: TenantId | UUID,
         los_reference: str | None = None,
+        loan_number: str | None = None,
     ) -> MortgageApplication:
         """
         Create a new mortgage application in DRAFT state.
@@ -85,6 +86,7 @@ class ApplicationService:
             user: The authenticated principal performing the action.
             tenant_id: The institution the application belongs to.
             los_reference: Optional LOS application identifier.
+            loan_number: Optional lender loan identifier.
 
         Returns:
             The newly created ``MortgageApplication`` in DRAFT state.
@@ -98,6 +100,7 @@ class ApplicationService:
             tenant_id=tenant_id,
             created_by=user.user_id,
             los_reference=los_reference,
+            loan_number=loan_number,
         )
         self._repo.save(application, actor=user)
         return application
@@ -249,15 +252,19 @@ class ApplicationService:
         *,
         tenant_id: TenantId | UUID,
         status: str | None = None,
+        search: str | None = None,
     ) -> list[MortgageApplication]:
         """
-        Return all applications for a tenant, optionally filtered by status.
+        Return all applications for a tenant, optionally filtered by status
+        and/or a search term matched against LOS reference, loan number,
+        application ID, or borrower display name (see
+        ``ApplicationRepository.get_for_tenant`` for the exact match rules).
 
         Raises:
             AuthorizationError: If the user lacks ``read:application``.
         """
         require_permission(user, Permission.READ_APPLICATION)
-        return self._repo.get_for_tenant(tenant_id, status=status)
+        return self._repo.get_for_tenant(tenant_id, status=status, search=search)
 
     # ------------------------------------------------------------------
     # Party type validation (T036 explicit requirement)

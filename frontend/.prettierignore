@@ -1,0 +1,10 @@
+dist
+dist-ssr
+storybook-static
+coverage
+node_modules
+package-lock.json
+playwright-report
+test-results
+src/routeTree.gen.ts
+public/mockServiceWorker.js

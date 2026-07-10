@@ -63,6 +63,7 @@ class TestUploadDocument:
         assert "content_hash" in data
         assert "ingestion_status" in data
         assert data["ingestion_status"] == IngestionStatus.PENDING
+        assert data["filename"] == doc.original_filename
 
     def test_document_type_passed_as_mime_type(
         self, client: TestClient, mock_doc_service: MagicMock
@@ -295,3 +296,36 @@ class TestGetDocument:
         client.get(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}")
         call_kwargs = mock_doc_service.get_document.call_args.kwargs
         assert str(call_kwargs["document_id"]) == str(TEST_DOC_ID)
+
+
+class TestGetDocumentContent:
+    def test_returns_200_with_pdf_bytes(
+        self,
+        client: TestClient,
+        mock_doc_service: MagicMock,
+        mock_storage_provider: MagicMock,
+    ) -> None:
+        doc = make_document()
+        mock_doc_service.get_document.return_value = doc
+        mock_storage_provider.retrieve.return_value = b"%PDF-1.4 fake pdf bytes"
+        response = client.get(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/content")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.content == b"%PDF-1.4 fake pdf bytes"
+
+    def test_retrieves_by_storage_reference(
+        self,
+        client: TestClient,
+        mock_doc_service: MagicMock,
+        mock_storage_provider: MagicMock,
+    ) -> None:
+        doc = make_document()
+        mock_doc_service.get_document.return_value = doc
+        mock_storage_provider.retrieve.return_value = b"bytes"
+        client.get(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/content")
+        mock_storage_provider.retrieve.assert_called_once_with(doc.storage_reference)
+
+    def test_not_found_returns_404(self, client: TestClient, mock_doc_service: MagicMock) -> None:
+        mock_doc_service.get_document.side_effect = NotFoundError("Document", TEST_DOC_ID)
+        response = client.get(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/content")
+        assert response.status_code == 404

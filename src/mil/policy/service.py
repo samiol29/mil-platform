@@ -166,10 +166,22 @@ class PolicyService:
         workflow_run_id: UUID,
         policy_pack_id: UUID,
         result: PolicyEvaluationResult,
-    ) -> PolicyResult:
+    ) -> tuple[PolicyResult, bool]:
         """
         Create one immutable ``PolicyResult`` from a provider evaluation and
         emit a ``POLICY_EVALUATED`` audit event.
+
+        Idempotent replay (ADR-008 §5): if a result already exists for this
+        (finding, policy version) — the race the caller's own up-front
+        ``exists_for_finding_and_version`` check cannot fully close under
+        concurrent workers — that pre-existing result is returned instead of
+        raising, paired with ``False``. The caller still needs a real
+        ``PolicyResult`` (to dispatch the next workflow step) but must not
+        publish a duplicate audit event.
+
+        Returns:
+            A ``(policy_result, created)`` pair: ``created`` is ``True`` only
+            when this call newly persisted the result.
 
         Raises:
             PolicyEvaluationError: If ``result`` is missing required
@@ -183,7 +195,17 @@ class PolicyService:
             policy_pack_id=policy_pack_id,
             result=result,
         )
-        self._repo.save_result(policy_result)
+        if not self._repo.save_result_if_not_exists(policy_result):
+            existing = self._repo.get_by_finding_and_version(
+                finding_id, policy_result.policy_version
+            )
+            if existing is None:
+                raise ConflictError(
+                    f"Policy result for finding {finding_id} at version "
+                    f"{policy_result.policy_version} could not be recovered after a "
+                    "uniqueness conflict."
+                )
+            return existing, False
         self._audit.record(
             event_type="POLICY_EVALUATED",
             entity_type="POLICY_RESULT",
@@ -198,4 +220,4 @@ class PolicyService:
                 "triggered_rule_keys": policy_result.triggered_rule_keys,
             },
         )
-        return policy_result
+        return policy_result, True

@@ -30,15 +30,19 @@ from mil.api.errors import register_error_handlers
 from mil.api.middleware.security_headers import SecurityHeadersMiddleware
 from mil.api.middleware.telemetry import TelemetryMiddleware
 from mil.api.v1.applications import router as applications_router
+from mil.api.v1.audit import router as audit_router
 from mil.api.v1.auth import router as auth_router
 from mil.api.v1.copilot import application_copilot_router
 from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
+from mil.api.v1.evidence import router as evidence_router
+from mil.api.v1.findings import router as findings_router
 from mil.api.v1.ops import router as ops_router
 from mil.identity.dev_seed import seed_development_identity
 from mil.identity.provider import DevBearerIdentityProvider, IdentityProvider
 from mil.kernel.config import Settings, get_settings
 from mil.kernel.container import Container, ProductionReadinessError, build_container
+from mil.kernel.model_registration import register_all_models
 from mil.kernel.observability import configure_logging
 
 
@@ -51,6 +55,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         - Load settings from environment (fails fast on invalid
           configuration — see ``Settings`` validators).
         - Configure structured JSON logging.
+        - Register every bounded context's ORM models on the shared
+          ``Base.metadata`` (``mil.kernel.model_registration
+          .register_all_models``) before any request can flush — otherwise a
+          write whose foreign key targets a table nothing under this
+          module's own router imports happens to touch (e.g. a
+          ``ReviewSession`` flush resolving its FK into
+          ``orchestrator.workflow_runs``) raises
+          ``sqlalchemy.exc.NoReferencedTableError`` the first time, and only
+          the first time, that specific write path is exercised — a real
+          crash reproduced live, not a hypothetical. Mirrors
+          ``workers.bootstrap.build_worker_context``'s identical call for
+          worker processes.
         - Build the DI container, which registers and validates all
           required providers (fails fast via ``ProviderRegistry.validate()``
           if any required provider is missing — see
@@ -74,6 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings: Settings = get_settings()
     configure_logging(log_level=settings.mil_log_level, service_name=settings.otel_service_name)
+    register_all_models()
     container = build_container(settings)
     _register_identity_provider(container, settings)
     engine = create_engine(settings.database_sync_url)
@@ -157,6 +174,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ops_router)
     app.include_router(applications_router)
     app.include_router(documents_router)
+    app.include_router(evidence_router)
+    app.include_router(findings_router)
+    app.include_router(audit_router)
     app.include_router(copilot_router)
     app.include_router(application_copilot_router)
 

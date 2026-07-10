@@ -19,14 +19,19 @@ from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
 from typing import TYPE_CHECKING
-from uuid import UUID  # noqa: TC003
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mil.kernel.types import Confidence
+
 if TYPE_CHECKING:
     from mil.application.models import MortgageApplication, Party
+    from mil.audit.models import AuditEvent
     from mil.copilot.models import CopilotResponse, CopilotSession
     from mil.document.models import Document
+    from mil.evidence.models import EvidenceItem
+    from mil.finding.models import Finding
 
 # ---------------------------------------------------------------------------
 # Common
@@ -54,6 +59,11 @@ class CreateApplicationRequest(BaseModel):
         description="External LOS application identifier; may be provided later.",
         max_length=255,
     )
+    loan_number: str | None = Field(
+        default=None,
+        description="Lender loan identifier, distinct from los_reference; may be provided later.",
+        max_length=255,
+    )
 
 
 class ApplicationResponse(BaseModel):
@@ -61,6 +71,7 @@ class ApplicationResponse(BaseModel):
 
     id: UUID
     los_reference: str | None = None
+    loan_number: str | None = None
     status: str
     active_policy_pack_id: UUID | None = None
     party_count: int
@@ -75,6 +86,7 @@ class ApplicationResponse(BaseModel):
         return cls(
             id=app.id,
             los_reference=app.los_reference,
+            loan_number=app.loan_number,
             status=app.status,
             active_policy_pack_id=app.active_policy_pack_id,
             party_count=len(parties),
@@ -152,11 +164,18 @@ class DocumentResponse(BaseModel):
     ``Document`` by ``DocumentService.complete_processing`` /
     ``fail_processing`` — they remain at their defaults (``0`` / ``None``)
     while the document is PENDING or IN_PROGRESS.
+
+    ``filename`` (``Document.original_filename``) was omitted from this
+    schema when it was first written even though the column has always
+    existed on the model — added here (additive-only, per Constitution
+    Principle IX) because the Document Viewer (tasks.md T064/T066) has no
+    other way to label which document is open.
     """
 
     id: UUID
     application_id: UUID
     party_id: UUID | None = None
+    filename: str = Field(description="The originally uploaded file's name.")
     document_type: str = Field(
         description="Business document classification (e.g. BANK_STATEMENT, PAYSLIP)."
     )
@@ -177,6 +196,7 @@ class DocumentResponse(BaseModel):
             id=doc.id,
             application_id=doc.application_id,
             party_id=doc.party_id,
+            filename=doc.original_filename,
             document_type=doc.mime_type,
             ingestion_status=doc.ingestion_status,
             content_hash=doc.content_hash,
@@ -186,6 +206,195 @@ class DocumentResponse(BaseModel):
             page_count=doc.page_count,
             ingestion_completed_at=doc.ingestion_completed_at,
             ingestion_error=doc.ingestion_error,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Evidence schemas
+# ---------------------------------------------------------------------------
+
+
+class EvidenceItemResponse(BaseModel):
+    """
+    Evidence item resource representation.
+
+    ``confidence`` is the platform-wide HIGH/MEDIUM/LOW band (``mil.kernel
+    .types.Confidence``, the same fixed-threshold mapping every confidence
+    score in the platform uses — never a per-endpoint reinterpretation),
+    lower-cased to match the frontend's confidence-band vocabulary (spec
+    003 FR-061). ``field_location``, ``page_number``, ``extraction_method``,
+    ``extraction_model_version``, and ``extracted_at`` are five of the seven
+    Constitution Principle II provenance attributes; ``document_id`` and
+    ``application_id`` are the remaining two.
+    """
+
+    id: UUID
+    application_id: UUID
+    document_id: UUID
+    party_id: UUID | None = None
+    evidence_type: str
+    value_text: str | None = None
+    value_numeric: str | None = None
+    currency: str | None = None
+    page_number: int | None = None
+    field_location: dict[str, object] | None = None
+    confidence: str
+    extraction_method: str
+    extraction_model_version: str
+    extracted_at: datetime
+    supersedes_id: UUID | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=False)
+
+    @classmethod
+    def from_model(cls, item: EvidenceItem) -> EvidenceItemResponse:
+        return cls(
+            id=item.id,
+            application_id=item.application_id,
+            document_id=item.document_id,
+            party_id=item.party_id,
+            evidence_type=item.evidence_type,
+            value_text=item.value_text,
+            value_numeric=str(item.value_numeric) if item.value_numeric is not None else None,
+            currency=item.currency,
+            page_number=item.page_number,
+            field_location=item.field_location,
+            confidence=Confidence(score=float(item.extraction_confidence)).label.lower(),
+            extraction_method=item.extraction_method,
+            extraction_model_version=item.extraction_model_version,
+            extracted_at=item.extracted_at,
+            supersedes_id=item.supersedes_id,
+            created_at=item.created_at,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Finding schemas
+# ---------------------------------------------------------------------------
+
+
+class FindingResponse(BaseModel):
+    """
+    Finding resource representation — all five explainability fields
+    (``what``, ``why``, ``evidence_refs``, ``confidence``,
+    ``recommended_action``) and attribution fields (``model_version``,
+    ``prompt_version``, ``extraction_version``, ``policy_version``) are
+    always present, never optional (spec 002 FR-031, FR-051; Constitution
+    Principle XII) — a Finding with any missing is a defect in the data
+    layer, not a state this schema represents as absent.
+
+    ``policy_version`` is resolved from ``policy.policy_results`` (joined
+    on ``finding_id``, not stored on ``Finding`` itself) by the route
+    handler and passed in explicitly.
+    """
+
+    id: UUID
+    application_id: UUID
+    what: str
+    why: str
+    evidence_refs: list[UUID]
+    confidence: str
+    recommended_action: str
+    state: str
+    model_version: str
+    prompt_version: str
+    extraction_version: str
+    policy_version: str | None = None
+    escalated_to_role: str | None = None
+    escalated_to_user_id: UUID | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=False)
+
+    @classmethod
+    def from_model(
+        cls,
+        finding: Finding,
+        *,
+        state: str,
+        policy_version: str | None,
+        escalated_to_role: str | None = None,
+        escalated_to_user_id: UUID | None = None,
+    ) -> FindingResponse:
+        return cls(
+            id=finding.id,
+            application_id=finding.application_id,
+            what=finding.title,
+            why=finding.rationale,
+            evidence_refs=[UUID(i) for i in finding.evidence_item_ids],
+            confidence=Confidence(score=float(finding.confidence_score)).label.lower(),
+            recommended_action=finding.recommended_action,
+            state=state,
+            model_version=finding.model_version,
+            prompt_version=finding.prompt_version,
+            extraction_version=finding.extraction_version,
+            policy_version=policy_version,
+            escalated_to_role=escalated_to_role,
+            escalated_to_user_id=escalated_to_user_id,
+            created_at=finding.created_at,
+        )
+
+
+class VerifyFindingRequest(BaseModel):
+    """Request body for POST /v1/findings/{id}/verify. Empty — verification needs no reason."""
+
+
+class OverrideFindingRequest(BaseModel):
+    """Request body for POST /v1/findings/{id}/override."""
+
+    reason: str = Field(description="Why the finding is being overridden.", min_length=1)
+    previous_value: str = Field(description="The finding's value before this override.")
+    new_value: str = Field(description="The corrected value.", min_length=1)
+
+
+class EscalateFindingRequest(BaseModel):
+    """Request body for POST /v1/findings/{id}/escalate (spec 002 FR-054)."""
+
+    reason: str = Field(description="Why the finding is being escalated.", min_length=1)
+    target_role: str = Field(
+        description="The role this finding is being escalated to.", min_length=1
+    )
+    target_user_id: UUID | None = Field(
+        default=None,
+        description="Reserved for a future direct-assignment refinement; NULL means any holder of target_role.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Audit schemas
+# ---------------------------------------------------------------------------
+
+
+class AuditEventResponse(BaseModel):
+    """Read-only audit trail entry — no mutation affordance exists at any layer."""
+
+    id: UUID
+    application_id: UUID | None = None
+    event_type: str
+    entity_type: str
+    entity_id: UUID
+    actor_id: UUID | None = None
+    actor_type: str
+    event_data: dict[str, object]
+    occurred_at: datetime
+    sequence_number: int | None = None
+
+    model_config = ConfigDict(from_attributes=False)
+
+    @classmethod
+    def from_model(cls, event: AuditEvent) -> AuditEventResponse:
+        return cls(
+            id=event.id,
+            application_id=event.application_id,
+            event_type=event.event_type,
+            entity_type=event.entity_type,
+            entity_id=event.entity_id,
+            actor_id=event.actor_id,
+            actor_type=event.actor_type,
+            event_data=event.event_data,
+            occurred_at=event.occurred_at,
+            sequence_number=event.sequence_number,
         )
 
 

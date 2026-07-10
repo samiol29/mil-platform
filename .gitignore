@@ -50,6 +50,9 @@ logs/
 *.sln
 *.sw?
 
+# Reference frontend (local only)
+frontend_reference/
+
 # Alembic
 migrations/versions/__pycache__/
 

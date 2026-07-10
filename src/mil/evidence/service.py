@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mil.evidence.models import EvidenceItem
+from mil.kernel.security import Permission, require_permission
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from mil.audit.writer import AuditWriter
     from mil.evidence.repository import EvidenceRepository
     from mil.kernel.providers.extraction import EvidenceAttributes
+    from mil.kernel.security import AuthenticatedUser
 
 
 class EvidenceService:
@@ -58,7 +60,14 @@ class EvidenceService:
     ) -> list[EvidenceItem]:
         """
         Create one immutable ``EvidenceItem`` per ``EvidenceAttributes`` and
-        emit an ``EVIDENCE_CREATED`` audit event for each.
+        emit an ``EVIDENCE_CREATED`` audit event for each newly-persisted item.
+
+        Idempotent replay (ADR-008 §5): if an equivalent item (same document +
+        extraction version + evidence type) already exists — the race the
+        caller's own up-front ``exists_for_document_and_version`` check cannot
+        fully close under concurrent workers — that item is silently skipped
+        (no duplicate audit event, not included in the returned list) rather
+        than raising. Every other item in the batch is still attempted.
 
         Raises:
             ProvenanceError: If any ``EvidenceAttributes`` object is missing a
@@ -74,7 +83,8 @@ class EvidenceService:
                 attrs=attrs,
                 party_id=party_id,
             )
-            self._repo.save(item)
+            if not self._repo.save_if_not_exists(item):
+                continue
             self._audit.record(
                 event_type="EVIDENCE_CREATED",
                 entity_type="EVIDENCE_ITEM",
@@ -90,3 +100,15 @@ class EvidenceService:
             )
             created.append(item)
         return created
+
+    def list_for_application(
+        self, user: AuthenticatedUser, *, application_id: UUID
+    ) -> list[EvidenceItem]:
+        """
+        Return every evidence item for an application, most recent first.
+
+        Raises:
+            AuthorizationError: If the user lacks ``read:evidence``.
+        """
+        require_permission(user, Permission.READ_EVIDENCE)
+        return self._repo.get_for_application(application_id)

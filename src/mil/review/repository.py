@@ -26,8 +26,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from mil.review.models import TERMINAL_STATUSES, ReviewAction, ReviewComment, ReviewSession
+from mil.review.models import (
+    ESCALATED,
+    TERMINAL_STATUSES,
+    ReviewAction,
+    ReviewComment,
+    ReviewSession,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -49,6 +56,33 @@ class ReviewRepository:
         """Persist a Review Session (create or update). Adds and flushes."""
         self._session.add(review_session)
         self._session.flush()
+
+    def create_session_if_not_exists(self, review_session: ReviewSession) -> bool:
+        """
+        Persist a brand-new Review Session, treating a uniqueness violation
+        (a session already exists for this Finding) as proof one was already
+        committed by a prior attempt (ADR-008 §5) rather than an error — the
+        authoritative fallback beneath ``exists_for_finding``'s read-then-write
+        check, which alone is subject to a race between concurrent workers.
+        Isolated with a SAVEPOINT (``session.begin_nested``) so a collision
+        here cannot poison the caller's per-job Unit of Work.
+
+        Only for the *create* path (``ReviewService.start_review``) — every
+        subsequent status transition on an existing session goes through
+        ``save_session`` as an ordinary update, which cannot violate this
+        constraint (``finding_id`` never changes after creation).
+
+        Returns:
+            ``True`` if this call newly persisted the session, ``False`` if
+            one already existed (a replay no-op).
+        """
+        try:
+            with self._session.begin_nested():
+                self._session.add(review_session)
+                self._session.flush()
+        except IntegrityError:
+            return False
+        return True
 
     def get_session_by_id(self, review_session_id: UUID) -> ReviewSession | None:
         """Return the Review Session with the given id, or ``None``."""
@@ -79,6 +113,26 @@ class ReviewRepository:
                 ReviewSession.status.not_in(TERMINAL_STATUSES),
             )
             .order_by(ReviewSession.created_at.asc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def get_escalated_for_role(self, tenant_id: UUID, role: str) -> list[ReviewSession]:
+        """
+        Return every Review Session currently escalated to ``role``, oldest
+        first — the target role's escalation queue.
+
+        Not yet wired to an HTTP endpoint (queue endpoints are User Story 2);
+        provided now so the data-level "escalation places it into the target
+        role's queue" effect is actually queryable once that endpoint exists.
+        """
+        stmt = (
+            select(ReviewSession)
+            .where(
+                ReviewSession.tenant_id == tenant_id,
+                ReviewSession.status == ESCALATED,
+                ReviewSession.escalated_to_role == role,
+            )
+            .order_by(ReviewSession.updated_at.asc())
         )
         return list(self._session.scalars(stmt))
 

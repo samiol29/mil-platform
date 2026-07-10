@@ -54,7 +54,9 @@ router = APIRouter(prefix="/v1/applications", tags=["Applications"])
     description=(
         "Register a new mortgage application in MIL in DRAFT state. "
         "Optionally supply a ``los_reference`` to associate this record with "
-        "an existing Loan Origination System application. "
+        "an existing Loan Origination System application, and/or a "
+        "``loan_number`` (the lender's own loan identifier, distinct from "
+        "``los_reference``). "
         "Requires ``write:application`` permission."
     ),
     response_model=ApplicationResponse,
@@ -75,6 +77,7 @@ def create_application(
         user,
         tenant_id=TenantId(user.tenant_id),
         los_reference=body.los_reference,
+        loan_number=body.loan_number,
     )
     return ApplicationResponse.from_model(app)
 
@@ -84,7 +87,11 @@ def create_application(
     summary="List applications",
     description=(
         "Return all applications belonging to the authenticated user's tenant. "
-        "Optionally filter by ``status``. Results are not paginated in Sprint 3D "
+        "Optionally filter by ``status``, and/or ``search`` — a case-insensitive "
+        "substring match against LOS reference, loan number, application ID, or "
+        "a registered party's display name. Existing clients that omit "
+        "``search`` are unaffected: the parameter is optional and additive. "
+        "Results are not paginated in Sprint 3D "
         "— the ``page`` and ``page_size`` parameters are accepted and echoed in "
         "the response for forward compatibility but do not slice the result set. "
         "Requires ``read:application`` permission."
@@ -99,14 +106,24 @@ def list_applications(
     user: CurrentUser,
     service: AppService,
     status_filter: str | None = Query(default=None, alias="status"),
+    search: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description=(
+            "Case-insensitive substring match against LOS reference, loan "
+            "number, application ID, or borrower display name."
+        ),
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ) -> ApplicationListResponse:
-    """Return applications for the authenticated tenant, optionally filtered by status."""
+    """Return applications for the authenticated tenant, optionally filtered by status/search."""
     apps = service.list_applications(
         user,
         tenant_id=TenantId(user.tenant_id),
         status=status_filter,
+        search=search,
     )
     items = [ApplicationResponse.from_model(a) for a in apps]
     return ApplicationListResponse(

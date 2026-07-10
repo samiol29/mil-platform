@@ -102,6 +102,14 @@ class TestGetPendingReviewsForTenant:
         assert repo.get_pending_reviews_for_tenant(uuid4()) == [s1, s2]
 
 
+class TestGetEscalatedForRole:
+    def test_returns_list(self) -> None:
+        repo, session = _make_repo()
+        s1, s2 = _session(), _session()
+        session.scalars.return_value = iter([s1, s2])
+        assert repo.get_escalated_for_role(uuid4(), "COMPLIANCE_OFFICER") == [s1, s2]
+
+
 class TestSaveAction:
     def test_adds_and_flushes(self) -> None:
         repo, session = _make_repo()

@@ -30,6 +30,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 from mil.finding.models import Finding
+from mil.kernel.errors import NotFoundError
+from mil.kernel.security import Permission, require_permission
 from mil.kernel.types import Confidence
 
 if TYPE_CHECKING:
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
     from mil.evidence.models import EvidenceItem
     from mil.finding.repository import FindingRepository
     from mil.kernel.providers.inference import InferenceResult
+    from mil.kernel.security import AuthenticatedUser
 
 _DEFAULT_FINDING_TYPE = "AI_GENERATED_ASSESSMENT"
 _DEFAULT_RECOMMENDED_ACTION = (
@@ -90,10 +93,22 @@ class FindingService:
         inference_result: InferenceResult,
         extraction_version: str,
         finding_type: str = _DEFAULT_FINDING_TYPE,
-    ) -> Finding:
+    ) -> tuple[Finding, bool]:
         """
         Create one immutable ``Finding`` from inference output and its
         supporting evidence, and emit a ``FINDING_GENERATED`` audit event.
+
+        Idempotent replay (ADR-008 §5): if a Finding already exists for this
+        (application, model version) — the race the caller's own up-front
+        ``exists_for_application_and_version`` check cannot fully close under
+        concurrent workers — that pre-existing Finding is returned instead of
+        raising, paired with ``False``. The caller still needs a real
+        ``Finding`` (to dispatch the next workflow step) but must not publish
+        a duplicate audit event or ``FindingGenerated``.
+
+        Returns:
+            A ``(finding, created)`` pair: ``created`` is ``True`` only when
+            this call newly persisted the Finding.
 
         Raises:
             ExplainabilityError: If any required explainability or attribution
@@ -116,7 +131,18 @@ class FindingService:
             extraction_version=extraction_version,
             evidence_item_ids=[item.id for item in evidence_items],
         )
-        self._repo.save(finding)
+        if not self._repo.save_if_not_exists(finding):
+            existing = self._repo.get_by_application_and_version(
+                application_id, inference_result.model_version
+            )
+            if existing is None:
+                # The row we collided with committed after our IntegrityError
+                # was raised but before this lookup (an exceptionally narrow
+                # window) — treat as a transient fault, not a data-integrity
+                # bug: re-raising lets the Unit of Work roll back and the job
+                # requeue, and the next attempt will find it.
+                raise NotFoundError("Finding", f"{application_id}:{inference_result.model_version}")
+            return existing, False
         self._audit.record(
             event_type="FINDING_GENERATED",
             entity_type="FINDING",
@@ -131,4 +157,26 @@ class FindingService:
                 "confidence_score": str(finding.confidence_score),
             },
         )
-        return finding
+        return finding, True
+
+    def list_for_application(
+        self, user: AuthenticatedUser, *, application_id: UUID
+    ) -> list[Finding]:
+        """
+        Return every finding for an application, most recent first.
+
+        Raises:
+            AuthorizationError: If the user lacks ``read:findings``.
+        """
+        require_permission(user, Permission.READ_FINDINGS)
+        return self._repo.get_for_application(application_id)
+
+    def get_by_id(self, user: AuthenticatedUser, *, finding_id: UUID) -> Finding | None:
+        """
+        Return the finding with the given id, or ``None`` if not found.
+
+        Raises:
+            AuthorizationError: If the user lacks ``read:findings``.
+        """
+        require_permission(user, Permission.READ_FINDINGS)
+        return self._repo.get_by_id(finding_id)

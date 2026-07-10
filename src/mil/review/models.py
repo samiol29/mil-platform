@@ -48,13 +48,21 @@ IN_REVIEW = "IN_REVIEW"
 APPROVED = "APPROVED"
 REJECTED = "REJECTED"
 OVERRIDDEN = "OVERRIDDEN"
+ESCALATED = "ESCALATED"
 
+# ESCALATED is deliberately NOT terminal (see module docstring / HANDOFF.md's
+# domain-design review): an escalated Finding is still awaiting a decision —
+# it has simply moved to a different role's queue — and is resolved by the
+# same approve/reject/override actions any other in-review Finding is.
 TERMINAL_STATUSES: frozenset[str] = frozenset({APPROVED, REJECTED, OVERRIDDEN})
 
 # Valid status transitions: {from_status: {allowed to_status, ...}}
 _VALID_TRANSITIONS: dict[str, frozenset[str]] = {
-    PENDING_REVIEW: frozenset({IN_REVIEW}),
-    IN_REVIEW: frozenset({APPROVED, REJECTED, OVERRIDDEN}),
+    PENDING_REVIEW: frozenset({IN_REVIEW, ESCALATED}),
+    IN_REVIEW: frozenset({APPROVED, REJECTED, OVERRIDDEN, ESCALATED}),
+    # An escalated session resolves via the ordinary decision actions, or may
+    # be re-escalated (e.g. Compliance escalates further to Risk).
+    ESCALATED: frozenset({APPROVED, REJECTED, OVERRIDDEN, ESCALATED}),
     APPROVED: frozenset(),
     REJECTED: frozenset(),
     OVERRIDDEN: frozenset(),
@@ -69,6 +77,7 @@ ACTION_ASSIGNED = "ASSIGNED"
 ACTION_APPROVED = "APPROVED"
 ACTION_REJECTED = "REJECTED"
 ACTION_OVERRIDDEN = "OVERRIDDEN"
+ACTION_ESCALATED = "ESCALATED"
 
 
 class ReviewSession(Base):
@@ -98,6 +107,12 @@ class ReviewSession(Base):
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default=PENDING_REVIEW)
     assigned_reviewer_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
+    # Current-state escalation target (mutable — reflects the *latest*
+    # escalation, if any; historical targets live on the ReviewAction log).
+    escalated_to_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    escalated_to_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("core.users.id"), nullable=True
     )
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -164,6 +179,20 @@ class ReviewSession(Base):
         self.assigned_reviewer_id = reviewer_id
         self.assigned_at = self.updated_at
 
+    def escalate(self, *, target_role: str, target_user_id: UUID | None = None) -> None:
+        """
+        Transition to ESCALATED, transferring ownership to another role's
+        queue (and, optionally, a specific person within it).
+
+        This clears ``assigned_reviewer_id``: the escalating reviewer no
+        longer owns this Finding, per the approved design ("escalation
+        removes the finding from the current reviewer's queue").
+        """
+        self.transition_to(ESCALATED)
+        self.escalated_to_role = target_role
+        self.escalated_to_user_id = target_user_id
+        self.assigned_reviewer_id = None
+
     @property
     def is_terminal(self) -> bool:
         """Return ``True`` if this session has reached a final decision."""
@@ -209,6 +238,11 @@ class ReviewAction(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     previous_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Populated only for ACTION_ESCALATED — an immutable snapshot of who this
+    # specific escalation targeted (the session's own escalated_to_* columns
+    # hold only the *latest* target; this is the historical record).
+    target_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    target_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("core.users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     @classmethod
@@ -223,6 +257,8 @@ class ReviewAction(Base):
         reason: str | None = None,
         previous_value: str | None = None,
         new_value: str | None = None,
+        target_role: str | None = None,
+        target_user_id: UUID | None = None,
     ) -> ReviewAction:
         """
         Build an immutable review action.
@@ -251,6 +287,8 @@ class ReviewAction(Base):
             reason=reason,
             previous_value=previous_value,
             new_value=new_value,
+            target_role=target_role,
+            target_user_id=target_user_id,
             created_at=datetime.now(UTC),
         )
 

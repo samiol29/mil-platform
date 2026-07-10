@@ -8,7 +8,7 @@ import pytest
 
 from mil.kernel.context import get_request_context
 from mil.kernel.job_queue import InProcessJobQueue, Job, JobQueue
-from workers.bootstrap import WorkerContext, build_worker_context, process_next
+from workers.bootstrap import WorkerContext, build_worker_context, process_next, run_forever
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -205,3 +205,86 @@ class TestProcessNextFailure:
         with pytest.raises(RuntimeError):
             process_next(ctx, handler)
         session.close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# run_forever
+# ---------------------------------------------------------------------------
+
+
+class _StopTest(BaseException):
+    """
+    Escapes ``run_forever``'s polling loop in tests. A ``BaseException``, not
+    an ``Exception``, so it is deliberately *not* caught by ``run_forever``'s
+    own ``except Exception`` — the same reason a real ``KeyboardInterrupt``/
+    ``SystemExit`` would also correctly stop the worker rather than being
+    logged-and-continued.
+    """
+
+
+class TestRunForever:
+    def test_survives_a_handler_exception_and_keeps_polling(self) -> None:
+        """
+        The exact bug this fixes: previously, an unhandled exception (a bad
+        payload, a missing dependency, ``ConflictError``, anything other than
+        the narrow retry path) would propagate out of the bare
+        ``while True: process_next(...)`` loop every worker's ``main()`` used
+        to run, killing the entire process over a single job — silently
+        halting every other application's processing too.
+        """
+        queue = InProcessJobQueue()
+        queue.enqueue(_make_job())
+        ctx, _ = _make_context(queue)
+        calls: list[int] = []
+
+        def handler(session: object, job: object) -> None:
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("boom")
+            raise _StopTest
+
+        with pytest.raises(_StopTest):
+            run_forever(ctx, handler, job_type="workflow_step", poll_timeout=0.0)
+
+        # Handler ran 3 times: the same job, redelivered twice after
+        # rollback/reject(requeue=True), never taking the process down.
+        assert len(calls) == 3
+
+    def test_logs_the_unhandled_exception(self, caplog: pytest.LogCaptureFixture) -> None:
+        queue = InProcessJobQueue()
+        queue.enqueue(_make_job())
+        ctx, _ = _make_context(queue)
+        calls: list[int] = []
+
+        def handler(session: object, job: object) -> None:
+            calls.append(1)
+            if len(calls) < 2:
+                raise RuntimeError("boom")
+            raise _StopTest
+
+        with caplog.at_level("ERROR"), pytest.raises(_StopTest):
+            run_forever(ctx, handler, job_type="workflow_step", poll_timeout=0.0)
+
+        assert any("Unhandled exception" in record.message for record in caplog.records)
+
+    def test_empty_queue_does_not_raise_or_spin_forever_uncontrolled(self) -> None:
+        """An empty queue is not an error — `process_next` returns `False`, not an exception."""
+        ctx, _ = _make_context()
+        calls = {"n": 0}
+
+        def fake_process_next(*args: object, **kwargs: object) -> bool:
+            calls["n"] += 1
+            if calls["n"] >= 3:
+                raise _StopTest
+            return False
+
+        import workers.bootstrap as bootstrap_module
+
+        original = bootstrap_module.process_next
+        bootstrap_module.process_next = fake_process_next  # type: ignore[assignment]
+        try:
+            with pytest.raises(_StopTest):
+                run_forever(ctx, MagicMock(), job_type="workflow_step", poll_timeout=0.0)
+        finally:
+            bootstrap_module.process_next = original
+        assert calls["n"] == 3

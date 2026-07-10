@@ -65,7 +65,7 @@ from mil.orchestrator.repository import WorkflowRepository
 from mil.outbox.repository import OutboxRepository
 from mil.review.repository import ReviewRepository
 from mil.review.service import ReviewService
-from workers.bootstrap import build_worker_context, process_next
+from workers.bootstrap import build_worker_context, process_next, run_forever
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -160,7 +160,7 @@ class ReviewJobProcessor:
 
         # Success: hand the Finding off for human review. No AI verdict is
         # rendered here (Principle I) — only the session is created.
-        session = self._c.review.start_review(
+        session, created = self._c.review.start_review(
             finding_id=finding_id,
             application_id=application_id,
             tenant_id=tenant_id,
@@ -173,26 +173,35 @@ class ReviewJobProcessor:
             run.mark_completed()
         self._c.workflows.save(run)
 
-        self._c.outbox.add(
-            ReviewStarted(
-                tenant_id=TenantId(tenant_id),
-                review_session_id=ReviewSessionId(session.id),
-                finding_id=FindingId(finding_id),
-                application_id=ApplicationId(application_id),
-                correlation_id=correlation_id,
+        if created:
+            # Lost a race against another worker otherwise (ADR-008 §5): the
+            # audit event and these outbox events were already published by
+            # whichever worker actually committed the session.
+            self._c.outbox.add(
+                ReviewStarted(
+                    tenant_id=TenantId(tenant_id),
+                    review_session_id=ReviewSessionId(session.id),
+                    finding_id=FindingId(finding_id),
+                    application_id=ApplicationId(application_id),
+                    correlation_id=correlation_id,
+                )
             )
-        )
-        self._c.outbox.add(
-            ReviewCompleted(
-                tenant_id=TenantId(tenant_id),
-                review_session_id=ReviewSessionId(session.id),
-                finding_id=FindingId(finding_id),
-                application_id=ApplicationId(application_id),
-                status=session.status,
-                correlation_id=correlation_id,
+            self._c.outbox.add(
+                ReviewCompleted(
+                    tenant_id=TenantId(tenant_id),
+                    review_session_id=ReviewSessionId(session.id),
+                    finding_id=FindingId(finding_id),
+                    application_id=ApplicationId(application_id),
+                    status=session.status,
+                    correlation_id=correlation_id,
+                )
             )
-        )
-        if is_final_step:
+        if is_final_step and created:
+            # Gated on `created` too (ADR-008 §5): if this call lost the
+            # race, the worker that actually committed the session already
+            # completed the run and published this event — publishing it
+            # again here would be exactly the "duplicate outbox event" the
+            # ADR says a replay must never produce.
             self._c.outbox.add(
                 WorkflowCompleted(
                     tenant_id=TenantId(tenant_id),
@@ -293,8 +302,7 @@ def main() -> None:  # pragma: no cover - process entry point
     """
     ctx = build_worker_context()
     handler = make_review_handler(ctx.container)
-    while True:
-        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=REVIEW_STEP_NAME)
+    run_forever(ctx, handler, job_type=REVIEW_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -156,6 +156,22 @@ class InferenceContext:
                          cite each ref" guardrail).  Kept optional so callers
                          such as ``CopilotService`` need not author prompt text
                          to use inference — the provider owns a safe default.
+        thinking_budget: Optional cap (in tokens) on a reasoning model's
+                         internal "thinking" tokens, which share the same
+                         response budget as ``max_tokens`` on providers that
+                         support extended thinking (confirmed live for Gemini
+                         2.5: thinking-token consumption is dynamic per call,
+                         not fixed by ``temperature``, and can vary enough
+                         between otherwise-identical calls to truncate the
+                         visible answer even at a generous ``max_tokens``).
+                         ``None`` leaves the provider's own default dynamic
+                         budget in place. ``0`` disables extended thinking —
+                         appropriate for deterministic, mechanical tasks (e.g.
+                         Finding generation's "compare records, list
+                         discrepancies") where the full visible answer
+                         reliably fitting the budget matters more than any
+                         quality gain from extended reasoning. A provider that
+                         does not support this MUST ignore it.
     """
 
     application_id: str
@@ -166,6 +182,7 @@ class InferenceContext:
     max_tokens: int = 1024
     temperature: float = 0.0
     system_prompt: str | None = None
+    thinking_budget: int | None = None
 
     def __post_init__(self) -> None:
         if not self.application_id:
@@ -178,6 +195,8 @@ class InferenceContext:
             raise ValueError("max_tokens must be >= 1")
         if self.temperature < 0.0:
             raise ValueError("temperature cannot be negative")
+        if self.thinking_budget is not None and self.thinking_budget < 0:
+            raise ValueError("thinking_budget cannot be negative")
         # Backwards-compat bridge: normalise legacy evidence entries into the
         # generalized grounding surface so downstream providers only ever read
         # ``grounding_items``.  A caller that supplies ``grounding_items``

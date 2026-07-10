@@ -34,9 +34,15 @@ from __future__ import annotations
 
 from uuid import UUID  # noqa: TC003
 
-from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile, status
 
-from mil.api.deps import CurrentUser, DocIngestionTriggerDep, DocService, SettingsDep  # noqa: TC001
+from mil.api.deps import (  # noqa: TC001
+    CurrentUser,
+    DocIngestionTriggerDep,
+    DocService,
+    SettingsDep,
+    StorageProviderDep,
+)
 from mil.api.v1.schemas import DocumentResponse
 from mil.kernel.types import ApplicationId
 
@@ -200,3 +206,35 @@ def get_document(
     """Retrieve document metadata by document ID."""
     doc = service.get_document(user, document_id=document_id)
     return DocumentResponse.from_model(doc)
+
+
+@router.get(
+    "/{document_id}/content",
+    summary="Get document content",
+    description=(
+        "Retrieve the original uploaded file's raw bytes for a document. "
+        "Every document handled by this platform is expected to be a PDF "
+        "(the Document Viewer, tasks.md T064/T066, is built on PDF.js), so "
+        "this endpoint always serves `application/pdf` — the backend does "
+        "not track a distinct IANA MIME type per document yet (see this "
+        "router's module docstring). "
+        "Requires ``read:document`` permission."
+    ),
+    responses={
+        200: {"content": {"application/pdf": {}}},
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Document not found"},
+    },
+)
+def get_document_content(
+    application_id: UUID,
+    document_id: UUID,
+    user: CurrentUser,
+    service: DocService,
+    storage: StorageProviderDep,
+) -> Response:
+    """Retrieve the document's raw file bytes."""
+    doc = service.get_document(user, document_id=document_id)
+    content = storage.retrieve(doc.storage_reference)
+    return Response(content=content, media_type="application/pdf")

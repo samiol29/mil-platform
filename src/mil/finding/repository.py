@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from mil.finding.models import Finding
 
@@ -45,6 +46,28 @@ class FindingRepository:
         self._session.add(finding)
         self._session.flush()
 
+    def save_if_not_exists(self, finding: Finding) -> bool:
+        """
+        Persist an immutable Finding, treating a uniqueness violation as
+        proof a Finding was already committed for this (application, model
+        version) by a prior attempt (ADR-008 §5) rather than an error — the
+        authoritative fallback beneath ``exists_for_application_and_version``'s
+        read-then-write check, which alone is subject to a race between
+        concurrent workers. Isolated with a SAVEPOINT (``session.begin_nested``)
+        so a collision here cannot poison the caller's per-job Unit of Work.
+
+        Returns:
+            ``True`` if this call newly persisted the Finding, ``False`` if
+            one already existed (a replay no-op).
+        """
+        try:
+            with self._session.begin_nested():
+                self._session.add(finding)
+                self._session.flush()
+        except IntegrityError:
+            return False
+        return True
+
     def get_for_application(self, application_id: UUID) -> list[Finding]:
         """Return all findings for an application, most recent first."""
         stmt = (
@@ -57,6 +80,22 @@ class FindingRepository:
     def get_by_id(self, finding_id: UUID) -> Finding | None:
         """Return the Finding with the given id, or ``None`` if not found."""
         return self._session.get(Finding, finding_id)
+
+    def get_by_application_and_version(
+        self, application_id: UUID, model_version: str
+    ) -> Finding | None:
+        """
+        Return the Finding for an application under a given inference model
+        version, or ``None``. Used to recover the pre-existing Finding when
+        ``save_if_not_exists`` reports a replay collision — the caller (the
+        Finding worker) still needs a real ``Finding`` to dispatch the next
+        workflow step.
+        """
+        stmt = select(Finding).where(
+            Finding.application_id == application_id,
+            Finding.model_version == model_version,
+        )
+        return self._session.scalars(stmt).one_or_none()
 
     def exists_for_application_and_version(self, application_id: UUID, model_version: str) -> bool:
         """

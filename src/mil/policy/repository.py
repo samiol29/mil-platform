@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from mil.policy.models import PolicyPack, PolicyResult, PolicyRule
 
@@ -100,6 +101,29 @@ class PolicyRepository:
         self._session.add(result)
         self._session.flush()
 
+    def save_result_if_not_exists(self, result: PolicyResult) -> bool:
+        """
+        Persist an immutable Policy result, treating a uniqueness violation
+        as proof a result was already committed for this (finding, policy
+        version) by a prior attempt (ADR-008 §5) rather than an error — the
+        authoritative fallback beneath ``exists_for_finding_and_version``'s
+        read-then-write check, which alone is subject to a race between
+        concurrent workers. Isolated with a SAVEPOINT
+        (``session.begin_nested``) so a collision here cannot poison the
+        caller's per-job Unit of Work.
+
+        Returns:
+            ``True`` if this call newly persisted the result, ``False`` if
+            one already existed (a replay no-op).
+        """
+        try:
+            with self._session.begin_nested():
+                self._session.add(result)
+                self._session.flush()
+        except IntegrityError:
+            return False
+        return True
+
     def get_for_finding(self, finding_id: UUID) -> list[PolicyResult]:
         """Return all Policy results for a Finding, most recent first."""
         stmt = (
@@ -108,6 +132,22 @@ class PolicyRepository:
             .order_by(PolicyResult.created_at.desc())
         )
         return list(self._session.scalars(stmt))
+
+    def get_by_finding_and_version(
+        self, finding_id: UUID, policy_version: str
+    ) -> PolicyResult | None:
+        """
+        Return the Policy result for a Finding under a given policy version,
+        or ``None``. Used to recover the pre-existing result when
+        ``save_result_if_not_exists`` reports a replay collision — the caller
+        (the Policy worker) still needs a real ``PolicyResult`` to dispatch
+        the next workflow step.
+        """
+        stmt = select(PolicyResult).where(
+            PolicyResult.finding_id == finding_id,
+            PolicyResult.policy_version == policy_version,
+        )
+        return self._session.scalars(stmt).one_or_none()
 
     def exists_for_finding_and_version(self, finding_id: UUID, policy_version: str) -> bool:
         """

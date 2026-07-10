@@ -103,11 +103,13 @@ class TestApplicationStatus:
 def _make_application(
     *,
     los_reference: str | None = None,
+    loan_number: str | None = None,
 ) -> MortgageApplication:
     return MortgageApplication.create(
         tenant_id=uuid4(),
         created_by=uuid4(),
         los_reference=los_reference,
+        loan_number=loan_number,
     )
 
 
@@ -136,6 +138,14 @@ class TestMortgageApplicationCreate:
     def test_los_reference_optional(self) -> None:
         app = _make_application()
         assert app.los_reference is None
+
+    def test_loan_number_stored(self) -> None:
+        app = _make_application(loan_number="LN-REF-001")
+        assert app.loan_number == "LN-REF-001"
+
+    def test_loan_number_optional(self) -> None:
+        app = _make_application()
+        assert app.loan_number is None
 
     def test_created_at_is_timezone_aware(self) -> None:
         app = _make_application()

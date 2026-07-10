@@ -81,7 +81,7 @@ from mil.orchestrator.retry import (
 from mil.outbox.repository import OutboxRepository
 from mil.policy.repository import PolicyRepository
 from mil.policy.service import PolicyService
-from workers.bootstrap import build_worker_context, process_next
+from workers.bootstrap import build_worker_context, process_next, run_forever
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -164,9 +164,12 @@ class PolicyJobProcessor:
         """
         Process one Policy job end-to-end within the caller's transaction.
 
+        A tenant with no active Policy Pack is a terminal (not retryable)
+        failure handled internally via ``_handle_failure`` — it does not
+        raise, so the job is acknowledged rather than requeued.
+
         Raises:
             NotFoundError: If the workflow run, step, or Finding is missing.
-            ConflictError: If the tenant has no active Policy Pack.
             ProviderError: Re-raised for a retryable failure with attempts
                 remaining, so the Unit of Work rolls back and the job requeues.
         """
@@ -205,13 +208,31 @@ class PolicyJobProcessor:
         if finding is None:
             raise NotFoundError("Finding", finding_id)
 
-        active_pack = self._c.policy_repo.get_active_pack_for_tenant(tenant_id)
-        if active_pack is None:
-            raise ConflictError(f"Tenant {tenant_id} has no active Policy Pack")
-        rules = self._c.policy_repo.get_rules_for_pack(active_pack.id)
-
         step.mark_in_progress()
         step.record_retry(job.retry_count)
+
+        active_pack = self._c.policy_repo.get_active_pack_for_tenant(tenant_id)
+        if active_pack is None:
+            # Terminal, not retryable — no amount of retrying makes a Policy
+            # Pack appear. Routed through the same terminal-failure handling
+            # as a non-retryable ProviderError, rather than a bare raise: a
+            # bare raise propagates past this method entirely, and
+            # `process_next`'s generic exception handler requeues
+            # unconditionally on ANY exception with no retryability check —
+            # confirmed live, the identical bug already found and fixed in
+            # `finding_pipeline.py`'s no-evidence guard. This turns a tenant
+            # with no active Policy Pack into a poison job that starves the
+            # entire POLICY queue forever.
+            return self._handle_failure(
+                run=run,
+                step=step,
+                workflow_run_id=workflow_run_id,
+                tenant_id=tenant_id,
+                correlation_id=correlation_id,
+                job=job,
+                exc=ConflictError(f"Tenant {tenant_id} has no active Policy Pack"),
+            )
+        rules = self._c.policy_repo.get_rules_for_pack(active_pack.id)
 
         try:
             context = _build_context(finding, rules)
@@ -230,7 +251,7 @@ class PolicyJobProcessor:
 
         # Success: persist the immutable PolicyResult, complete the step (and
         # run, since POLICY is the last planned step), publish.
-        policy_result = self._c.policy.record_policy_result(
+        policy_result, created = self._c.policy.record_policy_result(
             finding_id=finding_id,
             application_id=application_id,
             tenant_id=tenant_id,
@@ -242,17 +263,21 @@ class PolicyJobProcessor:
         if _is_last_step(run, step):
             run.mark_completed()
         self._c.workflows.save(run)
-        self._c.outbox.add(
-            PolicyEvaluated(
-                tenant_id=TenantId(tenant_id),
-                finding_id=FindingId(finding_id),
-                application_id=ApplicationId(application_id),
-                policy_pack_id=PolicyPackId(active_pack.id),
-                policy_version=policy_result.policy_version,
-                outcome=policy_result.outcome,
-                correlation_id=correlation_id,
+        if created:
+            # Lost a race against another worker otherwise (ADR-008 §5): the
+            # audit event and PolicyEvaluated were already published by
+            # whichever worker actually committed the result.
+            self._c.outbox.add(
+                PolicyEvaluated(
+                    tenant_id=TenantId(tenant_id),
+                    finding_id=FindingId(finding_id),
+                    application_id=ApplicationId(application_id),
+                    policy_pack_id=PolicyPackId(active_pack.id),
+                    policy_version=policy_result.policy_version,
+                    outcome=policy_result.outcome,
+                    correlation_id=correlation_id,
+                )
             )
-        )
         self._dispatch_next_step(
             run=run,
             completed_step=step,
@@ -320,7 +345,7 @@ class PolicyJobProcessor:
         tenant_id: UUID,
         correlation_id: str,
         job: Job,
-        exc: ProviderError,
+        exc: ProviderError | ConflictError,
     ) -> PolicyProcessingOutcome:
         decision = self._retry.classify(
             exc, retry_count=job.retry_count, max_retries=job.max_retries
@@ -508,8 +533,7 @@ def main() -> None:  # pragma: no cover - process entry point
     """
     ctx = build_worker_context()
     handler = make_policy_handler(ctx.container)
-    while True:
-        process_next(ctx, handler, timeout=_POLL_TIMEOUT_SECONDS, job_type=POLICY_STEP_NAME)
+    run_forever(ctx, handler, job_type=POLICY_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":  # pragma: no cover
