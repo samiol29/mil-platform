@@ -39,6 +39,7 @@ import { Button } from '@design-system/components/Button';
 import { Drawer } from '@design-system/components/Drawer';
 import { useCreateApplication } from '@entities/application/queries';
 import { useAddParty } from '@entities/party/queries';
+import { extractErrorMessage } from '@shared/api/extractErrorMessage';
 
 import { ApplicationStep } from './ApplicationStep';
 import { BorrowersStep } from './BorrowersStep';
@@ -132,9 +133,14 @@ function IntakeWizardBody() {
         });
         applicationId = application.id;
         setCreatedApplicationId(applicationId);
-      } catch {
+      } catch (error) {
         setApplicationCreateError(true);
         setIsSubmitting(false);
+        addToast({
+          title: 'Could not create the application',
+          description: extractErrorMessage(error, 'Please try again.'),
+          variant: 'error',
+        });
         return;
       }
     }

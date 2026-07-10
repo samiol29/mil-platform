@@ -114,8 +114,8 @@ export function CommandPalette({
         <Search className="size-4 text-text-tertiary" aria-hidden="true" />
         <CommandInput
           placeholder={placeholder}
-          value={value}
-          onValueChange={onValueChange}
+          {...(value !== undefined ? { value } : {})}
+          {...(onValueChange !== undefined ? { onValueChange } : {})}
           className={cn(
             'text-body h-12 flex-1 bg-transparent text-text-primary outline-none',
             'placeholder:text-text-tertiary',

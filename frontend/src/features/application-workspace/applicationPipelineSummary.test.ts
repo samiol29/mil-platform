@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { Document } from '@entities/document/queries';
 import type { Finding } from '@entities/finding/queries';
 
-import { deriveApplicationStages, summarizeDocuments } from './applicationPipelineSummary';
+import {
+  allDocumentsTerminal,
+  deriveApplicationStages,
+  summarizeDocuments,
+  zeroFindingsOutcome,
+} from './applicationPipelineSummary';
 
 function makeDocument(overrides: Partial<Document> = {}): Document {
   return {
@@ -59,6 +64,72 @@ describe('summarizeDocuments', () => {
       makeDocument({ ingestionStatus: 'FAILED' }),
     ]);
     expect(counts).toEqual({ total: 5, ready: 2, processing: 2, failed: 1 });
+  });
+});
+
+describe('allDocumentsTerminal', () => {
+  it('is false for zero documents', () => {
+    expect(allDocumentsTerminal([])).toBe(false);
+  });
+
+  it('is true when every document is COMPLETED or FAILED', () => {
+    expect(
+      allDocumentsTerminal([
+        makeDocument({ ingestionStatus: 'COMPLETED' }),
+        makeDocument({ ingestionStatus: 'FAILED' }),
+      ]),
+    ).toBe(true);
+  });
+
+  it('is false while any document is still PENDING or IN_PROGRESS', () => {
+    expect(
+      allDocumentsTerminal([
+        makeDocument({ ingestionStatus: 'COMPLETED' }),
+        makeDocument({ ingestionStatus: 'IN_PROGRESS' }),
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe('zeroFindingsOutcome', () => {
+  it('is "pending" while any document is still processing', () => {
+    expect(
+      zeroFindingsOutcome([
+        makeDocument({ ingestionStatus: 'COMPLETED' }),
+        makeDocument({ ingestionStatus: 'IN_PROGRESS' }),
+      ]),
+    ).toBe('pending');
+  });
+
+  it('is "pending" with zero documents', () => {
+    expect(zeroFindingsOutcome([])).toBe('pending');
+  });
+
+  it('is "clean" when every document is COMPLETED — the only honest "no material issues" case', () => {
+    expect(
+      zeroFindingsOutcome([
+        makeDocument({ ingestionStatus: 'COMPLETED' }),
+        makeDocument({ ingestionStatus: 'COMPLETED' }),
+      ]),
+    ).toBe('clean');
+  });
+
+  it('is "failures" when documents are terminal but at least one FAILED — never reported as a clean pass', () => {
+    expect(
+      zeroFindingsOutcome([
+        makeDocument({ ingestionStatus: 'COMPLETED' }),
+        makeDocument({ ingestionStatus: 'FAILED' }),
+      ]),
+    ).toBe('failures');
+  });
+
+  it('is "failures" when every document FAILED', () => {
+    expect(
+      zeroFindingsOutcome([
+        makeDocument({ ingestionStatus: 'FAILED' }),
+        makeDocument({ ingestionStatus: 'FAILED' }),
+      ]),
+    ).toBe('failures');
   });
 });
 

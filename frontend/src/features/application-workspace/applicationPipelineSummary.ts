@@ -40,15 +40,53 @@ export function summarizeDocuments(documents: readonly Document[]): DocumentAggr
   };
 }
 
+/**
+ * Every document has reached a terminal ingestion state (`COMPLETED` or
+ * `FAILED` — a `FAILED` document is resolved for this purpose, not still
+ * pending). This is the right signal for "stop waiting, start reviewing
+ * what did process" (the Ready-for-Review stage below) — but it is
+ * deliberately *not* enough on its own to call a zero-findings application
+ * "clean": a document can reach FAILED and still contribute zero findings,
+ * which is a processing failure, not a clean pass. See
+ * `zeroFindingsOutcome` for that distinction.
+ */
+export function allDocumentsTerminal(documents: readonly Document[]): boolean {
+  return (
+    documents.length > 0 &&
+    documents.every((doc) => doc.ingestionStatus === 'COMPLETED' || doc.ingestionStatus === 'FAILED')
+  );
+}
+
+/**
+ * What a zero-findings application honestly means, for `FindingsRegion`/
+ * `PolicyRegion` (Phase 12). Three real, distinguishable states from data
+ * already fetched — never conflates "nothing to see" with "we don't know
+ * yet" or "something actually broke":
+ *
+ * - `'pending'`: processing hasn't finished (some document still
+ *   `PENDING`/`IN_PROGRESS`, or no documents at all yet) — too early to
+ *   say anything.
+ * - `'failures'`: every document reached a terminal state, but at least
+ *   one `FAILED` — a genuinely clean read is not possible because some
+ *   documents were never actually evaluated.
+ * - `'clean'`: every document reached `COMPLETED` and none failed —
+ *   the only case where "no material issues were detected" is an honest
+ *   claim, not an assumption papering over a processing failure.
+ */
+export type ZeroFindingsOutcome = 'pending' | 'failures' | 'clean';
+
+export function zeroFindingsOutcome(documents: readonly Document[]): ZeroFindingsOutcome {
+  if (!allDocumentsTerminal(documents)) return 'pending';
+  return documents.some((doc) => doc.ingestionStatus === 'FAILED') ? 'failures' : 'clean';
+}
+
 export function deriveApplicationStages(
   documents: readonly Document[],
   findings: readonly Finding[],
 ): readonly PipelineStep[] {
   const hasFindings = findings.length > 0;
   const allFindingsPolicyEvaluated = hasFindings && findings.every((f) => f.policyVersion !== null);
-  const allDocumentsTerminal =
-    documents.length > 0 &&
-    documents.every((doc) => doc.ingestionStatus === 'COMPLETED' || doc.ingestionStatus === 'FAILED');
+  const documentsTerminal = allDocumentsTerminal(documents);
 
   return [
     {
@@ -64,7 +102,7 @@ export function deriveApplicationStages(
     {
       id: 'ready-for-review',
       label: 'Ready for Review (estimated)',
-      status: allDocumentsTerminal && hasFindings ? 'complete' : 'active',
+      status: documentsTerminal && hasFindings ? 'complete' : 'active',
       detail:
         'Estimated client-side from document and finding status — not a backend-verified readiness check.',
     },

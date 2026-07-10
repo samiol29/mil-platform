@@ -164,9 +164,12 @@ class PolicyJobProcessor:
         """
         Process one Policy job end-to-end within the caller's transaction.
 
+        A tenant with no active Policy Pack is a terminal (not retryable)
+        failure handled internally via ``_handle_failure`` — it does not
+        raise, so the job is acknowledged rather than requeued.
+
         Raises:
             NotFoundError: If the workflow run, step, or Finding is missing.
-            ConflictError: If the tenant has no active Policy Pack.
             ProviderError: Re-raised for a retryable failure with attempts
                 remaining, so the Unit of Work rolls back and the job requeues.
         """
@@ -205,13 +208,31 @@ class PolicyJobProcessor:
         if finding is None:
             raise NotFoundError("Finding", finding_id)
 
-        active_pack = self._c.policy_repo.get_active_pack_for_tenant(tenant_id)
-        if active_pack is None:
-            raise ConflictError(f"Tenant {tenant_id} has no active Policy Pack")
-        rules = self._c.policy_repo.get_rules_for_pack(active_pack.id)
-
         step.mark_in_progress()
         step.record_retry(job.retry_count)
+
+        active_pack = self._c.policy_repo.get_active_pack_for_tenant(tenant_id)
+        if active_pack is None:
+            # Terminal, not retryable — no amount of retrying makes a Policy
+            # Pack appear. Routed through the same terminal-failure handling
+            # as a non-retryable ProviderError, rather than a bare raise: a
+            # bare raise propagates past this method entirely, and
+            # `process_next`'s generic exception handler requeues
+            # unconditionally on ANY exception with no retryability check —
+            # confirmed live, the identical bug already found and fixed in
+            # `finding_pipeline.py`'s no-evidence guard. This turns a tenant
+            # with no active Policy Pack into a poison job that starves the
+            # entire POLICY queue forever.
+            return self._handle_failure(
+                run=run,
+                step=step,
+                workflow_run_id=workflow_run_id,
+                tenant_id=tenant_id,
+                correlation_id=correlation_id,
+                job=job,
+                exc=ConflictError(f"Tenant {tenant_id} has no active Policy Pack"),
+            )
+        rules = self._c.policy_repo.get_rules_for_pack(active_pack.id)
 
         try:
             context = _build_context(finding, rules)
@@ -324,7 +345,7 @@ class PolicyJobProcessor:
         tenant_id: UUID,
         correlation_id: str,
         job: Job,
-        exc: ProviderError,
+        exc: ProviderError | ConflictError,
     ) -> PolicyProcessingOutcome:
         decision = self._retry.classify(
             exc, retry_count=job.retry_count, max_retries=job.max_retries

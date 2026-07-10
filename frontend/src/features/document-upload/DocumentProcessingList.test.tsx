@@ -103,7 +103,7 @@ describe('DocumentProcessingList', () => {
     expect(onViewEvidence).toHaveBeenCalledWith('aaaaaaaa-1111-4111-a111-111111111111');
   });
 
-  it('never implies the whole package is broken when one document FAILED — the row shows its own real error, others are unaffected', async () => {
+  it('never implies the whole package is broken when one document FAILED — the row shows its own real error (in Details), others are unaffected', async () => {
     mockDocuments([
       makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', filename: 'ok.pdf', ingestionStatus: 'COMPLETED' }),
       makeDocument({
@@ -115,6 +115,9 @@ describe('DocumentProcessingList', () => {
     ]);
     renderList();
     expect(await screen.findByText('ok.pdf')).toBeInTheDocument();
+    const user = userEvent.setup();
+    const detailsButtons = await screen.findAllByText('Details');
+    await user.click(detailsButtons[1]);
     expect(
       screen.getByText(/Gemini API returned HTTP 400.*Upload this document again to retry/),
     ).toBeInTheDocument();

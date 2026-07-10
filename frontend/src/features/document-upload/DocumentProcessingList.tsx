@@ -116,11 +116,12 @@ export function DocumentProcessingList({
         </p>
       </div>
 
-      <ul className="flex flex-col gap-1">
+      <ul className="divide-border-subtle flex flex-col divide-y">
         {documents.map((document) => {
           const isSelected = document.id === selectedDocumentId;
           const isExpanded = expandedIds.has(document.id);
           const isDuplicate = duplicateIds.has(document.id);
+          const isFailed = document.ingestionStatus === 'FAILED';
           const assignedParty =
             document.partyId !== null ? parties.find((party) => party.id === document.partyId) : undefined;
 
@@ -128,11 +129,11 @@ export function DocumentProcessingList({
             <li
               key={document.id}
               className={cn(
-                'rounded-container flex flex-col gap-1.5 border p-3',
-                isSelected ? 'border-interactive-primary-default bg-surface-secondary' : 'border-border-subtle',
+                'border-l-2 border-l-transparent',
+                isSelected && 'border-l-interactive-primary-default bg-surface-secondary',
               )}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 py-2 pr-3 pl-2">
                 <button
                   type="button"
                   aria-current={isSelected}
@@ -140,29 +141,47 @@ export function DocumentProcessingList({
                     onSelectDocument(document.id);
                   }}
                   className={cn(
-                    'flex min-w-0 flex-1 flex-col gap-0.5 text-left',
+                    'flex min-w-0 flex-1 items-center gap-2 text-left',
                     'outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2 rounded-interactive',
                   )}
                 >
-                  <span className="text-body-emphasis text-text-primary flex items-center gap-1.5 truncate" title={document.filename}>
-                    <FileText className="text-text-tertiary size-3.5 shrink-0" aria-hidden="true" />
+                  <FileText className="text-text-tertiary size-3.5 shrink-0" aria-hidden="true" />
+                  <span
+                    className="text-body-emphasis text-text-primary truncate"
+                    title={document.filename}
+                  >
                     {document.filename}
                   </span>
-                  <span className="text-caption text-text-tertiary">
-                    {document.documentType} · Uploaded {formatUploadedAt(document.uploadedAt)} ·{' '}
+                  <span className="text-caption bg-surface-secondary text-text-tertiary rounded-chip shrink-0 px-1.5 py-0.5">
+                    {document.documentType}
+                  </span>
+                  <span className="text-caption text-text-tertiary shrink-0">
                     {document.pageCount ?? '—'} page{document.pageCount === 1 ? '' : 's'}
                   </span>
+                  {isDuplicate && (
+                    <span className="text-feedback-warning-fg inline-flex shrink-0 items-center gap-1">
+                      <Copy className="size-3.5" aria-hidden="true" />
+                    </span>
+                  )}
+                  {isFailed && (
+                    <span className="text-feedback-error-fg inline-flex shrink-0 items-center gap-1">
+                      <AlertTriangle className="size-3.5" aria-hidden="true" />
+                    </span>
+                  )}
                 </button>
                 <ProcessingPipeline steps={deriveDocumentStages(document)} size="sm" />
+                <span className="text-caption text-text-tertiary w-28 shrink-0 text-right tabular-nums">
+                  {formatUploadedAt(document.uploadedAt)}
+                </span>
               </div>
 
-              <div className="text-caption flex flex-wrap items-center gap-3">
+              <div className="text-caption flex flex-wrap items-center gap-3 py-1.5 pr-3 pl-9">
                 <button
                   type="button"
                   onClick={() => {
                     void downloadDocument(applicationId, document.id, document.filename);
                   }}
-                  className="text-text-secondary hover:text-text-primary inline-flex items-center gap-1 outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                  className="text-text-tertiary hover:text-text-primary inline-flex items-center gap-1 outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
                 >
                   <Download className="size-3.5" aria-hidden="true" />
                   Download
@@ -172,7 +191,7 @@ export function DocumentProcessingList({
                   onClick={() => {
                     toggleExpanded(document.id);
                   }}
-                  className="text-text-secondary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                  className="text-text-tertiary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
                 >
                   {isExpanded ? 'Hide details' : 'Details'}
                 </button>
@@ -182,22 +201,19 @@ export function DocumentProcessingList({
                     onClick={() => {
                       onViewEvidence(document.id);
                     }}
-                    className="text-text-secondary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                    className="text-text-tertiary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
                   >
                     View {document.evidenceItemCount} evidence item
                     {document.evidenceItemCount === 1 ? '' : 's'} →
                   </button>
                 )}
                 {isDuplicate && (
-                  <span className="text-feedback-warning-fg inline-flex items-center gap-1">
-                    <Copy className="size-3.5" aria-hidden="true" />
-                    Possible duplicate
-                  </span>
+                  <span className="text-feedback-warning-fg">Possible duplicate</span>
                 )}
               </div>
 
               {isExpanded && (
-                <dl className="text-caption border-border-subtle text-text-secondary grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t pt-2">
+                <dl className="text-caption text-text-secondary grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-2 pr-3 pl-9">
                   <dt className="text-text-tertiary">Content hash</dt>
                   <dd className="truncate font-mono" title={document.contentHash}>
                     {document.contentHash.slice(0, 16)}…
@@ -208,15 +224,16 @@ export function DocumentProcessingList({
                       ? `${PARTY_TYPE_LABEL[assignedParty.partyType]} — ${assignedParty.displayName}`
                       : 'Unassigned'}
                   </dd>
+                  {isFailed && (
+                    <>
+                      <dt className="text-feedback-error-fg">Processing failed</dt>
+                      <dd className="text-feedback-error-fg">
+                        {document.ingestionError ?? 'Processing failed.'} — Upload this document
+                        again to retry.
+                      </dd>
+                    </>
+                  )}
                 </dl>
-              )}
-
-              {document.ingestionStatus === 'FAILED' && (
-                <p className="text-caption text-feedback-error-fg flex items-start gap-1.5">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                  {document.ingestionError ?? 'Processing failed.'} — Upload this document again to
-                  retry.
-                </p>
               )}
             </li>
           );

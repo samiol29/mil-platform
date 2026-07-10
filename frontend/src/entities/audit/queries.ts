@@ -13,10 +13,14 @@ import { httpClient } from '@app/auth/httpClient';
 
 import { auditTrailEntrySchema, type AuditTrailEntry } from './types';
 
+export function auditTrailQueryKey(applicationId: string) {
+  return ['audit', 'byApplication', applicationId] as const;
+}
+
 /** List the full, chronologically-ordered audit trail for an application. */
 export function useAuditTrail(applicationId: string) {
   return useQuery({
-    queryKey: ['audit', 'byApplication', applicationId],
+    queryKey: auditTrailQueryKey(applicationId),
     queryFn: async () => {
       const response = await httpClient.get<unknown>(`/applications/${applicationId}/audit`);
       return auditTrailEntrySchema.array().parse(response.data);

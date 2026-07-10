@@ -49,7 +49,7 @@ export interface ApplicationTimelineEntry {
   readonly occurredAt: string;
   readonly actorType: AuditTrailEntry['actorType'];
   readonly label: string;
-  readonly trace?: ApplicationTimelineTrace;
+  readonly trace?: ApplicationTimelineTrace | undefined;
 }
 
 function asString(value: unknown): string | null {

@@ -188,7 +188,10 @@ export function DocumentInspector({
 
         <TabsPanel value="evidence" className="p-4">
           {documentEvidence.length === 0 ? (
-            <EmptyState title="No evidence extracted from this document yet" />
+            <EmptyState
+              title="No evidence extracted from this document yet"
+              description="Evidence appears here once this document finishes processing."
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {documentEvidence.map((item) => (
@@ -212,7 +215,10 @@ export function DocumentInspector({
 
         <TabsPanel value="findings" className="p-4">
           {documentFindings.length === 0 ? (
-            <EmptyState title="No findings cite this document's evidence yet" />
+            <EmptyState
+              title="No findings cite this document's evidence yet"
+              description="Findings appear here once evidence from this document has been evaluated."
+            />
           ) : (
             <ul className="flex flex-col gap-3">
               {documentFindings.map((finding) => (
@@ -248,7 +254,10 @@ export function DocumentInspector({
             — no such data exists in the backend today.
           </p>
           {documentFindings.length === 0 ? (
-            <EmptyState title="No findings to evaluate against policy yet" />
+            <EmptyState
+              title="No findings to evaluate against policy yet"
+              description="This document has no flagged findings, so there is nothing to group by policy version."
+            />
           ) : (
             policyGroups.map((group) => (
               <div key={group.policyVersion ?? '__not_evaluated__'} className="border-border-subtle rounded-container border">
@@ -280,7 +289,10 @@ export function DocumentInspector({
 
         <TabsPanel value="timeline" className="p-4">
           {timeline.length === 0 ? (
-            <EmptyState title="No timeline events for this document yet" />
+            <EmptyState
+              title="No timeline events for this document yet"
+              description="Uploads, processing, evidence, and review activity will appear here as they happen."
+            />
           ) : (
             <ul className="flex flex-col gap-2">
               {timeline.map((entry) => (

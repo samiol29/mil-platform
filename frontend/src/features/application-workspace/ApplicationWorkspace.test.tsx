@@ -234,6 +234,76 @@ describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
   });
 });
 
+describe('ApplicationWorkspace — honest no-findings messaging (Phase 12)', () => {
+  function mockZeroFindings(status: 'IN_PROGRESS' | 'FAILED' | 'COMPLETED') {
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/documents`, () =>
+        HttpResponse.json([
+          makeDocument(DOC_A, 'paystub.pdf'),
+          { ...makeDocument(DOC_B, 'bank-statement.pdf'), ingestionStatus: status },
+        ]),
+      ),
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/evidence`, () => HttpResponse.json([])),
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/findings`, () => HttpResponse.json([])),
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/parties`, () => HttpResponse.json([])),
+    );
+  }
+
+  it('Findings region: shows the generic "not yet" message while documents are still processing', async () => {
+    mockZeroFindings('IN_PROGRESS');
+    renderWorkspace('findings');
+
+    expect(await screen.findByText('No findings yet')).toBeInTheDocument();
+    expect(screen.queryByText('No material issues were detected')).not.toBeInTheDocument();
+  });
+
+  it('Findings region: shows an honest "no material issues" message only when every document actually COMPLETED', async () => {
+    mockZeroFindings('COMPLETED');
+    renderWorkspace('findings');
+
+    expect(await screen.findByText('No material issues were detected')).toBeInTheDocument();
+    expect(
+      screen.getByText('Every document processed successfully without generating any findings.'),
+    ).toBeInTheDocument();
+  });
+
+  it('Findings region: never reports a clean pass when a document FAILED — a failure is not "no issues"', async () => {
+    mockZeroFindings('FAILED');
+    renderWorkspace('findings');
+
+    expect(
+      await screen.findByText('No findings — but some documents failed to process'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No material issues were detected')).not.toBeInTheDocument();
+  });
+
+  it('Policy region: shows the generic "not yet" message while documents are still processing', async () => {
+    mockZeroFindings('IN_PROGRESS');
+    renderWorkspace('policy');
+
+    expect(await screen.findByText('No findings to evaluate against policy yet')).toBeInTheDocument();
+  });
+
+  it('Policy region: collapses to one calm "no material issues" state only when every document actually COMPLETED', async () => {
+    mockZeroFindings('COMPLETED');
+    renderWorkspace('policy');
+
+    expect(await screen.findByText('No material issues were detected')).toBeInTheDocument();
+    expect(screen.queryByText('Active policy pack')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting judgment')).not.toBeInTheDocument();
+  });
+
+  it('Policy region: never reports a clean pass when a document FAILED', async () => {
+    mockZeroFindings('FAILED');
+    renderWorkspace('policy');
+
+    expect(
+      await screen.findByText('Nothing to evaluate — some documents failed to process'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No material issues were detected')).not.toBeInTheDocument();
+  });
+});
+
 describe('ApplicationWorkspace — Documents list ⇄ viewer (Phases 8 + 11)', () => {
   async function inspectorTabList() {
     return screen.findByRole('tablist', { name: 'Document inspector sections' });

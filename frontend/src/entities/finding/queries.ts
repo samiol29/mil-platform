@@ -12,11 +12,30 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { STALE_TIME } from '@app/queryClient';
 import { httpClient } from '@app/auth/httpClient';
+import { auditTrailQueryKey } from '@entities/audit/queries';
 
 import { findingSchema, type Finding } from './types';
 
 function findingsQueryKey(applicationId: string) {
   return ['findings', 'byApplication', applicationId] as const;
+}
+
+/**
+ * Every Verify/Override/Escalate mutation writes a real audit event
+ * (`REVIEW_FINDING_*`) alongside updating the finding itself — invalidating
+ * both query keys together (not just the findings one) is what makes
+ * Timeline and each finding's Review-history disclosure reflect a decision
+ * immediately, without a manual refresh (Phase 12 fix — this key was
+ * previously never invalidated by these mutations).
+ */
+async function invalidateAfterReviewDecision(
+  queryClient: ReturnType<typeof useQueryClient>,
+  applicationId: string,
+) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: findingsQueryKey(applicationId) }),
+    queryClient.invalidateQueries({ queryKey: auditTrailQueryKey(applicationId) }),
+  ]);
 }
 
 /**
@@ -52,7 +71,7 @@ export function useVerifyFinding(applicationId: string) {
       return findingSchema.parse(response.data);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: findingsQueryKey(applicationId) });
+      await invalidateAfterReviewDecision(queryClient, applicationId);
     },
   });
 }
@@ -76,7 +95,7 @@ export function useOverrideFinding(applicationId: string) {
       return findingSchema.parse(response.data);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: findingsQueryKey(applicationId) });
+      await invalidateAfterReviewDecision(queryClient, applicationId);
     },
   });
 }
@@ -106,7 +125,7 @@ export function useEscalateFinding(applicationId: string) {
       return findingSchema.parse(response.data);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: findingsQueryKey(applicationId) });
+      await invalidateAfterReviewDecision(queryClient, applicationId);
     },
   });
 }

@@ -116,8 +116,8 @@ export function ApplicationQueueTable({ status, onStatusChange }: ApplicationQue
   const [search, setSearch] = useState('');
 
   const applicationsQuery = useApplicationSearch({
-    search: search.length > 0 ? search : undefined,
-    status: status ?? undefined,
+    ...(search.length > 0 ? { search } : {}),
+    ...(status !== null ? { status } : {}),
   });
 
   return (

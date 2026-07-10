@@ -66,7 +66,11 @@ import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { ApplicationTimeline } from './ApplicationTimeline';
 import { AuditTimeline } from './AuditTimeline';
-import { deriveApplicationStages, summarizeDocuments } from './applicationPipelineSummary';
+import {
+  deriveApplicationStages,
+  summarizeDocuments,
+  zeroFindingsOutcome,
+} from './applicationPipelineSummary';
 import { buildApplicationTimeline } from './buildApplicationTimeline';
 import { EvidenceCard } from './EvidenceCard';
 import { buildEvidenceToFindingsIndex } from './evidenceFindingIndex';
@@ -110,7 +114,12 @@ export function ApplicationWorkspace({
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 p-6">
-      <Tabs value={region} onValueChange={onRegionChange}>
+      <Tabs
+        value={region}
+        onValueChange={(value) => {
+          onRegionChange(value as WorkspaceRegion);
+        }}
+      >
         <TabsList aria-label="Application Workspace sections">
           {WORKSPACE_REGIONS.map((candidate) => (
             <TabsTrigger key={candidate} value={candidate}>
@@ -232,6 +241,7 @@ function FindingsRegion({
   const findingsQuery = useFindingsForApplication(applicationId);
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const auditQuery = useAuditTrail(applicationId);
+  const documentsQuery = useDocumentsForApplication(applicationId);
   const findingRefs = useRef(new Map<string, HTMLDivElement>());
 
   // One O(audit entries) pass for every finding's review history, computed
@@ -260,6 +270,23 @@ function FindingsRegion({
     );
   }
   if (findingsQuery.data.length === 0) {
+    const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
+    if (outcome === 'clean') {
+      return (
+        <EmptyState
+          title="No material issues were detected"
+          description="Every document processed successfully without generating any findings."
+        />
+      );
+    }
+    if (outcome === 'failures') {
+      return (
+        <EmptyState
+          title="No findings — but some documents failed to process"
+          description="Processing finished, yet at least one document failed before it could be evaluated. This is not a clean read — check the Documents region for details."
+        />
+      );
+    }
     return (
       <EmptyState
         title="No findings yet"
@@ -651,6 +678,7 @@ function PolicyRegion({
   const applicationQuery = useApplication(applicationId);
   const findingsQuery = useFindingsForApplication(applicationId);
   const evidenceQuery = useEvidenceForApplication(applicationId);
+  const documentsQuery = useDocumentsForApplication(applicationId);
 
   if (findingsQuery.isPending) return <LoadingState label="Loading policy evaluation…" />;
   if (findingsQuery.isError) {
@@ -672,6 +700,32 @@ function PolicyRegion({
     (f) => f.state === 'unreviewed' || f.state === 'escalated',
   ).length;
   const activePolicyPackId = applicationQuery.data?.activePolicyPackId ?? null;
+
+  if (findings.length === 0) {
+    const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
+    if (outcome === 'clean') {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-heading-section text-text-primary">Policy</h2>
+          <EmptyState
+            title="No material issues were detected"
+            description="Every document finished processing and policy evaluation produced no findings — there is nothing to review here."
+          />
+        </div>
+      );
+    }
+    if (outcome === 'failures') {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-heading-section text-text-primary">Policy</h2>
+          <EmptyState
+            title="Nothing to evaluate — some documents failed to process"
+            description="Policy evaluation runs on findings, and no findings exist yet because at least one document failed before it could be evaluated. Check the Documents region for details."
+          />
+        </div>
+      );
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">

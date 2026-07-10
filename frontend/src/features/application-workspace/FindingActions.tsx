@@ -43,6 +43,7 @@ import {
   useOverrideFinding,
   useVerifyFinding,
 } from '@entities/finding/queries';
+import { extractErrorMessage } from '@shared/api/extractErrorMessage';
 
 const overrideFormSchema = z.object({
   reason: z.string().min(1, 'A reason is required.'),
@@ -146,6 +147,13 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
           setOverrideDialogOpen(false);
           addToast({ title: 'Finding overridden', variant: 'success' });
         },
+        onError: (error) => {
+          addToast({
+            title: 'Could not override this finding',
+            description: extractErrorMessage(error, 'Please try again.'),
+            variant: 'error',
+          });
+        },
       },
     );
   });
@@ -162,6 +170,13 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
             variant: 'success',
           });
         },
+        onError: (error) => {
+          addToast({
+            title: 'Could not escalate this finding',
+            description: extractErrorMessage(error, 'Please try again.'),
+            variant: 'error',
+          });
+        },
       },
     );
   });
@@ -172,6 +187,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         variant="primary"
         size="sm"
         disabled={alreadyDecided}
+        loading={verifyMutation.isPending}
         onClick={() => {
           setVerifyDialogOpen(true);
         }}
@@ -182,6 +198,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         variant="danger"
         size="sm"
         disabled={alreadyDecided}
+        loading={overrideMutation.isPending}
         onClick={() => {
           setOverrideDialogOpen(true);
         }}
@@ -192,6 +209,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         variant="secondary"
         size="sm"
         disabled={alreadyDecided}
+        loading={escalateMutation.isPending}
         onClick={() => {
           setEscalateDialogOpen(true);
         }}
@@ -212,6 +230,13 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
               onSuccess: () => {
                 setVerifyDialogOpen(false);
                 addToast({ title: 'Finding verified', variant: 'success' });
+              },
+              onError: (error) => {
+                addToast({
+                  title: 'Could not verify this finding',
+                  description: extractErrorMessage(error, 'Please try again.'),
+                  variant: 'error',
+                });
               },
             });
           },

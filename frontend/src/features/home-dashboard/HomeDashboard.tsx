@@ -224,6 +224,9 @@ function DashboardContent({ applications }: { readonly applications: readonly Ap
                   <span className="text-body-emphasis text-text-primary min-w-0 flex-1 truncate">
                     {app.loanNumber ?? app.losReference ?? app.id}
                   </span>
+                  <span className="text-caption text-text-tertiary shrink-0">
+                    {app.partyCount} {app.partyCount === 1 ? 'party' : 'parties'}
+                  </span>
                   <span
                     className={cn(
                       APPLICATION_STATUS_CHIP_BASE_CLASS,

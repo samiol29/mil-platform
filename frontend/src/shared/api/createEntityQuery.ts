@@ -11,7 +11,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import type { UseQueryResult } from '@tanstack/react-query';
+import type { Query, UseQueryResult } from '@tanstack/react-query';
 import type { z } from 'zod';
 
 import { httpClient } from '@app/auth/httpClient';
@@ -31,7 +31,15 @@ export interface EntityQueryOptions<TSchema extends z.ZodType> {
   readonly queryKey: readonly unknown[];
   readonly url: string;
   readonly schema: TSchema;
-  readonly staleTime: number;
+  // Matches TanStack Query's own `staleTime` union (a plain number, or a
+  // function of the query — e.g. deriving staleness from the entity's own
+  // already-fetched state, as `useDocument` does). A plain `number` here
+  // silently accepted a function value at the call site (JS doesn't enforce
+  // TS types at runtime, so it worked by accident) — caught by `tsc -b`'s
+  // stricter project-referenced build, never actually run in this
+  // project's earlier verification passes (plain `tsc --noEmit` is a no-op
+  // against this repo's solution-style root tsconfig.json).
+  readonly staleTime: number | ((query: Query<z.infer<TSchema>>) => number);
   readonly enabled?: boolean;
 }
 

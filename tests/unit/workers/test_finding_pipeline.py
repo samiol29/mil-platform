@@ -19,7 +19,6 @@ from mil.kernel.errors import (
     NotFoundError,
     ProviderError,
     ProviderVersionMissingError,
-    ValidationError,
 )
 from mil.kernel.events import FindingGenerated, WorkflowStepFailed
 from mil.kernel.job_queue import Job
@@ -360,16 +359,39 @@ class TestNextStepDispatch:
 
 
 class TestNoEvidence:
-    def test_empty_evidence_raises_validation_error(self) -> None:
+    def test_empty_evidence_is_terminal_not_raised(self) -> None:
+        """
+        Terminal, handled internally (not re-raised) — a bare raise would
+        propagate past this method entirely, and `process_next`'s generic
+        exception handler requeues unconditionally on ANY exception with no
+        retryability check, turning this into a poison job that starves the
+        FINDING queue forever (confirmed live against the real Redis-backed
+        queue: a stuck no-evidence job blocked a fresh application's finding
+        job from ever being dequeued, since `RedisJobQueue.reject` requeues
+        via LPUSH — back to the head, ahead of legitimate jobs).
+        """
         h = _Harness(evidence_items=[])
-        with pytest.raises(ValidationError):
-            h.run_processor()
+        assert h.run_processor() is FindingProcessingOutcome.FAILED_TERMINAL
 
     def test_empty_evidence_does_not_call_inference(self) -> None:
         h = _Harness(evidence_items=[])
-        with pytest.raises(ValidationError):
-            h.run_processor()
+        h.run_processor()
         assert h.provider.calls == 0
+
+    def test_empty_evidence_marks_step_failed(self) -> None:
+        h = _Harness(evidence_items=[])
+        h.run_processor()
+        assert h.step.status == StepStatus.FAILED  # type: ignore[attr-defined]
+        assert (
+            h.step.error_message  # type: ignore[attr-defined]
+            == "Cannot generate a Finding: application has no evidence"
+        )
+
+    def test_empty_evidence_does_not_dead_letter(self) -> None:
+        """Not a retry-exhaustion case — there was never anything to retry."""
+        h = _Harness(evidence_items=[])
+        h.run_processor()
+        assert h.dead_letter.records == []
 
 
 # ---------------------------------------------------------------------------

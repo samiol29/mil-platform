@@ -75,7 +75,9 @@ export function BorrowersStep({ form }: BorrowersStepProps) {
               className="bg-surface-secondary flex flex-col gap-2 rounded-container p-3 sm:flex-row sm:items-start"
             >
               <div className="w-full sm:w-40 sm:shrink-0">
-                <Select {...register(`borrowers.${String(index)}.partyType`)}>
+                <Select
+                  {...register(`borrowers.${String(index)}.partyType` as `borrowers.${number}.partyType`)}
+                >
                   {PARTY_TYPES.map((type) => (
                     <option key={type} value={type}>
                       {PARTY_TYPE_LABEL[type]}
@@ -161,7 +163,9 @@ function NameField({
   onLastRowKeyDown,
   lastNameInputRef,
 }: NameFieldProps) {
-  const { ref, ...field } = register(`borrowers.${String(index)}.displayName`);
+  const { ref, ...field } = register(
+    `borrowers.${String(index)}.displayName` as `borrowers.${number}.displayName`,
+  );
   return (
     <Input
       placeholder="Borrower name"

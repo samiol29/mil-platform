@@ -117,7 +117,9 @@ export function useUploadDocument(applicationId: string) {
         `/applications/${applicationId}/documents`,
         formData,
         {
-          onUploadProgress: input.onUploadProgress,
+          ...(input.onUploadProgress !== undefined
+            ? { onUploadProgress: input.onUploadProgress }
+            : {}),
           // The `fetch` API has no upload-progress event at all — forcing the
           // `xhr` adapter is what makes `onUploadProgress` actually fire, not
           // just a test-environment workaround.

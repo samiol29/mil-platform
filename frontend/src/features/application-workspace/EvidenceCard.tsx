@@ -57,10 +57,10 @@ function formatDate(value: string): string {
 export interface EvidenceCardProps {
   readonly item: EvidenceItem;
   /** Resolved client-side (same already-fetched evidence list) when `item.supersedesId` is set and matches a known item. */
-  readonly supersededItem?: EvidenceItem;
+  readonly supersededItem?: EvidenceItem | undefined;
   readonly relatedFindingsCount: number;
   readonly onViewInDocument: () => void;
-  readonly onViewFindings?: () => void;
+  readonly onViewFindings?: (() => void) | undefined;
 }
 
 export function EvidenceCard({

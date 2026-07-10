@@ -259,7 +259,7 @@ export function UploadSection({ applicationId, expanded, onExpandedChange }: Upl
             )}
           </div>
 
-          <div className="border-border-subtle max-h-[28rem] overflow-y-auto rounded-container border">
+          <div className="bg-surface-sunken max-h-[28rem] overflow-y-auto rounded-container">
             {Array.from(groups.entries()).map(([type, groupRows]) => {
               const isCollapsed = collapsedGroups.has(type);
               return (

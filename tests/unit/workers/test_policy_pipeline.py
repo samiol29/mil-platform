@@ -16,7 +16,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from mil.kernel.errors import (
-    ConflictError,
     NotFoundError,
     ProviderError,
     ProviderVersionMissingError,
@@ -387,16 +386,34 @@ class TestNextStepDispatch:
 
 
 class TestNoActivePack:
-    def test_no_active_pack_raises_conflict_error(self) -> None:
+    def test_no_active_pack_is_terminal_not_raised(self) -> None:
+        """
+        Terminal, handled internally (not re-raised) — a bare raise would
+        propagate past this method entirely, and `process_next`'s generic
+        exception handler requeues unconditionally on ANY exception with no
+        retryability check, turning this into a poison job that starves the
+        POLICY queue forever (the identical bug found and fixed in
+        `finding_pipeline.py`'s no-evidence guard — confirmed live: a stuck
+        no-active-pack job looped every poll interval indefinitely).
+        """
         h = _Harness(active_pack=None)
-        with pytest.raises(ConflictError):
-            h.run_processor()
+        assert h.run_processor() is PolicyProcessingOutcome.FAILED_TERMINAL
 
     def test_no_active_pack_does_not_call_evaluate(self) -> None:
         h = _Harness(active_pack=None)
-        with pytest.raises(ConflictError):
-            h.run_processor()
+        h.run_processor()
         assert h.provider.calls == 0
+
+    def test_no_active_pack_marks_step_failed(self) -> None:
+        h = _Harness(active_pack=None)
+        h.run_processor()
+        assert h.step.status == StepStatus.FAILED  # type: ignore[attr-defined]
+
+    def test_no_active_pack_does_not_dead_letter(self) -> None:
+        """Not a retry-exhaustion case — there was never anything to retry."""
+        h = _Harness(active_pack=None)
+        h.run_processor()
+        assert h.dead_letter.records == []
 
 
 # ---------------------------------------------------------------------------
