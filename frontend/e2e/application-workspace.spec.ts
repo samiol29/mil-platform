@@ -103,7 +103,12 @@ test.describe('Application Workspace — User Story 1', () => {
     await page.getByRole('button', { name: 'Review & Confirm' }).click();
 
     await expect(page.getByRole('dialog')).toBeHidden();
-    await expect(page.getByText('Overridden')).toBeVisible();
+    // Exact match: a Phase 12 success toast ("Finding overridden") now also
+    // renders on this page, and a loose match on "Overridden" resolves
+    // ambiguously to both it and the finding's own state chip. The chip's
+    // text is exactly "Overridden" (no other word), so `exact: true`
+    // disambiguates without depending on the toast being present or absent.
+    await expect(page.getByText('Overridden', { exact: true })).toBeVisible();
   });
 
   test('scenario 4: an interrupted override never silently succeeds and preserves the typed reason', async ({
@@ -154,8 +159,14 @@ test.describe('Application Workspace — User Story 1', () => {
     await page.getByRole('button', { name: 'Review & Confirm' }).click();
 
     await expect(page.getByRole('dialog')).toBeHidden();
-    await expect(page.getByText(/Escalated/)).toBeVisible();
-    await expect(page.getByText(/COMPLIANCE_OFFICER/)).toBeVisible();
+    // Exact match: a Phase 12 success toast ("Finding escalated" / "Sent to
+    // COMPLIANCE_OFFICER", two separate lines) now also renders on this
+    // page, and a loose match on "COMPLIANCE_OFFICER" resolves ambiguously
+    // to both it and the finding's own state chip. The chip's full text is
+    // exactly "Escalated — COMPLIANCE_OFFICER" (one combined string the
+    // toast never reproduces verbatim), so matching that exactly
+    // disambiguates without depending on the toast being present or absent.
+    await expect(page.getByText('Escalated — COMPLIANCE_OFFICER', { exact: true })).toBeVisible();
 
     // Non-terminal: verify/override remain available to resolve it.
     await expect(page.getByRole('button', { name: 'Verify' })).toBeEnabled();
@@ -165,6 +176,11 @@ test.describe('Application Workspace — User Story 1', () => {
     page,
   }) => {
     await page.goto(`/applications/${FIXTURE_APPLICATION_ID}?region=documents`);
+    // Phase 11 redesigned Documents into list ⇄ focused-viewer modes — the
+    // region now lands on the document list by default, not the viewer, so
+    // a document row must be opened explicitly to reach the PDF/page/zoom
+    // controls this test exercises.
+    await page.getByRole('button', { name: /bank-statement\.pdf/ }).click();
 
     await expect(page.getByRole('img', { name: 'Document page 1' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Previous page' })).toBeDisabled();
@@ -189,6 +205,11 @@ test.describe('Application Workspace — User Story 1', () => {
         () => (window as unknown as { __noReloadMarker?: boolean }).__noReloadMarker,
       ),
     ).toBe(true);
-    await expect(page.getByRole('img', { name: 'Document page 1' })).toBeVisible();
+    // Phase 11 redesigned Documents into list ⇄ focused-viewer modes — the
+    // region now lands on the document list by default, not the viewer, so
+    // "Document page 1" is no longer a valid signal that the region
+    // rendered. The list heading is the new stable landmark for that; the
+    // marker check above is what actually verifies "no full reload" here.
+    await expect(page.getByRole('heading', { name: 'Document Package' })).toBeVisible();
   });
 });
