@@ -32,6 +32,7 @@
  * regions, one definition of the tab-nav pattern instead of two.
  */
 
+import { Link } from '@tanstack/react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -57,6 +58,7 @@ import { useDocumentsForApplication } from '@entities/document/queries';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
+import { useApplicationPolicyResults } from '@entities/policy/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { DocumentInspector } from '@features/document-viewer/DocumentInspector';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
@@ -65,6 +67,8 @@ import { UploadSection } from '@features/document-upload/UploadSection';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { ApplicationTimeline } from './ApplicationTimeline';
+import { CopilotPanel } from './CopilotPanel';
+import { LOSSyncPanel } from './LOSSyncPanel';
 import { AuditTimeline } from './AuditTimeline';
 import {
   deriveApplicationStages,
@@ -152,6 +156,7 @@ export function ApplicationWorkspace({
                 applicationId={applicationId}
                 application={applicationQuery.data}
                 onRegionChange={onRegionChange}
+                onEvidenceChipActivate={activateEvidenceJump}
               />
             </PanelErrorBoundary>
           )}
@@ -679,6 +684,7 @@ function PolicyRegion({
   const findingsQuery = useFindingsForApplication(applicationId);
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
+  const policyResultsQuery = useApplicationPolicyResults(applicationId);
 
   if (findingsQuery.isPending) return <LoadingState label="Loading policy evaluation…" />;
   if (findingsQuery.isError) {
@@ -700,6 +706,16 @@ function PolicyRegion({
     (f) => f.state === 'unreviewed' || f.state === 'escalated',
   ).length;
   const activePolicyPackId = applicationQuery.data?.activePolicyPackId ?? null;
+  // spec 005-enterprise-platform §3: `PolicyResult.evaluatedRuleKeys`/
+  // `passedRuleKeys` are additive/nullable — only evaluations recorded after
+  // this capability shipped carry them. Keyed by findingId (one result per
+  // finding per policy version, per the backend's own uniqueness invariant).
+  const policyResultByFindingId = new Map(
+    (policyResultsQuery.data?.items ?? []).map((result) => [result.findingId, result]),
+  );
+  const anyRuleBreakdownAvailable = (policyResultsQuery.data?.items ?? []).some(
+    (result) => result.evaluatedRuleKeys !== null,
+  );
 
   if (findings.length === 0) {
     const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
@@ -768,9 +784,9 @@ function PolicyRegion({
 
       <div className="border-feedback-warning-border bg-feedback-warning-bg rounded-container border p-4">
         <p className="text-caption text-feedback-warning-fg">
-          This workspace shows findings that were flagged during policy evaluation. It cannot show
-          checks that passed silently, individual rule names, or rule-level rationale — no such data
-          exists in the backend today.
+          {anyRuleBreakdownAvailable
+            ? 'Rule-level detail below (rules evaluated vs. triggered) is only available for evaluations recorded after this capability shipped — older findings may show no rule breakdown, not a fabricated one.'
+            : 'This workspace shows findings that were flagged during policy evaluation. Rule-level detail is not yet available for any evaluation on this application — it appears automatically once new findings are evaluated under the updated Policy Engine.'}
         </p>
       </div>
 
@@ -841,6 +857,25 @@ function PolicyRegion({
                       View finding →
                     </button>
                   </div>
+                  {(() => {
+                    const result = policyResultByFindingId.get(finding.id);
+                    if (result?.evaluatedRuleKeys === undefined || result.evaluatedRuleKeys === null) return null;
+                    const passed = result.passedRuleKeys ?? [];
+                    return (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {result.triggeredRuleKeys.length > 0 && (
+                          <span className="text-caption text-feedback-warning-fg">
+                            Triggered: {result.triggeredRuleKeys.join(', ')}
+                          </span>
+                        )}
+                        {passed.length > 0 && (
+                          <span className="text-caption text-text-tertiary">
+                            Passed: {passed.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </li>
               ))}
             </ul>
@@ -941,10 +976,12 @@ function OverviewRegion({
   applicationId,
   application,
   onRegionChange,
+  onEvidenceChipActivate,
 }: {
   applicationId: string;
   application: Application;
   onRegionChange: (region: WorkspaceRegion) => void;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
 }) {
   const applicationQuery = useApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
@@ -1046,6 +1083,9 @@ function OverviewRegion({
           </ul>
         )}
       </div>
+
+      <CopilotPanel applicationId={applicationId} onEvidenceChipActivate={onEvidenceChipActivate} />
+      <LOSSyncPanel application={application} />
     </section>
   );
 }
@@ -1069,7 +1109,13 @@ function BorrowerChips({ applicationId }: { applicationId: string }) {
           className="bg-surface-sunken text-caption text-text-secondary rounded-chip px-2 py-0.5"
         >
           <span className="text-text-tertiary">{PARTY_TYPE_LABEL[party.partyType]}</span>{' '}
-          <span className="text-text-primary font-medium">{party.displayName}</span>
+          <Link
+            to="/parties/$partyId/borrower-profile"
+            params={{ partyId: party.id }}
+            className="text-text-primary hover:text-interactive-primary-default font-medium underline-offset-2 hover:underline"
+          >
+            {party.displayName}
+          </Link>
         </li>
       ))}
     </ul>

@@ -32,6 +32,7 @@ def _production_settings() -> Settings:
         mil_env="production",
         mil_secret_key="prod-secret-key-not-a-placeholder",  # type: ignore[arg-type]
         postgres_password="prod-db-password",  # type: ignore[arg-type]
+        mil_portal_secret_key="prod-portal-secret-key-not-a-placeholder",  # type: ignore[arg-type]
     )
 
 

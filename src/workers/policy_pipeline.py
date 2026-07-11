@@ -258,6 +258,11 @@ class PolicyJobProcessor:
             workflow_run_id=workflow_run_id,
             policy_pack_id=active_pack.id,
             result=result,
+            # spec 005-enterprise-platform §3: persist the full rule catalogue
+            # considered (`rules`, already fetched above to build `context`)
+            # so "which rules passed" is a real, queryable fact rather than
+            # data that existed only transiently during this evaluation.
+            evaluated_rule_keys=[r.rule_key for r in rules],
         )
         step.mark_completed()
         if _is_last_step(run, step):

@@ -10,17 +10,62 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PortalIndexRouteImport } from './routes/portal.index'
+import { Route as PolicyAdministrationIndexRouteImport } from './routes/policy-administration.index'
+import { Route as OperationalDashboardIndexRouteImport } from './routes/operational-dashboard.index'
+import { Route as BusinessAnalyticsIndexRouteImport } from './routes/business-analytics.index'
+import { Route as BankerWorkspaceIndexRouteImport } from './routes/banker-workspace.index'
 import { Route as ApplicationsIndexRouteImport } from './routes/applications.index'
+import { Route as AdministrationIndexRouteImport } from './routes/administration.index'
+import { Route as PortalActivateRouteImport } from './routes/portal.activate'
 import { Route as ApplicationsApplicationIdRouteImport } from './routes/applications.$applicationId'
+import { Route as PartiesPartyIdBorrowerProfileRouteImport } from './routes/parties.$partyId.borrower-profile'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PortalIndexRoute = PortalIndexRouteImport.update({
+  id: '/portal/',
+  path: '/portal/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PolicyAdministrationIndexRoute =
+  PolicyAdministrationIndexRouteImport.update({
+    id: '/policy-administration/',
+    path: '/policy-administration/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const OperationalDashboardIndexRoute =
+  OperationalDashboardIndexRouteImport.update({
+    id: '/operational-dashboard/',
+    path: '/operational-dashboard/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const BusinessAnalyticsIndexRoute = BusinessAnalyticsIndexRouteImport.update({
+  id: '/business-analytics/',
+  path: '/business-analytics/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BankerWorkspaceIndexRoute = BankerWorkspaceIndexRouteImport.update({
+  id: '/banker-workspace/',
+  path: '/banker-workspace/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApplicationsIndexRoute = ApplicationsIndexRouteImport.update({
   id: '/applications/',
   path: '/applications/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdministrationIndexRoute = AdministrationIndexRouteImport.update({
+  id: '/administration/',
+  path: '/administration/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PortalActivateRoute = PortalActivateRouteImport.update({
+  id: '/portal/activate',
+  path: '/portal/activate',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApplicationsApplicationIdRoute =
@@ -29,35 +74,107 @@ const ApplicationsApplicationIdRoute =
     path: '/applications/$applicationId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const PartiesPartyIdBorrowerProfileRoute =
+  PartiesPartyIdBorrowerProfileRouteImport.update({
+    id: '/parties/$partyId/borrower-profile',
+    path: '/parties/$partyId/borrower-profile',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/applications/$applicationId': typeof ApplicationsApplicationIdRoute
+  '/portal/activate': typeof PortalActivateRoute
+  '/administration/': typeof AdministrationIndexRoute
   '/applications/': typeof ApplicationsIndexRoute
+  '/banker-workspace/': typeof BankerWorkspaceIndexRoute
+  '/business-analytics/': typeof BusinessAnalyticsIndexRoute
+  '/operational-dashboard/': typeof OperationalDashboardIndexRoute
+  '/policy-administration/': typeof PolicyAdministrationIndexRoute
+  '/portal/': typeof PortalIndexRoute
+  '/parties/$partyId/borrower-profile': typeof PartiesPartyIdBorrowerProfileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/applications/$applicationId': typeof ApplicationsApplicationIdRoute
+  '/portal/activate': typeof PortalActivateRoute
+  '/administration': typeof AdministrationIndexRoute
   '/applications': typeof ApplicationsIndexRoute
+  '/banker-workspace': typeof BankerWorkspaceIndexRoute
+  '/business-analytics': typeof BusinessAnalyticsIndexRoute
+  '/operational-dashboard': typeof OperationalDashboardIndexRoute
+  '/policy-administration': typeof PolicyAdministrationIndexRoute
+  '/portal': typeof PortalIndexRoute
+  '/parties/$partyId/borrower-profile': typeof PartiesPartyIdBorrowerProfileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/applications/$applicationId': typeof ApplicationsApplicationIdRoute
+  '/portal/activate': typeof PortalActivateRoute
+  '/administration/': typeof AdministrationIndexRoute
   '/applications/': typeof ApplicationsIndexRoute
+  '/banker-workspace/': typeof BankerWorkspaceIndexRoute
+  '/business-analytics/': typeof BusinessAnalyticsIndexRoute
+  '/operational-dashboard/': typeof OperationalDashboardIndexRoute
+  '/policy-administration/': typeof PolicyAdministrationIndexRoute
+  '/portal/': typeof PortalIndexRoute
+  '/parties/$partyId/borrower-profile': typeof PartiesPartyIdBorrowerProfileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/applications/$applicationId' | '/applications/'
+  fullPaths:
+    | '/'
+    | '/applications/$applicationId'
+    | '/portal/activate'
+    | '/administration/'
+    | '/applications/'
+    | '/banker-workspace/'
+    | '/business-analytics/'
+    | '/operational-dashboard/'
+    | '/policy-administration/'
+    | '/portal/'
+    | '/parties/$partyId/borrower-profile'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/applications/$applicationId' | '/applications'
-  id: '__root__' | '/' | '/applications/$applicationId' | '/applications/'
+  to:
+    | '/'
+    | '/applications/$applicationId'
+    | '/portal/activate'
+    | '/administration'
+    | '/applications'
+    | '/banker-workspace'
+    | '/business-analytics'
+    | '/operational-dashboard'
+    | '/policy-administration'
+    | '/portal'
+    | '/parties/$partyId/borrower-profile'
+  id:
+    | '__root__'
+    | '/'
+    | '/applications/$applicationId'
+    | '/portal/activate'
+    | '/administration/'
+    | '/applications/'
+    | '/banker-workspace/'
+    | '/business-analytics/'
+    | '/operational-dashboard/'
+    | '/policy-administration/'
+    | '/portal/'
+    | '/parties/$partyId/borrower-profile'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApplicationsApplicationIdRoute: typeof ApplicationsApplicationIdRoute
+  PortalActivateRoute: typeof PortalActivateRoute
+  AdministrationIndexRoute: typeof AdministrationIndexRoute
   ApplicationsIndexRoute: typeof ApplicationsIndexRoute
+  BankerWorkspaceIndexRoute: typeof BankerWorkspaceIndexRoute
+  BusinessAnalyticsIndexRoute: typeof BusinessAnalyticsIndexRoute
+  OperationalDashboardIndexRoute: typeof OperationalDashboardIndexRoute
+  PolicyAdministrationIndexRoute: typeof PolicyAdministrationIndexRoute
+  PortalIndexRoute: typeof PortalIndexRoute
+  PartiesPartyIdBorrowerProfileRoute: typeof PartiesPartyIdBorrowerProfileRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -69,11 +186,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/portal/': {
+      id: '/portal/'
+      path: '/portal'
+      fullPath: '/portal/'
+      preLoaderRoute: typeof PortalIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/policy-administration/': {
+      id: '/policy-administration/'
+      path: '/policy-administration'
+      fullPath: '/policy-administration/'
+      preLoaderRoute: typeof PolicyAdministrationIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/operational-dashboard/': {
+      id: '/operational-dashboard/'
+      path: '/operational-dashboard'
+      fullPath: '/operational-dashboard/'
+      preLoaderRoute: typeof OperationalDashboardIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/business-analytics/': {
+      id: '/business-analytics/'
+      path: '/business-analytics'
+      fullPath: '/business-analytics/'
+      preLoaderRoute: typeof BusinessAnalyticsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/banker-workspace/': {
+      id: '/banker-workspace/'
+      path: '/banker-workspace'
+      fullPath: '/banker-workspace/'
+      preLoaderRoute: typeof BankerWorkspaceIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/applications/': {
       id: '/applications/'
       path: '/applications'
       fullPath: '/applications/'
       preLoaderRoute: typeof ApplicationsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/administration/': {
+      id: '/administration/'
+      path: '/administration'
+      fullPath: '/administration/'
+      preLoaderRoute: typeof AdministrationIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/portal/activate': {
+      id: '/portal/activate'
+      path: '/portal/activate'
+      fullPath: '/portal/activate'
+      preLoaderRoute: typeof PortalActivateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/applications/$applicationId': {
@@ -83,13 +249,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApplicationsApplicationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/parties/$partyId/borrower-profile': {
+      id: '/parties/$partyId/borrower-profile'
+      path: '/parties/$partyId/borrower-profile'
+      fullPath: '/parties/$partyId/borrower-profile'
+      preLoaderRoute: typeof PartiesPartyIdBorrowerProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApplicationsApplicationIdRoute: ApplicationsApplicationIdRoute,
+  PortalActivateRoute: PortalActivateRoute,
+  AdministrationIndexRoute: AdministrationIndexRoute,
   ApplicationsIndexRoute: ApplicationsIndexRoute,
+  BankerWorkspaceIndexRoute: BankerWorkspaceIndexRoute,
+  BusinessAnalyticsIndexRoute: BusinessAnalyticsIndexRoute,
+  OperationalDashboardIndexRoute: OperationalDashboardIndexRoute,
+  PolicyAdministrationIndexRoute: PolicyAdministrationIndexRoute,
+  PortalIndexRoute: PortalIndexRoute,
+  PartiesPartyIdBorrowerProfileRoute: PartiesPartyIdBorrowerProfileRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

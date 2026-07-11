@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from mil.kernel.errors import (
     APIErrorDetail,
     APIErrorResponse,
+    AuthenticationError,
     AuthorizationError,
     ConflictError,
     DomainError,
@@ -47,6 +48,21 @@ def _field_details(exc: MILError) -> list[APIErrorDetail]:
 
 def register_error_handlers(app: FastAPI) -> None:
     """Register all MIL exception → HTTP response mappings on ``app``."""
+
+    @app.exception_handler(AuthenticationError)
+    async def _handle_authentication(_request: Request, exc: AuthenticationError) -> JSONResponse:
+        # spec 005-enterprise-platform §12, Wave 4 — found during the
+        # Customer Portal module's implementation: AuthenticationError had
+        # no dedicated handler here (only `get_current_user`'s own manual
+        # try/except converted it to a 401 internally), so any other code
+        # path raising it directly — e.g. ``PortalAccount.activate()``
+        # rejecting a bad token — fell through to the generic MILError
+        # handler and returned a misleading 500. A real, pre-existing gap,
+        # fixed here rather than worked around in the portal route.
+        return JSONResponse(
+            status_code=401,
+            content=APIErrorResponse(code=exc.code, message=exc.message).model_dump(),
+        )
 
     @app.exception_handler(AuthorizationError)
     async def _handle_authorization(_request: Request, exc: AuthorizationError) -> JSONResponse:

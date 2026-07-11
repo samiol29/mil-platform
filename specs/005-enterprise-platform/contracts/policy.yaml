@@ -1,0 +1,316 @@
+openapi: "3.1.0"
+info:
+  title: MIL Policy Engine & Policy Administration API
+  version: "1.0"
+  description: >
+    Policy Pack lifecycle (draft/rules/maker-checker approval/activation —
+    spec 005-enterprise-platform §3/§4) and read access to Policy results,
+    including the per-rule evaluated/triggered/passed breakdown
+    (`PolicyResult.evaluatedRuleKeys`/`passedRuleKeys`, additive/nullable).
+    Built directly on the pre-existing `PolicyService`/`PolicyPack`/
+    `PolicyRule`/`PolicyResult` domain layer (migrations 0007, extended by
+    0014) — this contract exposes it, it does not redesign it.
+
+paths:
+  /v1/policy-packs:
+    get:
+      summary: List Policy Packs for the tenant
+      operationId: listPolicyPacks
+      responses:
+        "200":
+          description: Policy Packs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPackList" }
+    post:
+      summary: Create a draft Policy Pack
+      operationId: createPolicyPack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePolicyPackRequest" }
+      responses:
+        "201":
+          description: Drafted (inactive) Policy Pack
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPack" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/policy-packs/{pack_id}:
+    get:
+      summary: Get a Policy Pack
+      operationId: getPolicyPack
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      responses:
+        "200":
+          description: Policy Pack detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPack" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/policy-packs/{pack_id}/rules:
+    get:
+      summary: List rules for a Policy Pack
+      operationId: listPolicyRules
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      responses:
+        "200":
+          description: Rule catalogue
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PolicyRule" }
+    post:
+      summary: Add a rule to a draft Policy Pack
+      operationId: addPolicyRule
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddPolicyRuleRequest" }
+      responses:
+        "201":
+          description: Rule added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyRule" }
+
+  /v1/policy-packs/{pack_id}/submit-for-approval:
+    post:
+      summary: Submit a draft Policy Pack for maker-checker approval
+      operationId: submitPolicyPackForApproval
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      responses:
+        "201":
+          description: Pending approval request created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPackApproval" }
+        "409":
+          description: A pending approval request already exists for this pack
+
+  /v1/policy-packs/{pack_id}/approvals:
+    get:
+      summary: List the approval history for a Policy Pack
+      operationId: listPolicyPackApprovals
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      responses:
+        "200":
+          description: Approval history, most recent first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPackApprovalList" }
+
+  /v1/policy-packs/{pack_id}/activate:
+    post:
+      summary: Activate a Policy Pack (requires an approved request)
+      operationId: activatePolicyPack
+      parameters: [{ $ref: "#/components/parameters/PackId" }]
+      responses:
+        "200":
+          description: Activated Policy Pack
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPack" }
+        "404":
+          description: No approved request exists for this pack
+        "409":
+          description: Another pack is already active for this tenant
+
+  /v1/policy-pack-approvals/{approval_id}/approve:
+    post:
+      summary: Approve a pending Policy Pack submission
+      operationId: approvePolicyPack
+      parameters: [{ $ref: "#/components/parameters/ApprovalId" }]
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPackApproval" }
+        "403":
+          description: >
+            Insufficient permissions, or the caller is the same user who
+            requested this submission (self-escalation prevention)
+
+  /v1/policy-pack-approvals/{approval_id}/reject:
+    post:
+      summary: Reject a pending Policy Pack submission
+      operationId: rejectPolicyPack
+      parameters: [{ $ref: "#/components/parameters/ApprovalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RejectPolicyPackRequest" }
+      responses:
+        "200":
+          description: Rejected, with the mandatory reason recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyPackApproval" }
+
+  /v1/applications/{application_id}/policy-results:
+    get:
+      summary: List Policy results for an application
+      operationId: listApplicationPolicyResults
+      description: >
+        Each result's `evaluatedRuleKeys`/`passedRuleKeys` are `null` for
+        evaluations recorded before this capability existed — never a
+        fabricated empty-list stand-in for "none passed."
+      parameters:
+        - name: application_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Policy results for this application
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyResultList" }
+
+components:
+  parameters:
+    PackId:
+      name: pack_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ApprovalId:
+      name: approval_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Forbidden:
+      description: Insufficient permissions
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    PolicyPack:
+      type: object
+      required: [id, tenant_id, version, name, is_active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        version: { type: string }
+        name: { type: string }
+        jurisdiction: { type: string, nullable: true }
+        is_active: { type: boolean }
+        activated_at: { type: string, format: date-time, nullable: true }
+        deactivated_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    PolicyPackList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PolicyPack" }
+
+    CreatePolicyPackRequest:
+      type: object
+      required: [version, name, content_hash]
+      properties:
+        version: { type: string }
+        name: { type: string }
+        content_hash: { type: string }
+        jurisdiction: { type: string }
+
+    PolicyRule:
+      type: object
+      required: [id, policy_pack_id, rule_key, name, description, severity, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        policy_pack_id: { type: string, format: uuid }
+        rule_key: { type: string }
+        name: { type: string }
+        description: { type: string }
+        severity: { type: string }
+        created_at: { type: string, format: date-time }
+
+    AddPolicyRuleRequest:
+      type: object
+      required: [rule_key, name, description, severity]
+      properties:
+        rule_key: { type: string }
+        name: { type: string }
+        description: { type: string }
+        severity: { type: string }
+
+    PolicyPackApproval:
+      type: object
+      required: [id, policy_pack_id, requested_by_user_id, decision, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        policy_pack_id: { type: string, format: uuid }
+        requested_by_user_id: { type: string, format: uuid }
+        decided_by_user_id: { type: string, format: uuid, nullable: true }
+        decision: { type: string, enum: [PENDING, APPROVED, REJECTED] }
+        reason: { type: string, nullable: true }
+        decided_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    PolicyPackApprovalList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PolicyPackApproval" }
+
+    RejectPolicyPackRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1 }
+
+    PolicyResult:
+      type: object
+      required:
+        - id
+        - finding_id
+        - application_id
+        - policy_pack_id
+        - policy_version
+        - outcome
+        - triggered_rule_keys
+        - evaluated_at
+        - created_at
+      properties:
+        id: { type: string, format: uuid }
+        finding_id: { type: string, format: uuid }
+        application_id: { type: string, format: uuid }
+        policy_pack_id: { type: string, format: uuid }
+        policy_version: { type: string }
+        outcome: { type: string }
+        triggered_rule_keys:
+          type: array
+          items: { type: string }
+        evaluated_rule_keys:
+          type: array
+          items: { type: string }
+          nullable: true
+        passed_rule_keys:
+          type: array
+          items: { type: string }
+          nullable: true
+        evaluated_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    PolicyResultList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PolicyResult" }

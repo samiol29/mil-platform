@@ -115,6 +115,16 @@ class Party(Base):
 
     ``display_name`` is a non-PII reference label (e.g. "Primary Borrower").
     Full personal details live in the LOS and are never stored in MIL.
+
+    ``external_identifier_hash``/``identifier_type`` (spec 005-enterprise-
+    platform §5, Wave 3 — Borrower Identity Resolution, additive): a SHA-256
+    hash of a real external identifier the LOS supplied at intake (customer
+    ID, SSN, Aadhaar, PAN, passport number, etc.) plus a free-string label
+    naming which kind it is. Never the raw identifier — the same "hash, never
+    plaintext" discipline already applied to ``identity.User.email_hash``.
+    Both nullable: most parties are created without one, and deterministic
+    identity matching (``mil.borrower_identity``) simply has less signal for
+    those, never a fabricated value.
     """
 
     __tablename__ = "parties"
@@ -124,6 +134,8 @@ class Party(Base):
     application_id: Mapped[UUID] = mapped_column(ForeignKey("core.applications.id"), nullable=False)
     party_type: Mapped[str] = mapped_column(String(50), nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    external_identifier_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    identifier_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -262,7 +274,14 @@ class MortgageApplication(Base):
     # Party management (aggregate invariants)
     # ------------------------------------------------------------------
 
-    def add_party(self, party_type: PartyType, display_name: str) -> Party:
+    def add_party(
+        self,
+        party_type: PartyType,
+        display_name: str,
+        *,
+        external_identifier_hash: str | None = None,
+        identifier_type: str | None = None,
+    ) -> Party:
         """
         Add a party to this application.
 
@@ -274,6 +293,11 @@ class MortgageApplication(Base):
             party_type: The role the party plays (APPLICANT, CO_APPLICANT, etc.).
             display_name: A non-PII label identifying the party (e.g.
                 "Primary Borrower", "Joint Applicant").
+            external_identifier_hash: Optional SHA-256 hash of a real external
+                identifier (spec 005 §5, Wave 3) — the caller computes the
+                hash; this aggregate never sees or stores the raw value.
+            identifier_type: Optional free-string label for the identifier
+                kind (e.g. ``"CUSTOMER_ID"``, ``"SSN_HASH"``).
 
         Raises:
             ConflictError: If the application is in WITHDRAWN state.
@@ -289,6 +313,8 @@ class MortgageApplication(Base):
             application_id=self.id,
             party_type=party_type.value,
             display_name=display_name.strip(),
+            external_identifier_hash=external_identifier_hash,
+            identifier_type=identifier_type,
             created_at=datetime.now(UTC),
         )
         self.parties.append(party)

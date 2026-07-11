@@ -20,6 +20,7 @@ from sqlalchemy import select
 from mil.audit.models import AuditEvent
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.orm import Session
@@ -30,6 +31,14 @@ class AuditRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def get_by_id(self, event_id: UUID) -> AuditEvent | None:
+        """
+        Return a single audit event by id (spec 005-enterprise-platform §13,
+        Wave 2 — used to resolve a ``Notification``'s referenced event for
+        display, without duplicating its data).
+        """
+        return self._session.get(AuditEvent, event_id)
 
     def get_for_application(self, application_id: UUID) -> list[AuditEvent]:
         """
@@ -44,6 +53,27 @@ class AuditRepository:
         stmt = (
             select(AuditEvent)
             .where(AuditEvent.application_id == application_id)
+            .order_by(AuditEvent.sequence_number.asc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def get_for_application_in_range(
+        self, application_id: UUID, *, from_date: datetime, to_date: datetime
+    ) -> list[AuditEvent]:
+        """
+        Return an application's audit events within ``[from_date, to_date]``
+        (spec 005-enterprise-platform §16, Wave 4 — Security & Compliance's
+        access-log report, FR-SEC-003). Built directly on the existing
+        append-only ``AuditEvent`` table — no new parallel logging
+        mechanism, exactly as the spec requires.
+        """
+        stmt = (
+            select(AuditEvent)
+            .where(
+                AuditEvent.application_id == application_id,
+                AuditEvent.occurred_at >= from_date,
+                AuditEvent.occurred_at <= to_date,
+            )
             .order_by(AuditEvent.sequence_number.asc())
         )
         return list(self._session.scalars(stmt))

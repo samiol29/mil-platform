@@ -316,8 +316,139 @@ def mock_storage_provider() -> MagicMock:
 
 
 @pytest.fixture()
+def mock_identity_service() -> MagicMock:
+    """Mocked IdentityService (Enterprise Administration, spec 005 §15)."""
+    from mil.identity.service import IdentityService
+
+    return MagicMock(spec=IdentityService)
+
+
+@pytest.fixture()
+def mock_policy_service() -> MagicMock:
+    """Mocked PolicyService (Policy Engine/Administration, spec 005 §3/§4)."""
+    from mil.policy.service import PolicyService
+
+    return MagicMock(spec=PolicyService)
+
+
+@pytest.fixture()
+def mock_review_service() -> MagicMock:
+    """Mocked ReviewService (Collaboration, spec 005 §9)."""
+    from mil.review.service import ReviewService
+
+    return MagicMock(spec=ReviewService)
+
+
+@pytest.fixture()
+def mock_assignment_service() -> MagicMock:
+    """Mocked AssignmentService (RM/Banker Workspace, spec 005 §1)."""
+    from mil.assignment.service import AssignmentService
+
+    return MagicMock(spec=AssignmentService)
+
+
+@pytest.fixture()
+def mock_rm_workspace() -> MagicMock:
+    """Mocked RmWorkspace composition root (RM/Banker Workspace, spec 005 §1)."""
+    from mil.api.deps import RmWorkspace
+
+    return MagicMock(spec=RmWorkspace)
+
+
+@pytest.fixture()
+def mock_integration_workspace() -> MagicMock:
+    """Mocked IntegrationWorkspace composition root (LOS Integration, spec 005 §2)."""
+    from mil.api.deps import IntegrationWorkspace
+
+    workspace = MagicMock(spec=IntegrationWorkspace)
+    workspace.service = MagicMock()
+    return workspace
+
+
+@pytest.fixture()
+def mock_search_workspace() -> MagicMock:
+    """Mocked SearchWorkspace composition root (Universal Search, spec 005 §7)."""
+    from mil.api.deps import SearchWorkspace
+
+    return MagicMock(spec=SearchWorkspace)
+
+
+@pytest.fixture()
+def mock_notification_service() -> MagicMock:
+    """Mocked NotificationService (Notification System, spec 005 §13)."""
+    from mil.notification.service import NotificationService
+
+    return MagicMock(spec=NotificationService)
+
+
+@pytest.fixture()
+def mock_notification_workspace() -> MagicMock:
+    """Mocked NotificationWorkspace composition root (Notification System, spec 005 §13)."""
+    from mil.api.deps import NotificationWorkspace
+
+    return MagicMock(spec=NotificationWorkspace)
+
+
+@pytest.fixture()
+def mock_borrower_identity_workspace() -> MagicMock:
+    """Mocked BorrowerIdentityWorkspace composition root (Borrower Identity Resolution, spec 005 §5)."""
+    from mil.api.deps import BorrowerIdentityWorkspace
+
+    return MagicMock(spec=BorrowerIdentityWorkspace)
+
+
+@pytest.fixture()
+def mock_cross_application_intelligence_workspace() -> MagicMock:
+    """Mocked CrossApplicationIntelligenceWorkspace composition root (spec 005 §6)."""
+    from mil.api.deps import CrossApplicationIntelligenceWorkspace
+
+    return MagicMock(spec=CrossApplicationIntelligenceWorkspace)
+
+
+@pytest.fixture()
+def mock_operational_workspace() -> MagicMock:
+    """Mocked OperationalWorkspace composition root (Operational Dashboard, spec 005 §10)."""
+    from mil.api.deps import OperationalWorkspace
+
+    return MagicMock(spec=OperationalWorkspace)
+
+
+@pytest.fixture()
+def mock_business_analytics_workspace() -> MagicMock:
+    """Mocked BusinessAnalyticsWorkspace composition root (Business Analytics, spec 005 §11)."""
+    from mil.api.deps import BusinessAnalyticsWorkspace
+
+    return MagicMock(spec=BusinessAnalyticsWorkspace)
+
+
+@pytest.fixture()
+def mock_compliance_workspace() -> MagicMock:
+    """Mocked ComplianceWorkspace composition root (Security & Compliance, spec 005 §16)."""
+    from mil.api.deps import ComplianceWorkspace
+
+    return MagicMock(spec=ComplianceWorkspace)
+
+
+@pytest.fixture()
+def mock_portal_workspace() -> MagicMock:
+    """Mocked PortalWorkspace composition root (Customer Portal, spec 005 §12)."""
+    from mil.api.deps import PortalWorkspace
+
+    return MagicMock(spec=PortalWorkspace)
+
+
+@pytest.fixture()
+def current_portal_claims() -> object:
+    """A verified PortalSessionClaims for portal-facing route tests."""
+    from mil.portal.auth import PortalSessionClaims
+
+    return PortalSessionClaims(account_id=uuid4(), party_id=uuid4(), tenant_id=uuid4())
+
+
+@pytest.fixture()
 def client(
     current_user: AuthenticatedUser,
+    current_portal_claims: object,
     mock_app_service: MagicMock,
     mock_doc_service: MagicMock,
     mock_ingestion_trigger: MagicMock,
@@ -328,6 +459,21 @@ def client(
     mock_finding_review_actions: MagicMock,
     mock_audit_repository: MagicMock,
     mock_storage_provider: MagicMock,
+    mock_identity_service: MagicMock,
+    mock_policy_service: MagicMock,
+    mock_review_service: MagicMock,
+    mock_assignment_service: MagicMock,
+    mock_rm_workspace: MagicMock,
+    mock_integration_workspace: MagicMock,
+    mock_search_workspace: MagicMock,
+    mock_notification_service: MagicMock,
+    mock_notification_workspace: MagicMock,
+    mock_borrower_identity_workspace: MagicMock,
+    mock_cross_application_intelligence_workspace: MagicMock,
+    mock_operational_workspace: MagicMock,
+    mock_business_analytics_workspace: MagicMock,
+    mock_portal_workspace: MagicMock,
+    mock_compliance_workspace: MagicMock,
 ) -> TestClient:
     """
     Return a synchronous TestClient with all service and auth deps overridden.
@@ -335,10 +481,26 @@ def client(
     The lifespan is disabled so tests do not need a database or DI container.
     """
     from mil.api.deps import (
+        get_assignment_service,
         get_audit_repository,
+        get_borrower_identity_workspace,
+        get_business_analytics_workspace,
+        get_compliance_workspace,
+        get_cross_application_intelligence_workspace,
+        get_current_portal_claims,
         get_evidence_service,
+        get_operational_workspace,
         get_finding_review_actions,
         get_finding_service,
+        get_identity_service,
+        get_integration_workspace,
+        get_notification_service,
+        get_notification_workspace,
+        get_policy_service,
+        get_portal_workspace,
+        get_review_service,
+        get_rm_workspace,
+        get_search_workspace,
         get_storage_provider,
     )
 
@@ -354,4 +516,26 @@ def client(
     app.dependency_overrides[get_finding_review_actions] = lambda: mock_finding_review_actions
     app.dependency_overrides[get_audit_repository] = lambda: mock_audit_repository
     app.dependency_overrides[get_storage_provider] = lambda: mock_storage_provider
+    app.dependency_overrides[get_identity_service] = lambda: mock_identity_service
+    app.dependency_overrides[get_policy_service] = lambda: mock_policy_service
+    app.dependency_overrides[get_review_service] = lambda: mock_review_service
+    app.dependency_overrides[get_assignment_service] = lambda: mock_assignment_service
+    app.dependency_overrides[get_rm_workspace] = lambda: mock_rm_workspace
+    app.dependency_overrides[get_integration_workspace] = lambda: mock_integration_workspace
+    app.dependency_overrides[get_search_workspace] = lambda: mock_search_workspace
+    app.dependency_overrides[get_notification_service] = lambda: mock_notification_service
+    app.dependency_overrides[get_notification_workspace] = lambda: mock_notification_workspace
+    app.dependency_overrides[get_borrower_identity_workspace] = (
+        lambda: mock_borrower_identity_workspace
+    )
+    app.dependency_overrides[get_cross_application_intelligence_workspace] = (
+        lambda: mock_cross_application_intelligence_workspace
+    )
+    app.dependency_overrides[get_operational_workspace] = lambda: mock_operational_workspace
+    app.dependency_overrides[get_business_analytics_workspace] = (
+        lambda: mock_business_analytics_workspace
+    )
+    app.dependency_overrides[get_portal_workspace] = lambda: mock_portal_workspace
+    app.dependency_overrides[get_current_portal_claims] = lambda: current_portal_claims
+    app.dependency_overrides[get_compliance_workspace] = lambda: mock_compliance_workspace
     return TestClient(app, raise_server_exceptions=True)

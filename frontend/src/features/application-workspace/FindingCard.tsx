@@ -57,6 +57,7 @@ import { cn } from '@design-system/lib/cn';
 import type { EvidenceItem } from '@entities/evidence/queries';
 import type { Finding } from '@entities/finding/queries';
 
+import { CommentThread } from './CommentThread';
 import { deriveFindingImpact } from './deriveFindingImpact';
 import { STATE_CLASS_NAME, STATE_LABEL } from './findingState';
 import type { ReviewHistoryEntry } from './findingReviewHistory';
@@ -106,6 +107,7 @@ export function FindingCard({
   const evidenceById = new Map(evidenceItems.map((item) => [item.id, item]));
   const [aiDetailsOpen, setAiDetailsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   return (
     <article
@@ -227,6 +229,17 @@ export function FindingCard({
           ) : (
             <p className="text-caption text-text-tertiary">No review decisions recorded yet.</p>
           ))}
+
+        <button
+          type="button"
+          onClick={() => {
+            setCommentsOpen((open) => !open);
+          }}
+          className="text-caption text-text-secondary hover:text-text-primary self-start outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+        >
+          {commentsOpen ? 'Hide comments' : 'Comments'}
+        </button>
+        {commentsOpen && <CommentThread findingId={finding.id} />}
       </div>
     </article>
   );

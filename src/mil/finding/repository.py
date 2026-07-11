@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from mil.finding.models import Finding
@@ -112,3 +112,17 @@ class FindingRepository:
             Finding.model_version == model_version,
         )
         return self._session.scalars(stmt).first() is not None
+
+    def count_by_lifecycle_state(self, tenant_id: UUID) -> list[tuple[str, int]]:
+        """
+        Return ``(lifecycle_state, count)`` rows for every Finding in a tenant
+        (spec 005-enterprise-platform §11, Wave 3 — Business Analytics' real
+        verification/override/escalation-rate signal). One aggregated query.
+        """
+        stmt = (
+            select(Finding.lifecycle_state, func.count(Finding.id))
+            .where(Finding.tenant_id == tenant_id)
+            .group_by(Finding.lifecycle_state)
+        )
+        return [(state, int(count)) for state, count in self._session.execute(stmt).all()]
+

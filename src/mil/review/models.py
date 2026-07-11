@@ -30,14 +30,19 @@ library.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mil.kernel.db import Base
-from mil.kernel.errors import InvalidStateTransitionError, ValidationError
+from mil.kernel.errors import (
+    AuthorizationError,
+    ConflictError,
+    InvalidStateTransitionError,
+    ValidationError,
+)
 
 # ---------------------------------------------------------------------------
 # ReviewStatus (enumeration)
@@ -304,12 +309,31 @@ class ReviewAction(Base):
         )
 
 
+#: FR-COLLAB-004 (spec 005-enterprise-platform §9): a comment may be edited
+#: by its author within this window; afterward it is immutable (matches the
+#: append-only discipline this class already documents) except for the
+#: honest "edited" marker itself.
+COMMENT_EDIT_WINDOW = timedelta(minutes=5)
+
+
 class ReviewComment(Base):
     """
-    Immutable, append-only free-text comment on a ``ReviewSession``.
+    Free-text discussion on a ``ReviewSession`` — i.e. on one Finding's
+    review (Collaboration, spec 005-enterprise-platform §9).
 
     Distinct from ``ReviewAction``: comments are discussion, not formal
     status-changing decisions, and always carry a human author.
+
+    Originally append-only/immutable; spec 005 §9 adds a narrow, honest
+    exception: the author may edit within ``COMMENT_EDIT_WINDOW`` (setting
+    ``edited_at``, never silently rewriting history) and may soft-delete at
+    any time (``deleted_at``) — never a hard delete, preserving the
+    immutable-audit-trail spirit of the rest of this module.
+
+    ``mentioned_user_ids`` is a plain list of user ids the comment
+    @-mentions — resolved and validated by the caller (the API layer,
+    composed with ``mil.identity``) before this row is created; this module
+    itself has no dependency on Identity (dependency rule).
     """
 
     __tablename__ = "review_comments"
@@ -321,11 +345,19 @@ class ReviewComment(Base):
     )
     author_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     comment_text: Mapped[str] = mapped_column(Text, nullable=False)
+    mentioned_user_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     @classmethod
     def create(
-        cls, *, review_session_id: UUID, author_user_id: UUID, comment_text: str
+        cls,
+        *,
+        review_session_id: UUID,
+        author_user_id: UUID,
+        comment_text: str,
+        mentioned_user_ids: list[UUID] | None = None,
     ) -> ReviewComment:
         if not comment_text or not comment_text.strip():
             raise ValidationError("comment_text must not be empty", field="comment_text")
@@ -335,8 +367,51 @@ class ReviewComment(Base):
             review_session_id=review_session_id,
             author_user_id=author_user_id,
             comment_text=comment_text,
+            mentioned_user_ids=[str(uid) for uid in (mentioned_user_ids or [])],
             created_at=datetime.now(UTC),
         )
+
+    def edit(self, author_user_id: UUID, new_text: str) -> None:
+        """
+        Edit this comment's text.
+
+        Raises:
+            AuthorizationError: If ``author_user_id`` is not this comment's
+                author.
+            ConflictError: If the edit window has elapsed, or the comment is
+                deleted.
+            ValidationError: If ``new_text`` is empty.
+        """
+        if self.deleted_at is not None:
+            raise ConflictError(f"ReviewComment {self.id} has been deleted")
+        if author_user_id != self.author_user_id:
+            raise AuthorizationError("Only a comment's author may edit it.")
+        if datetime.now(UTC) - self.created_at > COMMENT_EDIT_WINDOW:
+            raise ConflictError(
+                f"ReviewComment {self.id}'s edit window ({COMMENT_EDIT_WINDOW}) has elapsed"
+            )
+        if not new_text or not new_text.strip():
+            raise ValidationError("comment_text must not be empty", field="comment_text")
+        self.comment_text = new_text
+        self.edited_at = datetime.now(UTC)
+
+    def soft_delete(self, author_user_id: UUID) -> None:
+        """
+        Soft-delete this comment (never a hard delete — Principle VIII's
+        immutable-history spirit).
+
+        Raises:
+            AuthorizationError: If ``author_user_id`` is not this comment's
+                author.
+        """
+        if author_user_id != self.author_user_id:
+            raise AuthorizationError("Only a comment's author may delete it.")
+        if self.deleted_at is None:
+            self.deleted_at = datetime.now(UTC)
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
 
     def __repr__(self) -> str:
         return f"<ReviewComment id={self.id} session={self.review_session_id}>"

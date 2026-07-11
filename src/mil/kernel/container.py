@@ -41,6 +41,7 @@ from mil.kernel.metrics import InMemoryMetricEmitter
 from mil.kernel.observability import MetricEmitter
 from mil.kernel.providers.extraction import ExtractionProvider
 from mil.kernel.providers.inference import InferenceProvider
+from mil.kernel.providers.los_adapter import LOSAdapter
 from mil.kernel.providers.ocr import OCRProvider
 from mil.kernel.providers.policy import PolicyProvider
 from mil.kernel.providers.registry import ProviderRegistry, ProviderRegistryError
@@ -270,6 +271,17 @@ def build_container(settings: Settings) -> Container:
         StorageProvider,  # type: ignore[type-abstract]
         lambda: container.resolve(ProviderRegistry).get_storage(),
     )
+    # spec 005-enterprise-platform §2 (Wave 2): same bridge pattern as the
+    # required providers above. Genuinely optional (unlike OCR/Extraction/
+    # Inference/Policy/Storage, LOSAdapter is not covered by
+    # `registry.validate()`) — this lazy binding only raises
+    # ProviderRegistryError if resolved in an environment that never
+    # registered one, exactly matching `registry.get_los_adapter()`'s own
+    # existing "raise if unregistered" contract.
+    container.register_singleton(
+        LOSAdapter,  # type: ignore[type-abstract]
+        lambda: container.resolve(ProviderRegistry).get_los_adapter(),
+    )
 
     # Reject the development-only in-process message queue/bus outside
     # development. The platform's supported non-development topology is
@@ -466,6 +478,7 @@ def _register_development_providers(registry: ProviderRegistry, settings: Settin
     import pathlib
     import tempfile
 
+    from providers.los.mock_los import MockLOSAdapter
     from providers.policy.mock_policy import MockPolicyProvider
     from providers.storage.local_storage import LocalStorageProvider
 
@@ -476,7 +489,13 @@ def _register_development_providers(registry: ProviderRegistry, settings: Settin
     registry.register_inference(_build_inference_provider(settings))
     registry.register_policy(MockPolicyProvider())
     registry.register_storage(LocalStorageProvider(base_path=local_storage_path))
-    # LOSAdapter is optional — register only when an integration is configured.
+    # spec 005-enterprise-platform §2 (Wave 2): registered by default in
+    # development, same rationale as MockPolicyProvider above — local dev
+    # exercises the same LOSAdapter-mediated integration path a real
+    # deployment would use, rather than leaving it permanently unregistered.
+    # Still genuinely optional in staging/production (see
+    # `_register_production_providers` below, which does not register one).
+    registry.register_los_adapter(MockLOSAdapter())
 
 
 def _register_production_providers(registry: ProviderRegistry, settings: Settings) -> None:

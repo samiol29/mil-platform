@@ -196,6 +196,24 @@ class TestRepositoryGetForApplication:
         assert result == [doc1, doc2]
 
 
+class TestRepositorySearchForTenant:
+    """spec 005-enterprise-platform §7, Universal Search Expansion."""
+
+    def test_calls_scalars(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value = iter([])
+        result = repo.search_for_tenant(uuid4(), "paystub")
+        assert result == []
+        session.scalars.assert_called_once()
+
+    def test_returns_matching_documents(self) -> None:
+        repo, session, _ = _make_repo()
+        doc1 = _make_document()
+        session.scalars.return_value = iter([doc1])
+        result = repo.search_for_tenant(uuid4(), "paystub")
+        assert result == [doc1]
+
+
 class TestRepositoryGetByApplicationAndHash:
     def test_returns_none_when_no_match(self) -> None:
         repo, session, _ = _make_repo()
@@ -209,3 +227,10 @@ class TestRepositoryGetByApplicationAndHash:
         session.scalars.return_value.first.return_value = existing
         result = repo.get_by_application_and_hash(existing.application_id, _SAMPLE_HASH)
         assert result is existing
+
+
+class TestRepositoryCountForTenant:
+    def test_returns_count(self) -> None:
+        repo, session, _ = _make_repo()
+        session.scalars.return_value.one.return_value = 5
+        assert repo.count_for_tenant(uuid4()) == 5

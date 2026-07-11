@@ -138,3 +138,19 @@ class TestGetForFinding:
         r1, r2 = _result(), _result()
         session.scalars.return_value = iter([r1, r2])
         assert repo.get_for_finding(uuid4()) == [r1, r2]
+
+
+class TestCountByVersionAndOutcome:
+    def test_returns_grouped_rows(self) -> None:
+        repo, session = _make_repo()
+        session.execute.return_value.all.return_value = [
+            ("1.0.0", "FLAGGED", 3),
+            ("1.0.0", "PASSED", 5),
+        ]
+        rows = repo.count_by_version_and_outcome(uuid4())
+        assert rows == [("1.0.0", "FLAGGED", 3), ("1.0.0", "PASSED", 5)]
+
+    def test_returns_empty_list(self) -> None:
+        repo, session = _make_repo()
+        session.execute.return_value.all.return_value = []
+        assert repo.count_by_version_and_outcome(uuid4()) == []

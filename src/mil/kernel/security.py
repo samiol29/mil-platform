@@ -64,6 +64,21 @@ class Role:
     RELATIONSHIP_MANAGER = "RELATIONSHIP_MANAGER"
     ADMIN = "ADMIN"
     SERVICE_ACCOUNT = "SERVICE_ACCOUNT"
+    # spec 005-enterprise-platform §4 (Policy Administration, Wave 1): drafts
+    # and submits Policy Packs for approval, but cannot approve/activate its
+    # own submissions (maker-checker; that authority stays with
+    # COMPLIANCE_OFFICER/ADMIN via MANAGE_POLICY_PACKS).
+    POLICY_ADMINISTRATOR = "POLICY_ADMINISTRATOR"
+    # spec 005-enterprise-platform §12 (Customer Portal, Wave 4): a minimal,
+    # internal-only synthetic role constructed exclusively by
+    # ``PortalWorkspace`` (mil.api.deps) to satisfy ``DocumentService.
+    # ingest_document``'s existing RBAC check when a borrower uploads
+    # through the reused upload contract (FR-CP-003: no separate upload
+    # pipeline). Never assignable to a real user, never surfaced through
+    # any admin UI, never granted more than the one permission below —
+    # deliberately not "internal RBAC extended to borrowers," but the
+    # narrowest possible reuse of an already-built permission gate.
+    PORTAL_ACCOUNT = "PORTAL_ACCOUNT"
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +118,13 @@ class Permission:
     # Copilot
     QUERY_COPILOT = "query:copilot"
 
+    # Collaboration (spec 005-enterprise-platform §9) — comments on a
+    # Finding's Review Session. Granted to every role that holds
+    # READ_FINDINGS: discussion is not a decision (Principle I only
+    # restricts decision authority, not commentary), so read-only observer
+    # roles (Compliance/Risk/Audit) may still ask questions/flag concerns.
+    COMMENT_ON_FINDING = "comment:finding"
+
     # Operational Intelligence
     READ_OPERATIONAL = "read:operational"
 
@@ -111,11 +133,40 @@ class Permission:
 
     # Integration
     MANAGE_INTEGRATION = "manage:integration"
+    # spec 005-enterprise-platform §2 (Wave 2): narrower than
+    # MANAGE_INTEGRATION (connection admin) — pushing a readiness
+    # notification to the LOS is a routine human review action.
+    PUSH_LOS_STATUS = "push:los_status"
 
     # Identity & administration
     MANAGE_USERS = "manage:users"
     MANAGE_ROLES = "manage:roles"
     MANAGE_POLICY_PACKS = "manage:policy_packs"
+    # spec 005-enterprise-platform §4: narrower than MANAGE_POLICY_PACKS —
+    # draft/submit only, no approve/activate authority.
+    DRAFT_POLICY_PACK = "draft:policy_pack"
+    READ_POLICY_RESULTS = "read:policy_results"
+
+    # Assignment (spec 005-enterprise-platform §1, Wave 2 — RM/Banker Workspace)
+    MANAGE_ASSIGNMENT = "manage:assignment"
+
+    # Borrower Identity Resolution / Cross-Application Intelligence
+    # (spec 005-enterprise-platform §5/§6, Wave 3) — the explicit, audited
+    # exception to ABAC's default cross-application denial (abac.py).
+    READ_CROSS_APPLICATION_IDENTITY = "read:cross_application_identity"
+    CONFIRM_IDENTITY_MATCH = "confirm:identity_match"
+
+    # Business Analytics (spec 005-enterprise-platform §11, Wave 3)
+    READ_ANALYTICS = "read:analytics"
+
+    # Customer Portal (spec 005-enterprise-platform §12, Wave 4) — internal-
+    # staff-side checklist management only; portal accounts themselves are
+    # never evaluated through this permission system at all.
+    MANAGE_CHECKLIST = "manage:checklist"
+
+    # Security & Compliance (spec 005-enterprise-platform §16, Wave 4)
+    MANAGE_COMPLIANCE = "manage:compliance"
+    READ_COMPLIANCE = "read:compliance"
 
     # Super-permission (only ADMIN role)
     ADMIN = "admin"
@@ -132,10 +183,20 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     Role.RELATIONSHIP_MANAGER: frozenset(
         {
             Permission.READ_APPLICATION,
+            Permission.WRITE_APPLICATION,
             Permission.READ_PARTY,
+            Permission.WRITE_PARTY,
             Permission.READ_DOCUMENT,
             Permission.UPLOAD_DOCUMENT,
             Permission.READ_FINDINGS,
+            Permission.COMMENT_ON_FINDING,
+            Permission.MANAGE_ASSIGNMENT,
+            Permission.PUSH_LOS_STATUS,
+            # RM sees the Borrower Profile (read) but does not confirm
+            # identity merges — that authority stays with Underwriter/Risk/
+            # Compliance, matching the "advisory, human-reviewable" model.
+            Permission.READ_CROSS_APPLICATION_IDENTITY,
+            Permission.MANAGE_CHECKLIST,
         }
     ),
     Role.VERIFICATION_OFFICER: frozenset(
@@ -149,6 +210,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.OVERRIDE_FINDING,
             Permission.ESCALATE_FINDING,
             Permission.QUERY_COPILOT,
+            Permission.COMMENT_ON_FINDING,
         }
     ),
     Role.CREDIT_ANALYST: frozenset(
@@ -158,7 +220,9 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.READ_DOCUMENT,
             Permission.READ_EVIDENCE,
             Permission.READ_FINDINGS,
+            Permission.READ_POLICY_RESULTS,
             Permission.QUERY_COPILOT,
+            Permission.COMMENT_ON_FINDING,
         }
     ),
     Role.UNDERWRITER: frozenset(
@@ -168,10 +232,17 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.READ_DOCUMENT,
             Permission.READ_EVIDENCE,
             Permission.READ_FINDINGS,
+            Permission.READ_POLICY_RESULTS,
             Permission.VERIFY_FINDING,
             Permission.OVERRIDE_FINDING,
             Permission.ESCALATE_FINDING,
             Permission.QUERY_COPILOT,
+            Permission.COMMENT_ON_FINDING,
+            Permission.MANAGE_ASSIGNMENT,
+            Permission.PUSH_LOS_STATUS,
+            Permission.READ_CROSS_APPLICATION_IDENTITY,
+            Permission.CONFIRM_IDENTITY_MATCH,
+            Permission.MANAGE_CHECKLIST,
         }
     ),
     Role.RISK_ANALYST: frozenset(
@@ -179,7 +250,11 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.READ_APPLICATION,
             Permission.READ_EVIDENCE,
             Permission.READ_FINDINGS,
+            Permission.READ_POLICY_RESULTS,
             Permission.READ_OPERATIONAL,
+            Permission.COMMENT_ON_FINDING,
+            Permission.READ_CROSS_APPLICATION_IDENTITY,
+            Permission.CONFIRM_IDENTITY_MATCH,
         }
     ),
     Role.COMPLIANCE_OFFICER: frozenset(
@@ -187,8 +262,17 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.READ_APPLICATION,
             Permission.READ_EVIDENCE,
             Permission.READ_FINDINGS,
+            Permission.READ_POLICY_RESULTS,
             Permission.READ_AUDIT,
             Permission.READ_OPERATIONAL,
+            # spec 005-enterprise-platform §4: Compliance holds approval
+            # authority (maker-checker's "checker" role) over Policy Packs.
+            Permission.MANAGE_POLICY_PACKS,
+            Permission.COMMENT_ON_FINDING,
+            Permission.READ_CROSS_APPLICATION_IDENTITY,
+            Permission.CONFIRM_IDENTITY_MATCH,
+            Permission.READ_ANALYTICS,
+            Permission.MANAGE_COMPLIANCE,
         }
     ),
     Role.AUDIT_TEAM: frozenset(
@@ -198,7 +282,13 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.READ_DOCUMENT,
             Permission.READ_EVIDENCE,
             Permission.READ_FINDINGS,
+            Permission.READ_POLICY_RESULTS,
             Permission.READ_AUDIT,
+            Permission.COMMENT_ON_FINDING,
+            # spec 005-enterprise-platform §16: the audit function reviews
+            # compliance reports, it doesn't configure retention policy
+            # (that stays MANAGE_COMPLIANCE, Compliance Officer/Admin only).
+            Permission.READ_COMPLIANCE,
         }
     ),
     Role.OPERATIONS_MANAGER: frozenset(
@@ -206,6 +296,13 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.READ_APPLICATION,
             Permission.READ_OPERATIONAL,
             Permission.READ_AUDIT,
+            Permission.READ_ANALYTICS,
+        }
+    ),
+    Role.POLICY_ADMINISTRATOR: frozenset(
+        {
+            Permission.DRAFT_POLICY_PACK,
+            Permission.READ_POLICY_RESULTS,
         }
     ),
     Role.ADMIN: frozenset(
@@ -214,6 +311,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.MANAGE_USERS,
             Permission.MANAGE_ROLES,
             Permission.MANAGE_POLICY_PACKS,
+            Permission.DRAFT_POLICY_PACK,
+            Permission.READ_POLICY_RESULTS,
             Permission.MANAGE_INTEGRATION,
         }
     ),
@@ -224,6 +323,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             Permission.MANAGE_INTEGRATION,
         }
     ),
+    Role.PORTAL_ACCOUNT: frozenset({Permission.UPLOAD_DOCUMENT}),
 }
 
 

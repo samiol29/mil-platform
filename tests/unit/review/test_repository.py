@@ -147,3 +147,15 @@ class TestGetCommentsForSession:
         c1, c2 = _comment(), _comment()
         session.scalars.return_value = iter([c1, c2])
         assert repo.get_comments_for_session(uuid4()) == [c1, c2]
+
+
+class TestGetAverageDurationSeconds:
+    def test_returns_average(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value.one_or_none.return_value = 3600.0
+        assert repo.get_average_duration_seconds(uuid4()) == 3600.0
+
+    def test_returns_none_when_no_closed_sessions(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value.one_or_none.return_value = None
+        assert repo.get_average_duration_seconds(uuid4()) is None

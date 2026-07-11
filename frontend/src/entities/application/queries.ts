@@ -50,7 +50,7 @@ export function useApplication(applicationId: string) {
  * `page_size` belong to the eventual queue view (tasks.md T075), not this
  * bootstrap redirect.
  */
-const applicationListResponseSchema = z.object({
+export const applicationListResponseSchema = z.object({
   items: z.array(applicationSchema),
 });
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from mil.evidence.models import EvidenceItem
@@ -92,6 +92,15 @@ class EvidenceRepository:
             .order_by(EvidenceItem.created_at.desc())
         )
         return list(self._session.scalars(stmt))
+
+    def count_for_tenant(self, tenant_id: UUID) -> int:
+        """
+        Return the total EvidenceItem count for a tenant (spec 005-
+        enterprise-platform §11, Wave 3 — Business Analytics' evidence-
+        volume signal).
+        """
+        stmt = select(func.count(EvidenceItem.id)).where(EvidenceItem.tenant_id == tenant_id)
+        return int(self._session.scalars(stmt).one())
 
     def exists_for_document_and_version(self, document_id: UUID, extraction_version: str) -> bool:
         """

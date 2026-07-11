@@ -18,7 +18,7 @@ only at runtime.
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -561,3 +561,585 @@ class CopilotHistoryResponse(BaseModel):
 
     session_id: UUID
     items: list[CopilotHistoryItem]
+
+
+# ---------------------------------------------------------------------------
+# Enterprise Administration schemas (spec 005 §15)
+# ---------------------------------------------------------------------------
+
+
+class CreateUserRequest(BaseModel):
+    """Request body for creating a platform user."""
+
+    external_identity_id: str = Field(min_length=1, max_length=255)
+    email: str = Field(min_length=1)
+    display_name: str = Field(min_length=1, max_length=255)
+
+
+class UserResponse(BaseModel):
+    """Platform user resource representation. Never returns ``email_hash`` raw."""
+
+    id: UUID
+    tenant_id: UUID
+    display_name: str
+    is_active: bool
+    roles: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class UserListResponse(BaseModel):
+    items: list[UserResponse]
+
+
+class AssignRoleRequest(BaseModel):
+    """Request body for assigning a role to a user."""
+
+    role_name: str = Field(min_length=1, max_length=100)
+
+
+class RoleAssignmentResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    role_id: UUID
+    role_name: str
+    assigned_by: UUID
+    assigned_at: datetime
+    revoked_at: datetime | None = None
+
+
+class TenantConfigurationRequest(BaseModel):
+    """Request body for setting a tenant configuration key."""
+
+    config_value: dict[str, object]
+
+
+class TenantConfigurationResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    config_key: str
+    config_value: dict[str, object]
+    updated_by_user_id: UUID
+    updated_at: datetime
+
+
+class TenantConfigurationListResponse(BaseModel):
+    items: list[TenantConfigurationResponse]
+
+
+class CreateApiKeyRequest(BaseModel):
+    """Request body for creating a scoped, expiring API key."""
+
+    name: str = Field(min_length=1, max_length=255)
+    scopes: list[str] = Field(default_factory=list)
+    ttl_days: int = Field(gt=0, le=365, default=90)
+
+
+class ApiKeyResponse(BaseModel):
+    """API key metadata. Never includes the raw key (see ``ApiKeyCreatedResponse``)."""
+
+    id: UUID
+    tenant_id: UUID
+    name: str
+    scopes: list[str]
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    created_by_user_id: UUID
+    created_at: datetime
+
+
+class ApiKeyCreatedResponse(ApiKeyResponse):
+    """Returned exactly once, at creation time — includes the raw key value."""
+
+    raw_key: str
+
+
+class ApiKeyListResponse(BaseModel):
+    items: list[ApiKeyResponse]
+
+
+# ---------------------------------------------------------------------------
+# Policy Engine / Policy Administration schemas (spec 005 §3/§4)
+# ---------------------------------------------------------------------------
+
+
+class PolicyRuleResponse(BaseModel):
+    id: UUID
+    policy_pack_id: UUID
+    rule_key: str
+    name: str
+    description: str
+    severity: str
+    created_at: datetime
+
+
+class PolicyPackResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    version: str
+    name: str
+    jurisdiction: str | None = None
+    is_active: bool
+    activated_at: datetime | None = None
+    deactivated_at: datetime | None = None
+    created_at: datetime
+
+
+class PolicyPackListResponse(BaseModel):
+    items: list[PolicyPackResponse]
+
+
+class CreatePolicyPackRequest(BaseModel):
+    version: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=255)
+    content_hash: str = Field(min_length=1, max_length=128)
+    jurisdiction: str | None = None
+
+
+class AddPolicyRuleRequest(BaseModel):
+    rule_key: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=255)
+    description: str
+    severity: str = Field(min_length=1, max_length=50)
+
+
+class PolicyPackApprovalResponse(BaseModel):
+    id: UUID
+    policy_pack_id: UUID
+    requested_by_user_id: UUID
+    decided_by_user_id: UUID | None = None
+    decision: str
+    reason: str | None = None
+    decided_at: datetime | None = None
+    created_at: datetime
+
+
+class PolicyPackApprovalListResponse(BaseModel):
+    items: list[PolicyPackApprovalResponse]
+
+
+class RejectPolicyPackRequest(BaseModel):
+    reason: str = Field(min_length=1)
+
+
+class PolicyResultResponse(BaseModel):
+    id: UUID
+    finding_id: UUID
+    application_id: UUID
+    policy_pack_id: UUID
+    policy_version: str
+    outcome: str
+    triggered_rule_keys: list[str]
+    evaluated_rule_keys: list[str] | None = None
+    passed_rule_keys: list[str] | None = None
+    evaluated_at: datetime
+    created_at: datetime
+
+
+class PolicyResultListResponse(BaseModel):
+    items: list[PolicyResultResponse]
+
+
+# ---------------------------------------------------------------------------
+# Collaboration schemas (spec 005 §9)
+# ---------------------------------------------------------------------------
+
+
+class PostCommentRequest(BaseModel):
+    comment_text: str = Field(min_length=1)
+    mentioned_user_ids: list[UUID] = Field(default_factory=list)
+
+
+class EditCommentRequest(BaseModel):
+    comment_text: str = Field(min_length=1)
+
+
+class ReviewCommentResponse(BaseModel):
+    id: UUID
+    review_session_id: UUID
+    author_user_id: UUID
+    comment_text: str
+    mentioned_user_ids: list[str]
+    edited_at: datetime | None = None
+    deleted_at: datetime | None = None
+    created_at: datetime
+
+
+class ReviewCommentListResponse(BaseModel):
+    items: list[ReviewCommentResponse]
+
+
+# ---------------------------------------------------------------------------
+# Assignment schemas (spec 005 §1, Wave 2 — RM/Banker Workspace)
+# ---------------------------------------------------------------------------
+
+
+class SetAssignmentRequest(BaseModel):
+    owner_user_id: UUID
+    reviewer_user_id: UUID | None = None
+
+
+class AssignmentResponse(BaseModel):
+    id: UUID
+    application_id: UUID
+    owner_user_id: UUID
+    reviewer_user_id: UUID | None = None
+    assigned_by_user_id: UUID
+    assigned_at: datetime
+
+
+class AssignmentHistoryResponse(BaseModel):
+    id: UUID
+    application_id: UUID
+    owner_user_id: UUID
+    reviewer_user_id: UUID | None = None
+    assigned_by_user_id: UUID
+    assigned_at: datetime
+    created_at: datetime
+
+
+class AssignmentHistoryListResponse(BaseModel):
+    items: list[AssignmentHistoryResponse]
+
+
+class PortfolioResponse(BaseModel):
+    """RM's own portfolio: applications they own, with real, already-fetched fields only."""
+
+    items: list[ApplicationResponse]
+
+
+# ---------------------------------------------------------------------------
+# LOS Integration schemas (spec 005 §2, Wave 2)
+# ---------------------------------------------------------------------------
+
+
+class CreateLOSConnectionRequest(BaseModel):
+    vendor_type: str = Field(min_length=1, max_length=100)
+
+
+class LOSConnectionResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    vendor_type: str
+    status: str
+    created_by_user_id: UUID
+    created_at: datetime
+
+
+class LOSConnectionListResponse(BaseModel):
+    items: list[LOSConnectionResponse]
+
+
+class PushReadinessRequest(BaseModel):
+    is_ready: bool
+    summary: str = Field(min_length=1)
+    missing_items: list[str] = Field(default_factory=list)
+
+
+class LOSSyncEventResponse(BaseModel):
+    id: UUID
+    application_id: UUID
+    direction: str
+    outcome: str
+    detail: dict[str, object]
+    error_message: str | None = None
+    initiated_by_user_id: UUID
+    occurred_at: datetime
+
+
+class LOSSyncEventListResponse(BaseModel):
+    items: list[LOSSyncEventResponse]
+
+
+# ---------------------------------------------------------------------------
+# Universal Search schemas (spec 005 §7, Wave 2)
+# ---------------------------------------------------------------------------
+
+
+class ApplicationSearchResult(BaseModel):
+    kind: Literal["application"] = "application"
+    application: ApplicationResponse
+
+
+class DocumentSearchResult(BaseModel):
+    kind: Literal["document"] = "document"
+    document_id: UUID
+    application_id: UUID
+    filename: str
+    uploaded_at: datetime
+
+
+SearchResult = ApplicationSearchResult | DocumentSearchResult
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult]
+
+
+# ---------------------------------------------------------------------------
+# Notification schemas (spec 005 §13, Wave 2)
+# ---------------------------------------------------------------------------
+
+
+class NotificationResponse(BaseModel):
+    id: UUID
+    recipient_user_id: UUID
+    audit_event_id: UUID
+    # Denormalised, read-only fields resolved from the referenced AuditEvent
+    # at read time — never stored on Notification itself (see model
+    # docstring: no duplicate event model).
+    event_type: str
+    event_data: dict[str, object]
+    occurred_at: datetime
+    read_at: datetime | None = None
+    created_at: datetime
+
+
+class NotificationListResponse(BaseModel):
+    items: list[NotificationResponse]
+    unread_count: int
+
+
+# ---------------------------------------------------------------------------
+# Borrower Identity Resolution schemas (spec 005 §5, Wave 3)
+# ---------------------------------------------------------------------------
+
+
+class IdentityMatchCandidateResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    party_id: UUID
+    candidate_party_id: UUID
+    match_score: float
+    match_basis: dict[str, object]
+    status: str
+    reviewed_by_user_id: UUID | None = None
+    reason: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
+
+
+class IdentityMatchCandidateListResponse(BaseModel):
+    items: list[IdentityMatchCandidateResponse]
+
+
+class RejectMatchRequest(BaseModel):
+    reason: str | None = None
+
+
+class BorrowerIdentityResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    primary_display_name: str
+    created_at: datetime
+
+
+class BorrowerIdentityMemberResponse(BaseModel):
+    id: UUID
+    borrower_identity_id: UUID
+    party_id: UUID
+    application_id: UUID
+    linked_by_user_id: UUID
+    linked_at: datetime
+    unlinked_at: datetime | None = None
+    unlinked_by_user_id: UUID | None = None
+
+
+class BorrowerIdentityMemberListResponse(BaseModel):
+    items: list[BorrowerIdentityMemberResponse]
+
+
+# ---------------------------------------------------------------------------
+# Cross-Application Intelligence schemas (spec 005 §6, Wave 3)
+# ---------------------------------------------------------------------------
+
+
+class CrossApplicationObservationResponse(BaseModel):
+    kind: str
+    description: str
+    application_ids: list[UUID]
+    document_ids: list[UUID] = Field(default_factory=list)
+    finding_ids: list[UUID] = Field(default_factory=list)
+
+
+class CrossApplicationSignalListResponse(BaseModel):
+    items: list[CrossApplicationObservationResponse]
+
+
+# ---------------------------------------------------------------------------
+# Operational Dashboard schemas (spec 005 §10, Wave 3)
+# ---------------------------------------------------------------------------
+
+
+class QueueDepthRowResponse(BaseModel):
+    workflow_type: str
+    status: str
+    count: int
+
+
+class QueueDepthResponse(BaseModel):
+    items: list[QueueDepthRowResponse]
+
+
+class PoisonJobResponse(BaseModel):
+    id: UUID
+    workflow_run_id: UUID
+    step_name: str
+    status: str
+    retry_count: int
+    max_retries: int
+    error_code: str | None = None
+    error_message: str | None = None
+    updated_at: datetime
+
+
+class PoisonJobListResponse(BaseModel):
+    items: list[PoisonJobResponse]
+
+
+class ApplicationFunnelRowResponse(BaseModel):
+    status: str
+    count: int
+    avg_seconds_since_updated: float
+
+
+class ApplicationFunnelResponse(BaseModel):
+    items: list[ApplicationFunnelRowResponse]
+
+
+class JobQueueHealthResponse(BaseModel):
+    pending_count: int
+    processing_count: int
+    dead_letter_count: int
+
+
+# ---------------------------------------------------------------------------
+# Business Analytics schemas (spec 005 §11, Wave 3)
+# ---------------------------------------------------------------------------
+
+
+class ApplicationStatusCountResponse(BaseModel):
+    status: str
+    count: int
+
+
+class FindingOutcomeRowResponse(BaseModel):
+    lifecycle_state: str
+    count: int
+
+
+class PolicyOutcomeRowResponse(BaseModel):
+    policy_version: str
+    outcome: str
+    count: int
+
+
+class BusinessAnalyticsSnapshotResponse(BaseModel):
+    application_counts_by_status: list[ApplicationStatusCountResponse]
+    finding_outcomes: list[FindingOutcomeRowResponse]
+    policy_outcomes: list[PolicyOutcomeRowResponse]
+    document_count: int
+    evidence_count: int
+    average_review_duration_seconds: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# Customer Portal schemas (spec 005 §12, Wave 4)
+# ---------------------------------------------------------------------------
+
+
+class CreateChecklistItemRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=500)
+    document_type: str = Field(min_length=1, max_length=100)
+    party_id: UUID | None = None
+
+
+class ChecklistItemResponse(BaseModel):
+    id: UUID
+    application_id: UUID
+    party_id: UUID | None = None
+    label: str
+    document_type: str
+    status: str
+    requested_by_user_id: UUID
+    fulfilled_document_id: UUID | None = None
+    requested_at: datetime
+
+
+class ChecklistItemListResponse(BaseModel):
+    items: list[ChecklistItemResponse]
+
+
+class InviteBorrowerRequest(BaseModel):
+    party_id: UUID
+    email: str = Field(min_length=3, max_length=320)
+
+
+class InviteBorrowerResponse(BaseModel):
+    portal_account_id: UUID
+    status: str
+    # Empty when the account was already invited/active — no email/SMS
+    # provider exists in this platform (an honest, disclosed gap); the
+    # inviting user relays this link/token to the borrower out-of-band.
+    activation_token: str
+
+
+class PortalActivateRequest(BaseModel):
+    party_id: UUID
+    token: str = Field(min_length=1)
+
+
+class PortalSessionResponse(BaseModel):
+    session_token: str
+
+
+class PortalStatusResponse(BaseModel):
+    """A borrower-safe, plain-language status label — never the internal enum verbatim."""
+
+    status_label: str
+
+
+PORTAL_STATUS_LABELS: dict[str, str] = {
+    "DRAFT": "Getting started",
+    "SUBMITTED": "Application received",
+    "IN_REVIEW": "Documents under review",
+    "REVIEW_COMPLETE": "Review complete",
+    "WITHDRAWN": "Application withdrawn",
+}
+
+
+# ---------------------------------------------------------------------------
+# Security & Compliance schemas (spec 005 §16, Wave 4)
+# ---------------------------------------------------------------------------
+
+
+class SetRetentionPolicyRequest(BaseModel):
+    data_category: str = Field(min_length=1, max_length=50)
+    retention_period_days: int = Field(gt=0)
+    action: Literal["ARCHIVE", "DELETE"]
+
+
+class RetentionPolicyResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    data_category: str
+    retention_period_days: int
+    action: str
+
+
+class RetentionPolicyListResponse(BaseModel):
+    items: list[RetentionPolicyResponse]
+
+
+class AccessLogEntryResponse(BaseModel):
+    event_type: str
+    actor_id: UUID | None = None
+    actor_type: str
+    occurred_at: datetime
+
+
+class AccessLogResponse(BaseModel):
+    application_id: UUID
+    from_date: datetime
+    to_date: datetime
+    items: list[AccessLogEntryResponse]

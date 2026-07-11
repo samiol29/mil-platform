@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import extract, func, select
 from sqlalchemy.exc import IntegrityError
 
 from mil.review.models import (
@@ -136,6 +136,22 @@ class ReviewRepository:
         )
         return list(self._session.scalars(stmt))
 
+    def get_average_duration_seconds(self, tenant_id: UUID) -> float | None:
+        """
+        Return the average ``closed_at - created_at`` in seconds across
+        every *closed* Review Session in a tenant, or ``None`` if none have
+        closed yet (an honest absence, not a fabricated zero) — spec 005-
+        enterprise-platform §11, Wave 3 — Business Analytics' real average
+        review duration signal.
+        """
+        duration_seconds = extract("epoch", ReviewSession.closed_at - ReviewSession.created_at)
+        stmt = select(func.avg(duration_seconds)).where(
+            ReviewSession.tenant_id == tenant_id,
+            ReviewSession.closed_at.is_not(None),
+        )
+        result = self._session.scalars(stmt).one_or_none()
+        return float(result) if result is not None else None
+
     # ------------------------------------------------------------------
     # ReviewAction (append-only)
     # ------------------------------------------------------------------
@@ -171,3 +187,6 @@ class ReviewRepository:
             .order_by(ReviewComment.created_at.asc())
         )
         return list(self._session.scalars(stmt))
+
+    def get_comment_by_id(self, comment_id: UUID) -> ReviewComment | None:
+        return self._session.get(ReviewComment, comment_id)
