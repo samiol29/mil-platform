@@ -295,7 +295,10 @@ class TestReclaimStale:
     ) -> None:
         queue = RedisJobQueue(redis_client, key_prefix="test:reclaim-dead-letter")
         exhausted_job = Job(
-            job_type="workflow_step", idempotency_key="stuck-exhausted", max_retries=0, retry_count=0
+            job_type="workflow_step",
+            idempotency_key="stuck-exhausted",
+            max_retries=0,
+            retry_count=0,
         )
         queue.enqueue(exhausted_job)
         job = queue.dequeue()

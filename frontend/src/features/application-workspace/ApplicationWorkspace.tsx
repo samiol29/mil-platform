@@ -859,7 +859,11 @@ function PolicyRegion({
                   </div>
                   {(() => {
                     const result = policyResultByFindingId.get(finding.id);
-                    if (result?.evaluatedRuleKeys === undefined || result.evaluatedRuleKeys === null) return null;
+                    if (
+                      result?.evaluatedRuleKeys === undefined ||
+                      result.evaluatedRuleKeys === null
+                    )
+                      return null;
                     const passed = result.passedRuleKeys ?? [];
                     return (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

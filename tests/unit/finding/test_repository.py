@@ -83,5 +83,3 @@ class TestCountByLifecycleState:
         repo, session = _make_repo()
         session.execute.return_value.all.return_value = []
         assert repo.count_by_lifecycle_state(uuid4()) == []
-
-

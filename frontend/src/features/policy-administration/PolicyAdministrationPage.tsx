@@ -94,7 +94,11 @@ function CreatePolicyPackDialog({
       onOpenChange={onOpenChange}
       title="Draft a new Policy Pack"
       description="Drafting does not affect any live evaluation until it is submitted, approved, and activated."
-      primaryAction={{ label: 'Create draft', onClick: handleCreate, loading: createPack.isPending }}
+      primaryAction={{
+        label: 'Create draft',
+        onClick: handleCreate,
+        loading: createPack.isPending,
+      }}
     >
       <div className="flex flex-col gap-3">
         <label htmlFor="policy-pack-version" className="flex flex-col gap-1">
@@ -102,7 +106,9 @@ function CreatePolicyPackDialog({
           <Input
             id="policy-pack-version"
             value={version}
-            onChange={(e) => { setVersion(e.target.value); }}
+            onChange={(e) => {
+              setVersion(e.target.value);
+            }}
             placeholder="2.0.0"
           />
         </label>
@@ -111,7 +117,9 @@ function CreatePolicyPackDialog({
           <Input
             id="policy-pack-name"
             value={name}
-            onChange={(e) => { setName(e.target.value); }}
+            onChange={(e) => {
+              setName(e.target.value);
+            }}
             placeholder="US Standard Underwriting Pack"
           />
         </label>
@@ -120,11 +128,15 @@ function CreatePolicyPackDialog({
           <Input
             id="policy-pack-jurisdiction"
             value={jurisdiction}
-            onChange={(e) => { setJurisdiction(e.target.value); }}
+            onChange={(e) => {
+              setJurisdiction(e.target.value);
+            }}
             placeholder="US"
           />
         </label>
-        {!canSubmit && <p className="text-caption text-text-tertiary">Version and name are required.</p>}
+        {!canSubmit && (
+          <p className="text-caption text-text-tertiary">Version and name are required.</p>
+        )}
       </div>
     </Dialog>
   );
@@ -138,7 +150,8 @@ function AddRuleForm({ policyPackId }: { policyPackId: string }) {
   const addRule = useAddPolicyRule();
   const addToast = useUiStore((state) => state.addToast);
 
-  const canSubmit = ruleKey.trim().length > 0 && name.trim().length > 0 && description.trim().length > 0;
+  const canSubmit =
+    ruleKey.trim().length > 0 && name.trim().length > 0 && description.trim().length > 0;
 
   const handleAdd = () => {
     addRule.mutate(
@@ -151,7 +164,11 @@ function AddRuleForm({ policyPackId }: { policyPackId: string }) {
           setDescription('');
         },
         onError: (error: unknown) => {
-          addToast({ title: 'Failed to add rule', description: errorMessage(error), variant: 'error' });
+          addToast({
+            title: 'Failed to add rule',
+            description: errorMessage(error),
+            variant: 'error',
+          });
         },
       },
     );
@@ -164,20 +181,26 @@ function AddRuleForm({ policyPackId }: { policyPackId: string }) {
         <Input
           aria-label="Rule key"
           value={ruleKey}
-          onChange={(e) => { setRuleKey(e.target.value); }}
+          onChange={(e) => {
+            setRuleKey(e.target.value);
+          }}
           placeholder="LOW_CONFIDENCE_REVIEW"
         />
         <Input
           aria-label="Rule name"
           value={name}
-          onChange={(e) => { setName(e.target.value); }}
+          onChange={(e) => {
+            setName(e.target.value);
+          }}
           placeholder="Low Confidence Review"
         />
       </div>
       <Textarea
         aria-label="Rule description"
         value={description}
-        onChange={(e) => { setDescription(e.target.value); }}
+        onChange={(e) => {
+          setDescription(e.target.value);
+        }}
         placeholder="Flags findings below the confidence threshold."
         rows={2}
       />
@@ -185,7 +208,9 @@ function AddRuleForm({ policyPackId }: { policyPackId: string }) {
         <Input
           aria-label="Severity"
           value={severity}
-          onChange={(e) => { setSeverity(e.target.value); }}
+          onChange={(e) => {
+            setSeverity(e.target.value);
+          }}
           className="w-32"
         />
         <Button
@@ -225,7 +250,11 @@ function RejectDialog({
           onOpenChange(false);
         },
         onError: (error: unknown) => {
-          addToast({ title: 'Failed to reject', description: errorMessage(error), variant: 'error' });
+          addToast({
+            title: 'Failed to reject',
+            description: errorMessage(error),
+            variant: 'error',
+          });
         },
       },
     );
@@ -237,14 +266,21 @@ function RejectDialog({
       onOpenChange={onOpenChange}
       title="Reject this submission"
       description="A reason is required — it is shown to the drafter and recorded on the audit trail."
-      primaryAction={{ label: 'Reject', onClick: handleReject, variant: 'danger', loading: rejectPack.isPending }}
+      primaryAction={{
+        label: 'Reject',
+        onClick: handleReject,
+        variant: 'danger',
+        loading: rejectPack.isPending,
+      }}
     >
       <label htmlFor="reject-reason" className="flex flex-col gap-1">
         <span className="text-label text-text-secondary">Reason</span>
         <Textarea
           id="reject-reason"
           value={reason}
-          onChange={(e) => { setReason(e.target.value); }}
+          onChange={(e) => {
+            setReason(e.target.value);
+          }}
           rows={3}
         />
       </label>
@@ -280,7 +316,9 @@ function PolicyPackRow({ pack }: { pack: PolicyPack }) {
     <div className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-2 p-4">
       <button
         type="button"
-        onClick={() => { setExpanded((v) => !v); }}
+        onClick={() => {
+          setExpanded((v) => !v);
+        }}
         className="flex w-full items-center justify-between gap-2 text-left outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
       >
         <span className="flex items-center gap-2">
@@ -302,7 +340,8 @@ function PolicyPackRow({ pack }: { pack: PolicyPack }) {
                 loading={submitForApproval.isPending}
                 onClick={() => {
                   submitForApproval.mutate(pack.id, {
-                    onSuccess: () => addToast({ title: 'Submitted for approval', variant: 'success' }),
+                    onSuccess: () =>
+                      addToast({ title: 'Submitted for approval', variant: 'success' }),
                     onError: (error: unknown) =>
                       addToast({
                         title: 'Failed to submit',
@@ -338,7 +377,9 @@ function PolicyPackRow({ pack }: { pack: PolicyPack }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => { setRejectingApprovalId(pendingApproval.id); }}
+                  onClick={() => {
+                    setRejectingApprovalId(pendingApproval.id);
+                  }}
                 >
                   Reject
                 </Button>
@@ -351,7 +392,8 @@ function PolicyPackRow({ pack }: { pack: PolicyPack }) {
                 loading={activatePack.isPending}
                 onClick={() => {
                   activatePack.mutate(pack.id, {
-                    onSuccess: () => addToast({ title: 'Policy pack activated', variant: 'success' }),
+                    onSuccess: () =>
+                      addToast({ title: 'Policy pack activated', variant: 'success' }),
                     onError: (error: unknown) =>
                       addToast({
                         title: 'Failed to activate',
@@ -376,7 +418,8 @@ function PolicyPackRow({ pack }: { pack: PolicyPack }) {
               <ul className="flex flex-col gap-1">
                 {(rulesQuery.data ?? []).map((rule) => (
                   <li key={rule.id} className="text-caption text-text-primary">
-                    <span className="font-mono">{rule.ruleKey}</span> — {rule.name} ({rule.severity})
+                    <span className="font-mono">{rule.ruleKey}</span> — {rule.name} ({rule.severity}
+                    )
                   </li>
                 ))}
               </ul>
@@ -439,7 +482,12 @@ export function PolicyAdministrationPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-heading">Policy Packs</h2>
-        <Button variant="primary" onClick={() => { setCreateDialogOpen(true); }}>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setCreateDialogOpen(true);
+          }}
+        >
           New pack
         </Button>
       </div>

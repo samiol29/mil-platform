@@ -203,9 +203,7 @@ class ApplicationRepository:
         application's row was last updated for any reason, not strictly
         since it entered this status), never presented as exact dwell time.
         """
-        seconds_since_updated = extract(
-            "epoch", func.now() - MortgageApplication.updated_at
-        )
+        seconds_since_updated = extract("epoch", func.now() - MortgageApplication.updated_at)
         stmt = (
             select(
                 MortgageApplication.status,

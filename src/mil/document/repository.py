@@ -114,9 +114,7 @@ class DocumentRepository:
         stmt = select(func.count(Document.id)).where(Document.tenant_id == tenant_id)
         return int(self._session.scalars(stmt).one())
 
-    def search_for_tenant(
-        self, tenant_id: UUID, search: str, *, limit: int = 20
-    ) -> list[Document]:
+    def search_for_tenant(self, tenant_id: UUID, search: str, *, limit: int = 20) -> list[Document]:
         """
         Case-insensitive substring match against ``original_filename``,
         scoped to the tenant (spec 005-enterprise-platform §7, Universal

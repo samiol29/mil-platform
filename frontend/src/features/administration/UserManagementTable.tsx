@@ -47,14 +47,23 @@ const ASSIGNABLE_ROLES: readonly string[] = [
   'ADMIN',
 ];
 
-function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function CreateUserDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [externalIdentityId, setExternalIdentityId] = useState('');
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const createUser = useCreateUser();
   const addToast = useUiStore((state) => state.addToast);
 
-  const canSubmit = externalIdentityId.trim().length > 0 && email.trim().length > 0 && displayName.trim().length > 0;
+  const canSubmit =
+    externalIdentityId.trim().length > 0 &&
+    email.trim().length > 0 &&
+    displayName.trim().length > 0;
 
   const handleCreate = () => {
     createUser.mutate(
@@ -92,7 +101,9 @@ function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           <Input
             id="admin-create-user-external-id"
             value={externalIdentityId}
-            onChange={(e) => { setExternalIdentityId(e.target.value); }}
+            onChange={(e) => {
+              setExternalIdentityId(e.target.value);
+            }}
             placeholder="idp-sub-001"
           />
         </label>
@@ -102,7 +113,9 @@ function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             id="admin-create-user-email"
             type="email"
             value={email}
-            onChange={(e) => { setEmail(e.target.value); }}
+            onChange={(e) => {
+              setEmail(e.target.value);
+            }}
             placeholder="reviewer@example.com"
           />
         </label>
@@ -111,13 +124,13 @@ function CreateUserDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           <Input
             id="admin-create-user-display-name"
             value={displayName}
-            onChange={(e) => { setDisplayName(e.target.value); }}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+            }}
             placeholder="Jane Reviewer"
           />
         </label>
-        {!canSubmit && (
-          <p className="text-caption text-text-tertiary">All fields are required.</p>
-        )}
+        {!canSubmit && <p className="text-caption text-text-tertiary">All fields are required.</p>}
       </div>
     </Dialog>
   );
@@ -164,7 +177,12 @@ function AssignRoleDialog({
     >
       <label className="flex flex-col gap-1">
         <span className="text-label text-text-secondary">Role</span>
-        <Select value={roleName} onChange={(e) => { setRoleName(e.target.value); }}>
+        <Select
+          value={roleName}
+          onChange={(e) => {
+            setRoleName(e.target.value);
+          }}
+        >
           {ASSIGNABLE_ROLES.map((role) => (
             <option key={role} value={role}>
               {role}
@@ -219,14 +237,22 @@ export function UserManagementTable() {
         const user = info.row.original;
         return (
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => { setRoleDialogUser(user); }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setRoleDialogUser(user);
+              }}
+            >
               Assign role
             </Button>
             <Button
               variant="secondary"
               size="sm"
               disabled={!user.isActive}
-              onClick={() => { handleDeactivate(user); }}
+              onClick={() => {
+                handleDeactivate(user);
+              }}
             >
               Deactivate
             </Button>
@@ -261,7 +287,12 @@ export function UserManagementTable() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-heading">Users</h2>
-        <Button variant="primary" onClick={() => { setCreateDialogOpen(true); }}>
+        <Button
+          variant="primary"
+          onClick={() => {
+            setCreateDialogOpen(true);
+          }}
+        >
           New user
         </Button>
       </div>

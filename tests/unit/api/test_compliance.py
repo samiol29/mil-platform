@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock  # noqa: TC003
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from fastapi.testclient import TestClient  # noqa: TC002

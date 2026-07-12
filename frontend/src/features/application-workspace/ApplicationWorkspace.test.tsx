@@ -536,7 +536,9 @@ describe('ApplicationWorkspace — AI Case Copilot (spec 005 §8)', () => {
 
     await user.click(await screen.findByText('Ask Copilot about this application'));
 
-    expect(await screen.findByText('No questions asked yet on this application.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No questions asked yet on this application.'),
+    ).toBeInTheDocument();
   });
 
   it('renders history with a grounded answer and a clickable document citation', async () => {

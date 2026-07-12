@@ -22,7 +22,11 @@ import { Button } from '@design-system/components/Button';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { LoadingState } from '@design-system/components/LoadingState';
 import { Textarea } from '@design-system/components/Textarea';
-import { useCopilotHistory, useLatestCopilotSession, useSubmitCopilotQuery } from '@entities/copilot/queries';
+import {
+  useCopilotHistory,
+  useLatestCopilotSession,
+  useSubmitCopilotQuery,
+} from '@entities/copilot/queries';
 import type { Citation } from '@entities/copilot/types';
 import type { DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 
@@ -43,7 +47,8 @@ function CitationChip({
     );
   }
 
-  const pageNumber = citation.locator !== null && /^\d+$/.test(citation.locator) ? Number(citation.locator) : 1;
+  const pageNumber =
+    citation.locator !== null && /^\d+$/.test(citation.locator) ? Number(citation.locator) : 1;
 
   return (
     <button
@@ -81,7 +86,11 @@ export function CopilotPanel({
     if (question.trim().length === 0) return;
     submitQuery.mutate(
       { applicationId, question, ...(sessionId !== null ? { sessionId } : {}) },
-      { onSuccess: () => { setQuestion(''); } },
+      {
+        onSuccess: () => {
+          setQuestion('');
+        },
+      },
     );
   };
 
@@ -89,11 +98,15 @@ export function CopilotPanel({
     <div className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-3 p-4">
       <button
         type="button"
-        onClick={() => { setExpanded((v) => !v); }}
+        onClick={() => {
+          setExpanded((v) => !v);
+        }}
         className="flex items-center gap-2 text-left outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
       >
         <MessageCircleQuestion size={18} />
-        <span className="text-label text-text-primary font-medium">Ask Copilot about this application</span>
+        <span className="text-label text-text-primary font-medium">
+          Ask Copilot about this application
+        </span>
       </button>
 
       {expanded && (
@@ -141,14 +154,18 @@ export function CopilotPanel({
             <Textarea
               aria-label="Ask a question about this application"
               value={question}
-              onChange={(e) => { setQuestion(e.target.value); }}
+              onChange={(e) => {
+                setQuestion(e.target.value);
+              }}
               placeholder="What evidence supports the income finding?"
               rows={2}
             />
             <div className="flex items-center justify-between gap-2">
               {submitQuery.isError && (
                 <p className="text-caption text-feedback-error-fg">
-                  {submitQuery.error instanceof Error ? submitQuery.error.message : 'Failed to ask Copilot'}
+                  {submitQuery.error instanceof Error
+                    ? submitQuery.error.message
+                    : 'Failed to ask Copilot'}
                 </p>
               )}
               <Button

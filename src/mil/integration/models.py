@@ -47,9 +47,7 @@ class LOSConnection(Base):
     tenant_id: Mapped[UUID] = mapped_column(nullable=False)
     vendor_type: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
-    created_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
@@ -103,16 +101,12 @@ class LOSSyncEvent(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID] = mapped_column(nullable=False)
-    application_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.applications.id"), nullable=False
-    )
+    application_id: Mapped[UUID] = mapped_column(ForeignKey("core.applications.id"), nullable=False)
     direction: Mapped[str] = mapped_column(String(20), nullable=False)
     outcome: Mapped[str] = mapped_column(String(20), nullable=False)
     detail: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    initiated_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    initiated_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )

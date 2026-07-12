@@ -370,9 +370,7 @@ class ReviewService:
     # `PolicyService`'s new maker-checker methods in this same wave.
     # ------------------------------------------------------------------
 
-    def get_session_for_finding(
-        self, caller: AuthenticatedUser, finding_id: UUID
-    ) -> ReviewSession:
+    def get_session_for_finding(self, caller: AuthenticatedUser, finding_id: UUID) -> ReviewSession:
         require_permission(caller, Permission.COMMENT_ON_FINDING)
         session = self._repo.get_session_for_finding(finding_id)
         if session is None or session.tenant_id != caller.tenant_id:

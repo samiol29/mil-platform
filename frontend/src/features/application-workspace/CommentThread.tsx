@@ -54,7 +54,13 @@ function CommentRow({ comment, findingId }: { comment: ReviewComment; findingId:
     <li className="flex flex-col gap-1">
       {editing ? (
         <div className="flex flex-col gap-1.5">
-          <Textarea value={draft} onChange={(e) => { setDraft(e.target.value); }} rows={2} />
+          <Textarea
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+            }}
+            rows={2}
+          />
           <div className="flex items-center gap-2">
             <Button
               variant="primary"
@@ -64,7 +70,9 @@ function CommentRow({ comment, findingId }: { comment: ReviewComment; findingId:
                 editComment.mutate(
                   { findingId, commentId: comment.id, commentText: draft },
                   {
-                    onSuccess: () => { setEditing(false); },
+                    onSuccess: () => {
+                      setEditing(false);
+                    },
                     onError: (error: unknown) =>
                       addToast({
                         title: 'Failed to save edit',
@@ -77,7 +85,13 @@ function CommentRow({ comment, findingId }: { comment: ReviewComment; findingId:
             >
               Save
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => { setEditing(false); }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+              }}
+            >
               Cancel
             </Button>
           </div>
@@ -93,7 +107,9 @@ function CommentRow({ comment, findingId }: { comment: ReviewComment; findingId:
             {isAuthor && canStillEdit(comment) && (
               <button
                 type="button"
-                onClick={() => { setEditing(true); }}
+                onClick={() => {
+                  setEditing(true);
+                }}
                 className="text-caption text-text-secondary hover:text-text-primary outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
               >
                 Edit
@@ -163,7 +179,9 @@ export function CommentThread({ findingId }: { findingId: string }) {
         <Textarea
           aria-label="Add a comment"
           value={draft}
-          onChange={(e) => { setDraft(e.target.value); }}
+          onChange={(e) => {
+            setDraft(e.target.value);
+          }}
           placeholder="Ask a question or leave a note about this finding…"
           rows={2}
         />
@@ -177,7 +195,9 @@ export function CommentThread({ findingId }: { findingId: string }) {
             postComment.mutate(
               { findingId, commentText: draft },
               {
-                onSuccess: () => { setDraft(''); },
+                onSuccess: () => {
+                  setDraft('');
+                },
                 onError: (error: unknown) =>
                   addToast({
                     title: 'Failed to post comment',

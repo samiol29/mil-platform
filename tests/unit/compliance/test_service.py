@@ -64,7 +64,9 @@ def _compliance_officer(tenant_id: object) -> AuthenticatedUser:
 
 
 def _readonly_caller(tenant_id: object) -> AuthenticatedUser:
-    return AuthenticatedUser(user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.CREDIT_ANALYST}))
+    return AuthenticatedUser(
+        user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.CREDIT_ANALYST})
+    )
 
 
 class TestSetRetentionPolicy:
@@ -90,10 +92,18 @@ class TestSetRetentionPolicy:
         caller = _compliance_officer(tenant_id)
 
         first = service.set_retention_policy(
-            caller, tenant_id=tenant_id, data_category="DOCUMENT", retention_period_days=365, action="ARCHIVE"
+            caller,
+            tenant_id=tenant_id,
+            data_category="DOCUMENT",
+            retention_period_days=365,
+            action="ARCHIVE",
         )
         second = service.set_retention_policy(
-            caller, tenant_id=tenant_id, data_category="DOCUMENT", retention_period_days=730, action="ARCHIVE"
+            caller,
+            tenant_id=tenant_id,
+            data_category="DOCUMENT",
+            retention_period_days=730,
+            action="ARCHIVE",
         )
         assert second.id == first.id
         assert second.retention_period_days == 730

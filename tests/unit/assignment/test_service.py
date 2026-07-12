@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
 
-from mil.assignment.models import Assignment, AssignmentHistory
 from mil.assignment.service import AssignmentService
 from mil.kernel.errors import AuthorizationError
 from mil.kernel.security import AuthenticatedUser, Role
+
+if TYPE_CHECKING:
+    from mil.assignment.models import Assignment, AssignmentHistory
 
 
 class FakeAssignmentRepository:
@@ -53,7 +56,9 @@ def _make_service() -> tuple[AssignmentService, FakeAssignmentRepository, FakeAu
 
 def _rm_caller(tenant_id: object, user_id: object | None = None) -> AuthenticatedUser:
     return AuthenticatedUser(
-        user_id=user_id or uuid4(), tenant_id=tenant_id, roles=frozenset({Role.RELATIONSHIP_MANAGER})
+        user_id=user_id or uuid4(),
+        tenant_id=tenant_id,
+        roles=frozenset({Role.RELATIONSHIP_MANAGER}),
     )
 
 
@@ -110,7 +115,7 @@ class TestSetAssignment:
 
 class TestGetPortfolio:
     def test_returns_only_callers_own_applications(self) -> None:
-        service, repo, _ = _make_service()
+        service, _repo, _ = _make_service()
         tenant_id = uuid4()
         owner_id = uuid4()
         caller = _rm_caller(tenant_id, owner_id)
@@ -120,7 +125,10 @@ class TestGetPortfolio:
         )
         other_caller = _rm_caller(tenant_id)
         service.set_assignment(
-            other_caller, application_id=uuid4(), tenant_id=tenant_id, owner_user_id=other_caller.user_id
+            other_caller,
+            application_id=uuid4(),
+            tenant_id=tenant_id,
+            owner_user_id=other_caller.user_id,
         )
 
         portfolio = service.get_portfolio(caller)

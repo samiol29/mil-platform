@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock  # noqa: TC003
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from fastapi.testclient import TestClient  # noqa: TC002
@@ -53,10 +53,10 @@ class TestGetChecklist:
         assert response.status_code == 200
         assert len(response.json()["items"]) == 1
 
-    def test_not_found_returns_404(self, client: TestClient, mock_portal_workspace: MagicMock) -> None:
-        mock_portal_workspace.get_checklist_for_claims.side_effect = NotFoundError(
-            "Party", uuid4()
-        )
+    def test_not_found_returns_404(
+        self, client: TestClient, mock_portal_workspace: MagicMock
+    ) -> None:
+        mock_portal_workspace.get_checklist_for_claims.side_effect = NotFoundError("Party", uuid4())
         response = client.get("/v1/portal/checklist")
         assert response.status_code == 404
 

@@ -187,7 +187,8 @@ class PolicyRepository:
             .group_by(PolicyResult.policy_version, PolicyResult.outcome)
         )
         return [
-            (version, outcome, int(count)) for version, outcome, count in self._session.execute(stmt).all()
+            (version, outcome, int(count))
+            for version, outcome, count in self._session.execute(stmt).all()
         ]
 
     # ------------------------------------------------------------------

@@ -125,7 +125,9 @@ export function useSubmitPolicyPackForApproval() {
       return policyPackApprovalSchema.parse(response.data);
     },
     onSuccess: async (_data, policyPackId) => {
-      await queryClient.invalidateQueries({ queryKey: ['policy-packs', policyPackId, 'approvals'] });
+      await queryClient.invalidateQueries({
+        queryKey: ['policy-packs', policyPackId, 'approvals'],
+      });
     },
   });
 }

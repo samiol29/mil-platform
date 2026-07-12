@@ -47,7 +47,9 @@ def _notification_response(
     )
 
 
-@router.get("", summary="List the caller's own notifications", response_model=NotificationListResponse)
+@router.get(
+    "", summary="List the caller's own notifications", response_model=NotificationListResponse
+)
 def list_notifications(
     user: CurrentUser, workspace: NotificationWorkspaceDep
 ) -> NotificationListResponse:

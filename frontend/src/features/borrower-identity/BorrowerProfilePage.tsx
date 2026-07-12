@@ -61,7 +61,9 @@ export function BorrowerProfilePage({ partyId }: BorrowerProfilePageProps) {
     return (
       <ErrorState
         title="Failed to load borrower identity"
-        description={identityQuery.error instanceof Error ? identityQuery.error.message : 'Unknown error'}
+        description={
+          identityQuery.error instanceof Error ? identityQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void identityQuery.refetch()}
       />
     );
@@ -87,7 +89,9 @@ function UnresolvedIdentity({ partyId }: { partyId: string }) {
     return (
       <ErrorState
         title="Failed to load match candidates"
-        description={candidatesQuery.error instanceof Error ? candidatesQuery.error.message : 'Unknown error'}
+        description={
+          candidatesQuery.error instanceof Error ? candidatesQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void candidatesQuery.refetch()}
       />
     );
@@ -178,7 +182,9 @@ function ResolvedIdentity({ identityId }: { identityId: string }) {
     return (
       <ErrorState
         title="Failed to load borrower identity"
-        description={identityQuery.error instanceof Error ? identityQuery.error.message : 'Unknown error'}
+        description={
+          identityQuery.error instanceof Error ? identityQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void identityQuery.refetch()}
       />
     );
@@ -187,7 +193,9 @@ function ResolvedIdentity({ identityId }: { identityId: string }) {
     return (
       <ErrorState
         title="Failed to load linked applications"
-        description={membersQuery.error instanceof Error ? membersQuery.error.message : 'Unknown error'}
+        description={
+          membersQuery.error instanceof Error ? membersQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void membersQuery.refetch()}
       />
     );
@@ -196,7 +204,9 @@ function ResolvedIdentity({ identityId }: { identityId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 className="text-heading">{identityQuery.data.primaryDisplayName || 'Borrower Profile'}</h2>
+        <h2 className="text-heading">
+          {identityQuery.data.primaryDisplayName || 'Borrower Profile'}
+        </h2>
         <p className="text-caption text-text-tertiary">
           Resolved identity — {membersQuery.data.items.length} linked application
           {membersQuery.data.items.length === 1 ? '' : 's'}
@@ -204,7 +214,11 @@ function ResolvedIdentity({ identityId }: { identityId: string }) {
       </div>
       <ul className="flex flex-col gap-1" aria-label="Linked applications">
         {membersQuery.data.items.map((member) => (
-          <LinkedApplicationRow key={member.id} applicationId={member.applicationId} linkedAt={member.linkedAt} />
+          <LinkedApplicationRow
+            key={member.id}
+            applicationId={member.applicationId}
+            linkedAt={member.linkedAt}
+          />
         ))}
       </ul>
       <CrossApplicationSignals identityId={identityId} />
@@ -227,7 +241,9 @@ function CrossApplicationSignals({ identityId }: { identityId: string }) {
     return (
       <ErrorState
         title="Failed to load cross-application signals"
-        description={signalsQuery.error instanceof Error ? signalsQuery.error.message : 'Unknown error'}
+        description={
+          signalsQuery.error instanceof Error ? signalsQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void signalsQuery.refetch()}
       />
     );
@@ -272,7 +288,8 @@ function LinkedApplicationRow({
   const applicationQuery = useApplication(applicationId);
   const navigate = useNavigate();
 
-  const label = applicationQuery.data?.loanNumber ?? applicationQuery.data?.losReference ?? applicationId;
+  const label =
+    applicationQuery.data?.loanNumber ?? applicationQuery.data?.losReference ?? applicationId;
 
   return (
     <li className="bg-surface-raised shadow-raised rounded-container flex items-center justify-between p-3">

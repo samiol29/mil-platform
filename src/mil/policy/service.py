@@ -243,9 +243,7 @@ class PolicyService:
         )
         return approval
 
-    def activate_pack_if_approved(
-        self, caller: AuthenticatedUser, pack: PolicyPack
-    ) -> PolicyPack:
+    def activate_pack_if_approved(self, caller: AuthenticatedUser, pack: PolicyPack) -> PolicyPack:
         """
         Activate a Policy Pack, gated on an ``APPROVED`` approval existing for
         it — the maker-checker gate in front of the existing

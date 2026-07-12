@@ -45,7 +45,9 @@ export function LOSSyncPanel({ application }: { application: Application }) {
     <div className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-3 p-4">
       <button
         type="button"
-        onClick={() => { setExpanded((v) => !v); }}
+        onClick={() => {
+          setExpanded((v) => !v);
+        }}
         className="flex items-center gap-2 text-left outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
       >
         <span className="text-label text-text-primary font-medium">
@@ -69,7 +71,11 @@ export function LOSSyncPanel({ application }: { application: Application }) {
                       ...(event.errorMessage !== null ? { description: event.errorMessage } : {}),
                     }),
                   onError: (error: unknown) =>
-                    addToast({ title: 'Sync failed', description: errorMessage(error), variant: 'error' }),
+                    addToast({
+                      title: 'Sync failed',
+                      description: errorMessage(error),
+                      variant: 'error',
+                    }),
                 });
               }}
             >
@@ -81,7 +87,9 @@ export function LOSSyncPanel({ application }: { application: Application }) {
             <Textarea
               aria-label="Readiness summary"
               value={summary}
-              onChange={(e) => { setSummary(e.target.value); }}
+              onChange={(e) => {
+                setSummary(e.target.value);
+              }}
               placeholder="Ready for underwriting — all required documents received."
               rows={2}
             />
@@ -97,14 +105,21 @@ export function LOSSyncPanel({ application }: { application: Application }) {
                     {
                       onSuccess: (event) => {
                         addToast({
-                          title: event.outcome === 'SUCCESS' ? 'Readiness pushed to LOS' : 'Push failed',
+                          title:
+                            event.outcome === 'SUCCESS' ? 'Readiness pushed to LOS' : 'Push failed',
                           variant: event.outcome === 'SUCCESS' ? 'success' : 'error',
-                          ...(event.errorMessage !== null ? { description: event.errorMessage } : {}),
+                          ...(event.errorMessage !== null
+                            ? { description: event.errorMessage }
+                            : {}),
                         });
                         setSummary('');
                       },
                       onError: (error: unknown) =>
-                        addToast({ title: 'Push failed', description: errorMessage(error), variant: 'error' }),
+                        addToast({
+                          title: 'Push failed',
+                          description: errorMessage(error),
+                          variant: 'error',
+                        }),
                     },
                   );
                 }}
@@ -117,8 +132,17 @@ export function LOSSyncPanel({ application }: { application: Application }) {
           {eventsQuery.data !== undefined && eventsQuery.data.items.length > 0 && (
             <ul className="flex flex-col gap-1">
               {eventsQuery.data.items.slice(0, 5).map((event) => (
-                <li key={event.id} className="text-caption text-text-secondary flex items-center gap-2">
-                  <span className={event.outcome === 'SUCCESS' ? 'text-feedback-success-fg' : 'text-feedback-error-fg'}>
+                <li
+                  key={event.id}
+                  className="text-caption text-text-secondary flex items-center gap-2"
+                >
+                  <span
+                    className={
+                      event.outcome === 'SUCCESS'
+                        ? 'text-feedback-success-fg'
+                        : 'text-feedback-error-fg'
+                    }
+                  >
                     {event.direction} · {event.outcome}
                   </span>
                   <span className="text-text-tertiary">

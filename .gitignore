@@ -35,6 +35,9 @@ frontend/*.local
 logs/
 *.log
 
+# Local dev launcher state (scripts/dev-up.sh / dev-down.sh / status.sh)
+.dev/
+
 # macOS
 .DS_Store
 .AppleDouble

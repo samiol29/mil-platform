@@ -9,7 +9,8 @@ import pytest
 from mil.identity.models import ApiKey, Role, RoleAssignment, TenantConfiguration, User
 from mil.identity.service import IdentityService
 from mil.kernel.errors import AuthorizationError, NotFoundError
-from mil.kernel.security import AuthenticatedUser, Permission, Role as KernelRole
+from mil.kernel.security import AuthenticatedUser
+from mil.kernel.security import Role as KernelRole
 
 
 class FakeIdentityRepository:
@@ -55,7 +56,9 @@ class FakeIdentityRepository:
     def save_tenant_configuration(self, config: TenantConfiguration) -> None:
         self.tenant_configs[(config.tenant_id, config.config_key)] = config
 
-    def get_tenant_configuration(self, tenant_id: object, config_key: str) -> TenantConfiguration | None:
+    def get_tenant_configuration(
+        self, tenant_id: object, config_key: str
+    ) -> TenantConfiguration | None:
         return self.tenant_configs.get((tenant_id, config_key))
 
     def list_tenant_configuration(self, tenant_id: object) -> list[TenantConfiguration]:
@@ -117,7 +120,7 @@ class TestCreateUser:
     def test_non_admin_forbidden(self) -> None:
         service, _, _ = _make_service()
         caller = _readonly_caller(uuid4())
-        with pytest.raises(Exception):  # AuthorizationError
+        with pytest.raises(AuthorizationError):
             service.create_user(
                 caller,
                 external_identity_id="idp-001",
@@ -164,7 +167,7 @@ class TestAssignRole:
             service.assign_role(caller, user=self_user, role_name="ADMIN")
 
     def test_assigning_same_role_twice_is_idempotent(self) -> None:
-        service, repo, audit = _make_service()
+        service, repo, _audit = _make_service()
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
         target = User.create(
@@ -220,7 +223,7 @@ class TestRevokeRole:
 
 class TestTenantConfiguration:
     def test_set_creates_then_updates(self) -> None:
-        service, repo, audit = _make_service()
+        service, _repo, audit = _make_service()
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
 
@@ -239,7 +242,7 @@ class TestTenantConfiguration:
 
 class TestApiKeys:
     def test_create_returns_raw_key_once(self) -> None:
-        service, repo, audit = _make_service()
+        service, _repo, audit = _make_service()
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
 
@@ -252,7 +255,7 @@ class TestApiKeys:
         assert audit.records[-1]["event_type"] == "API_KEY_CREATED"
 
     def test_revoke_marks_invalid(self) -> None:
-        service, repo, audit = _make_service()
+        service, _repo, audit = _make_service()
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
         api_key, _ = service.create_api_key(caller, name="k", scopes=[], ttl_days=1)

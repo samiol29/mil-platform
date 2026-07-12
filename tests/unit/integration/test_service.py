@@ -7,16 +7,19 @@ purpose-built failing adapter to exercise the honest-failure path.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
-from providers.los.mock_los import MockLOSAdapter
 
-from mil.integration.models import LOSConnection, LOSSyncEvent
 from mil.integration.service import IntegrationService
 from mil.kernel.errors import AuthorizationError, ProviderError
 from mil.kernel.providers.los_adapter import ApplicationData, LOSAdapter, ReadinessStatus
 from mil.kernel.security import AuthenticatedUser, Role
+from providers.los.mock_los import MockLOSAdapter
+
+if TYPE_CHECKING:
+    from mil.integration.models import LOSConnection, LOSSyncEvent
 
 
 class AlwaysFailingLOSAdapter(LOSAdapter):
@@ -70,7 +73,9 @@ def _readonly_caller(tenant_id: object) -> AuthenticatedUser:
     )
 
 
-def _make_service(adapter: LOSAdapter) -> tuple[IntegrationService, FakeIntegrationRepository, FakeAuditWriter]:
+def _make_service(
+    adapter: LOSAdapter,
+) -> tuple[IntegrationService, FakeIntegrationRepository, FakeAuditWriter]:
     repo = FakeIntegrationRepository()
     audit = FakeAuditWriter()
     return IntegrationService(repo, audit, adapter), repo, audit  # type: ignore[arg-type]
@@ -78,7 +83,7 @@ def _make_service(adapter: LOSAdapter) -> tuple[IntegrationService, FakeIntegrat
 
 class TestCreateConnection:
     def test_creates_connection(self) -> None:
-        service, repo, audit = _make_service(MockLOSAdapter())
+        service, _repo, audit = _make_service(MockLOSAdapter())
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
 
@@ -96,21 +101,19 @@ class TestCreateConnection:
 
 class TestSyncApplication:
     def test_success_records_inbound_event(self) -> None:
-        service, repo, audit = _make_service(MockLOSAdapter())
+        service, _repo, audit = _make_service(MockLOSAdapter())
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
         app_id = uuid4()
 
-        event = service.sync_application(
-            caller, application_id=app_id, los_reference="LOS-REF-001"
-        )
+        event = service.sync_application(caller, application_id=app_id, los_reference="LOS-REF-001")
 
         assert event.outcome == "SUCCESS"
         assert event.direction == "INBOUND"
         assert audit.records[-1]["event_type"] == "LOS_SYNC_ATTEMPTED"
 
     def test_adapter_failure_is_recorded_not_raised(self) -> None:
-        service, repo, _ = _make_service(AlwaysFailingLOSAdapter())
+        service, _repo, _ = _make_service(AlwaysFailingLOSAdapter())
         caller = _admin_caller(uuid4())
 
         event = service.sync_application(
@@ -123,7 +126,7 @@ class TestSyncApplication:
 
 class TestPushReadiness:
     def test_success_records_outbound_event(self) -> None:
-        service, repo, audit = _make_service(MockLOSAdapter())
+        service, _repo, _audit = _make_service(MockLOSAdapter())
         tenant_id = uuid4()
         caller = _admin_caller(tenant_id)
 

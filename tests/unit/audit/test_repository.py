@@ -42,7 +42,9 @@ class TestGetForApplicationInRange:
         session.scalars.return_value = [fake_event]
 
         result = repo.get_for_application_in_range(
-            uuid4(), from_date=datetime(2026, 1, 1, tzinfo=UTC), to_date=datetime(2026, 2, 1, tzinfo=UTC)
+            uuid4(),
+            from_date=datetime(2026, 1, 1, tzinfo=UTC),
+            to_date=datetime(2026, 2, 1, tzinfo=UTC),
         )
 
         assert result == [fake_event]
@@ -55,7 +57,9 @@ class TestGetForApplicationInRange:
         session.scalars.return_value = []
 
         result = repo.get_for_application_in_range(
-            uuid4(), from_date=datetime(2026, 1, 1, tzinfo=UTC), to_date=datetime(2026, 2, 1, tzinfo=UTC)
+            uuid4(),
+            from_date=datetime(2026, 1, 1, tzinfo=UTC),
+            to_date=datetime(2026, 2, 1, tzinfo=UTC),
         )
 
         assert result == []

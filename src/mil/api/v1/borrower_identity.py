@@ -85,7 +85,10 @@ def _member_response(member: object) -> BorrowerIdentityMemberResponse:
     "/v1/parties/{party_id}/compute-match-candidates",
     summary="Compute and persist identity match candidates for a party",
     response_model=IdentityMatchCandidateListResponse,
-    responses={403: {"description": "Insufficient permissions"}, 404: {"description": "Party not found"}},
+    responses={
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Party not found"},
+    },
 )
 def compute_match_candidates(
     party_id: UUID, user: CurrentUser, workspace: BorrowerIdentityWorkspaceDep
@@ -124,7 +127,10 @@ def get_identity_for_party(
     "/v1/match-candidates/{candidate_id}/confirm",
     summary="Confirm an identity match candidate (creates/extends a BorrowerIdentity)",
     response_model=BorrowerIdentityResponse,
-    responses={403: {"description": "Insufficient permissions"}, 404: {"description": "Candidate not found"}},
+    responses={
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Candidate not found"},
+    },
 )
 def confirm_match(
     candidate_id: UUID, user: CurrentUser, workspace: BorrowerIdentityWorkspaceDep
@@ -137,7 +143,10 @@ def confirm_match(
     "/v1/match-candidates/{candidate_id}/reject",
     summary="Reject an identity match candidate",
     response_model=IdentityMatchCandidateResponse,
-    responses={403: {"description": "Insufficient permissions"}, 404: {"description": "Candidate not found"}},
+    responses={
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Candidate not found"},
+    },
 )
 def reject_match(
     candidate_id: UUID,
@@ -178,7 +187,10 @@ def get_identity_members(
     "/v1/borrower-identities/{identity_id}/cross-application-signals",
     summary="Cross-Application Intelligence observations for a resolved borrower identity",
     response_model=CrossApplicationSignalListResponse,
-    responses={403: {"description": "Insufficient permissions"}, 404: {"description": "Identity not found"}},
+    responses={
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Identity not found"},
+    },
 )
 def get_cross_application_signals(
     identity_id: UUID,

@@ -489,13 +489,13 @@ def client(
         get_cross_application_intelligence_workspace,
         get_current_portal_claims,
         get_evidence_service,
-        get_operational_workspace,
         get_finding_review_actions,
         get_finding_service,
         get_identity_service,
         get_integration_workspace,
         get_notification_service,
         get_notification_workspace,
+        get_operational_workspace,
         get_policy_service,
         get_portal_workspace,
         get_review_service,
@@ -525,15 +525,15 @@ def client(
     app.dependency_overrides[get_search_workspace] = lambda: mock_search_workspace
     app.dependency_overrides[get_notification_service] = lambda: mock_notification_service
     app.dependency_overrides[get_notification_workspace] = lambda: mock_notification_workspace
-    app.dependency_overrides[get_borrower_identity_workspace] = (
-        lambda: mock_borrower_identity_workspace
+    app.dependency_overrides[get_borrower_identity_workspace] = lambda: (
+        mock_borrower_identity_workspace
     )
-    app.dependency_overrides[get_cross_application_intelligence_workspace] = (
-        lambda: mock_cross_application_intelligence_workspace
+    app.dependency_overrides[get_cross_application_intelligence_workspace] = lambda: (
+        mock_cross_application_intelligence_workspace
     )
     app.dependency_overrides[get_operational_workspace] = lambda: mock_operational_workspace
-    app.dependency_overrides[get_business_analytics_workspace] = (
-        lambda: mock_business_analytics_workspace
+    app.dependency_overrides[get_business_analytics_workspace] = lambda: (
+        mock_business_analytics_workspace
     )
     app.dependency_overrides[get_portal_workspace] = lambda: mock_portal_workspace
     app.dependency_overrides[get_current_portal_claims] = lambda: current_portal_claims

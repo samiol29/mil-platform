@@ -44,16 +44,12 @@ class Assignment(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    application_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.applications.id"), nullable=False
-    )
+    application_id: Mapped[UUID] = mapped_column(ForeignKey("core.applications.id"), nullable=False)
     owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     reviewer_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("core.users.id"), nullable=True
     )
-    assigned_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    assigned_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     @classmethod
@@ -88,9 +84,7 @@ class Assignment(Base):
         method only performs the actual mutation.
         """
         if owner_user_id is None and reviewer_user_id is None:
-            raise ValidationError(
-                "At least one of owner_user_id/reviewer_user_id must be provided"
-            )
+            raise ValidationError("At least one of owner_user_id/reviewer_user_id must be provided")
         if owner_user_id is not None:
             self.owner_user_id = owner_user_id
         if reviewer_user_id is not None:
@@ -113,16 +107,12 @@ class AssignmentHistory(Base):
     __table_args__ = ({"schema": "assignment"},)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    application_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.applications.id"), nullable=False
-    )
+    application_id: Mapped[UUID] = mapped_column(ForeignKey("core.applications.id"), nullable=False)
     owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     reviewer_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("core.users.id"), nullable=True
     )
-    assigned_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    assigned_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)

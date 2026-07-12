@@ -32,7 +32,10 @@ import {
 import { useRmPortfolio } from '@entities/assignment/queries';
 
 function ageInDays(createdAt: string): number {
-  return Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24)));
+  return Math.max(
+    0,
+    Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24)),
+  );
 }
 
 export function BankerWorkspacePage() {
@@ -53,7 +56,9 @@ export function BankerWorkspacePage() {
       cell: (info) => {
         const status = info.row.original.status;
         return (
-          <span className={`${APPLICATION_STATUS_CHIP_BASE_CLASS} ${APPLICATION_STATUS_CHIP_CLASS_NAME[status]}`}>
+          <span
+            className={`${APPLICATION_STATUS_CHIP_BASE_CLASS} ${APPLICATION_STATUS_CHIP_CLASS_NAME[status]}`}
+          >
             {APPLICATION_STATUS_LABEL[status]}
           </span>
         );
@@ -84,7 +89,9 @@ export function BankerWorkspacePage() {
     return (
       <ErrorState
         title="Failed to load your portfolio"
-        description={portfolioQuery.error instanceof Error ? portfolioQuery.error.message : 'Unknown error'}
+        description={
+          portfolioQuery.error instanceof Error ? portfolioQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void portfolioQuery.refetch()}
       />
     );

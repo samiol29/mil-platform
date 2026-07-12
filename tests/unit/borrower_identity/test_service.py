@@ -6,7 +6,11 @@ from uuid import uuid4
 
 import pytest
 
-from mil.borrower_identity.models import BorrowerIdentity, BorrowerIdentityMember, IdentityMatchCandidate
+from mil.borrower_identity.models import (
+    BorrowerIdentity,
+    BorrowerIdentityMember,
+    IdentityMatchCandidate,
+)
 from mil.borrower_identity.service import BorrowerIdentityService, PartyMatchInput
 from mil.kernel.errors import AuthorizationError
 from mil.kernel.security import AuthenticatedUser, Role
@@ -53,7 +57,11 @@ class FakeBorrowerIdentityRepository:
         return None
 
     def get_active_members_for_identity(self, identity_id: object) -> list[BorrowerIdentityMember]:
-        return [m for m in self.members if m.borrower_identity_id == identity_id and m.unlinked_at is None]
+        return [
+            m
+            for m in self.members
+            if m.borrower_identity_id == identity_id and m.unlinked_at is None
+        ]
 
 
 class FakeAuditWriter:
@@ -65,18 +73,24 @@ class FakeAuditWriter:
         return object()
 
 
-def _make_service() -> tuple[BorrowerIdentityService, FakeBorrowerIdentityRepository, FakeAuditWriter]:
+def _make_service() -> tuple[
+    BorrowerIdentityService, FakeBorrowerIdentityRepository, FakeAuditWriter
+]:
     repo = FakeBorrowerIdentityRepository()
     audit = FakeAuditWriter()
     return BorrowerIdentityService(repo, audit), repo, audit  # type: ignore[arg-type]
 
 
 def _underwriter(tenant_id: object) -> AuthenticatedUser:
-    return AuthenticatedUser(user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.UNDERWRITER}))
+    return AuthenticatedUser(
+        user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.UNDERWRITER})
+    )
 
 
 def _readonly_caller(tenant_id: object) -> AuthenticatedUser:
-    return AuthenticatedUser(user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.AUDIT_TEAM}))
+    return AuthenticatedUser(
+        user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.AUDIT_TEAM})
+    )
 
 
 class TestComputeCandidates:
@@ -113,9 +127,7 @@ class TestComputeCandidates:
         subject = PartyMatchInput(
             party_id=uuid4(), application_id=uuid4(), display_name="Jane  Smith."
         )
-        other = PartyMatchInput(
-            party_id=uuid4(), application_id=uuid4(), display_name="jane smith"
-        )
+        other = PartyMatchInput(party_id=uuid4(), application_id=uuid4(), display_name="jane smith")
         candidates = service.compute_candidates(
             caller, tenant_id=tenant_id, subject=subject, others=[other]
         )
@@ -127,7 +139,9 @@ class TestComputeCandidates:
         service, _repo, _audit = _make_service()
         tenant_id = uuid4()
         caller = _underwriter(tenant_id)
-        subject = PartyMatchInput(party_id=uuid4(), application_id=uuid4(), display_name="Jane Smith")
+        subject = PartyMatchInput(
+            party_id=uuid4(), application_id=uuid4(), display_name="Jane Smith"
+        )
         other = PartyMatchInput(party_id=uuid4(), application_id=uuid4(), display_name="John Doe")
         candidates = service.compute_candidates(
             caller, tenant_id=tenant_id, subject=subject, others=[other]
@@ -139,8 +153,12 @@ class TestComputeCandidates:
         tenant_id = uuid4()
         caller = _underwriter(tenant_id)
         shared_app = uuid4()
-        subject = PartyMatchInput(party_id=uuid4(), application_id=shared_app, display_name="Jane Smith")
-        other = PartyMatchInput(party_id=uuid4(), application_id=shared_app, display_name="Jane Smith")
+        subject = PartyMatchInput(
+            party_id=uuid4(), application_id=shared_app, display_name="Jane Smith"
+        )
+        other = PartyMatchInput(
+            party_id=uuid4(), application_id=shared_app, display_name="Jane Smith"
+        )
         candidates = service.compute_candidates(
             caller, tenant_id=tenant_id, subject=subject, others=[other]
         )
@@ -150,10 +168,16 @@ class TestComputeCandidates:
         service, _repo, _audit = _make_service()
         tenant_id = uuid4()
         caller = _underwriter(tenant_id)
-        subject = PartyMatchInput(party_id=uuid4(), application_id=uuid4(), display_name="Jane Smith")
+        subject = PartyMatchInput(
+            party_id=uuid4(), application_id=uuid4(), display_name="Jane Smith"
+        )
         other = PartyMatchInput(party_id=uuid4(), application_id=uuid4(), display_name="Jane Smith")
-        first = service.compute_candidates(caller, tenant_id=tenant_id, subject=subject, others=[other])
-        second = service.compute_candidates(caller, tenant_id=tenant_id, subject=subject, others=[other])
+        first = service.compute_candidates(
+            caller, tenant_id=tenant_id, subject=subject, others=[other]
+        )
+        second = service.compute_candidates(
+            caller, tenant_id=tenant_id, subject=subject, others=[other]
+        )
         assert len(first) == 1
         assert second == []
 
@@ -196,7 +220,9 @@ class TestConfirmMatch:
         party_id = uuid4()
         application_id = uuid4()
 
-        existing_identity = BorrowerIdentity.create(tenant_id=tenant_id, primary_display_name="Jane")
+        existing_identity = BorrowerIdentity.create(
+            tenant_id=tenant_id, primary_display_name="Jane"
+        )
         repo.save_identity(existing_identity)
         existing_member = BorrowerIdentityMember.create(
             borrower_identity_id=existing_identity.id,
@@ -225,7 +251,11 @@ class TestRejectMatch:
         tenant_id = uuid4()
         caller = _underwriter(tenant_id)
         candidate = IdentityMatchCandidate.create(
-            tenant_id=tenant_id, party_id=uuid4(), candidate_party_id=uuid4(), match_score=0.65, match_basis={}
+            tenant_id=tenant_id,
+            party_id=uuid4(),
+            candidate_party_id=uuid4(),
+            match_score=0.65,
+            match_basis={},
         )
         repo.save_candidate(candidate)
 

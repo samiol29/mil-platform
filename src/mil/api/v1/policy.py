@@ -155,7 +155,9 @@ def create_policy_pack(
     summary="Get a Policy Pack and its rule catalogue",
     response_model=PolicyPackResponse,
 )
-def get_policy_pack(pack_id: UUID, user: CurrentUser, service: PolicyServiceDep) -> PolicyPackResponse:
+def get_policy_pack(
+    pack_id: UUID, user: CurrentUser, service: PolicyServiceDep
+) -> PolicyPackResponse:
     return _pack_response(service.get_pack(user, pack_id))
 
 

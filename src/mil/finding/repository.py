@@ -125,4 +125,3 @@ class FindingRepository:
             .group_by(Finding.lifecycle_state)
         )
         return [(state, int(count)) for state, count in self._session.execute(stmt).all()]
-

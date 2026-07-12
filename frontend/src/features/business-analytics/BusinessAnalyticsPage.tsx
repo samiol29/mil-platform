@@ -43,7 +43,9 @@ export function BusinessAnalyticsPage() {
     return (
       <ErrorState
         title="Failed to load business analytics"
-        description={snapshotQuery.error instanceof Error ? snapshotQuery.error.message : 'Unknown error'}
+        description={
+          snapshotQuery.error instanceof Error ? snapshotQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void snapshotQuery.refetch()}
       />
     );
@@ -60,7 +62,10 @@ export function BusinessAnalyticsPage() {
         <StatCard label="Findings" value={totalFindings} />
         <StatCard label="Documents" value={snapshot.documentCount} />
         <StatCard label="Evidence Items" value={snapshot.evidenceCount} />
-        <StatCard label="Avg. Review Duration" value={formatDuration(snapshot.averageReviewDurationSeconds)} />
+        <StatCard
+          label="Avg. Review Duration"
+          value={formatDuration(snapshot.averageReviewDurationSeconds)}
+        />
       </div>
 
       <section className="flex flex-col gap-2">
@@ -95,7 +100,8 @@ export function BusinessAnalyticsPage() {
                 <tr key={row.lifecycleState}>
                   <td className="py-1.5">{row.lifecycleState}</td>
                   <td className="py-1.5 text-right tabular-nums">
-                    {row.count} ({totalFindings > 0 ? Math.round((row.count / totalFindings) * 100) : 0}%)
+                    {row.count} (
+                    {totalFindings > 0 ? Math.round((row.count / totalFindings) * 100) : 0}%)
                   </td>
                 </tr>
               ))}
@@ -107,8 +113,8 @@ export function BusinessAnalyticsPage() {
       <section className="flex flex-col gap-2">
         <h2 className="text-heading">Policy Calibration</h2>
         <p className="text-caption text-text-tertiary">
-          Outcome distribution by policy version — helps judge whether a policy pack is flagging
-          too much or too little.
+          Outcome distribution by policy version — helps judge whether a policy pack is flagging too
+          much or too little.
         </p>
         {snapshot.policyOutcomes.length === 0 ? (
           <p className="text-caption text-text-tertiary">No policy evaluations yet.</p>
@@ -135,10 +141,10 @@ export function BusinessAnalyticsPage() {
       </section>
 
       <div className="bg-surface-sunken text-caption text-text-tertiary rounded-container p-3">
-        This is a current-state snapshot, not a historical trend report — this platform does not
-        yet track time-series metrics, so month-over-month or multi-period trends are not
-        available. This view is analytics, not the compliance record; the Audit Timeline remains
-        the authoritative history.
+        This is a current-state snapshot, not a historical trend report — this platform does not yet
+        track time-series metrics, so month-over-month or multi-period trends are not available.
+        This view is analytics, not the compliance record; the Audit Timeline remains the
+        authoritative history.
       </div>
     </div>
   );

@@ -39,7 +39,10 @@ class TestDataRetentionPolicyCreate:
     def test_rejects_delete_for_evidence(self) -> None:
         with pytest.raises(ValidationError):
             DataRetentionPolicy.create(
-                tenant_id=uuid4(), data_category="EVIDENCE", retention_period_days=90, action="DELETE"
+                tenant_id=uuid4(),
+                data_category="EVIDENCE",
+                retention_period_days=90,
+                action="DELETE",
             )
 
     def test_rejects_invalid_action(self) -> None:
@@ -54,7 +57,10 @@ class TestDataRetentionPolicyCreate:
     def test_rejects_non_positive_retention_period(self) -> None:
         with pytest.raises(ValidationError):
             DataRetentionPolicy.create(
-                tenant_id=uuid4(), data_category="DOCUMENT", retention_period_days=0, action="ARCHIVE"
+                tenant_id=uuid4(),
+                data_category="DOCUMENT",
+                retention_period_days=0,
+                action="ARCHIVE",
             )
 
 

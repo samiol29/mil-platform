@@ -9,9 +9,9 @@ from uuid import uuid4
 
 import pytest
 
-from mil.kernel.errors import ConflictError, NotFoundError, ValidationError
+from mil.kernel.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from mil.kernel.providers.policy import PolicyEvaluationResult, TriggeredRule
-from mil.kernel.security import AuthenticatedUser, Permission, Role
+from mil.kernel.security import AuthenticatedUser, Role
 from mil.policy.models import PolicyPack, PolicyPackApproval, PolicyResult
 from mil.policy.service import PolicyService
 
@@ -236,5 +236,5 @@ class TestMakerCheckerWorkflow:
         approval = service.submit_for_approval(drafter, pack)
 
         readonly = _readonly_caller(tenant_id)
-        with pytest.raises(Exception):  # AuthorizationError
+        with pytest.raises(AuthorizationError):
             service.approve_pack(readonly, approval, tenant_id=tenant_id)

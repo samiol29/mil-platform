@@ -151,7 +151,9 @@ class IntegrationService:
         """
         require_permission(caller, Permission.PUSH_LOS_STATUS)
         status = ReadinessStatus(
-            los_reference=los_reference, is_ready=is_ready, summary=summary,
+            los_reference=los_reference,
+            is_ready=is_ready,
+            summary=summary,
             missing_items=missing_items,
         )
         try:

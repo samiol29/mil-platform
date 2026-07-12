@@ -76,7 +76,10 @@ def _user_response(service: IdentityServiceDep, user: CurrentUser, target: User)
     summary="Create a new platform user",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={401: {"description": "Authentication required"}, 403: {"description": "Insufficient permissions"}},
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+    },
 )
 def create_user(
     body: CreateUserRequest,
@@ -195,7 +198,9 @@ def revoke_role(
     summary="List tenant configuration entries",
     response_model=TenantConfigurationListResponse,
 )
-def list_tenant_config(user: CurrentUser, service: IdentityServiceDep) -> TenantConfigurationListResponse:
+def list_tenant_config(
+    user: CurrentUser, service: IdentityServiceDep
+) -> TenantConfigurationListResponse:
     configs = service.list_tenant_configuration(user)
     return TenantConfigurationListResponse(
         items=[
@@ -299,7 +304,9 @@ def list_api_keys(user: CurrentUser, service: IdentityServiceDep) -> ApiKeyListR
     response_model=ApiKeyResponse,
     responses={404: {"description": "API key not found"}},
 )
-def revoke_api_key(api_key_id: UUID, user: CurrentUser, service: IdentityServiceDep) -> ApiKeyResponse:
+def revoke_api_key(
+    api_key_id: UUID, user: CurrentUser, service: IdentityServiceDep
+) -> ApiKeyResponse:
     api_key = service.get_api_key(user, api_key_id)
     revoked = service.revoke_api_key(user, api_key)
     return ApiKeyResponse(

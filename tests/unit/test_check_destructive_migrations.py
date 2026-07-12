@@ -29,7 +29,9 @@ def module():
 
 class TestDestructivePatternDetection:
     def test_drop_table_is_flagged(self, module) -> None:
-        matches = [p.pattern for p in module._DESTRUCTIVE_PATTERNS if p.search("op.drop_table('foo')")]
+        matches = [
+            p.pattern for p in module._DESTRUCTIVE_PATTERNS if p.search("op.drop_table('foo')")
+        ]
         assert matches
 
     def test_drop_column_is_flagged(self, module) -> None:

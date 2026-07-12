@@ -352,9 +352,7 @@ class PolicyPackApproval(Base):
     policy_pack_id: Mapped[UUID] = mapped_column(
         ForeignKey("policy.policy_packs.id"), nullable=False
     )
-    requested_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    requested_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     decided_by_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("core.users.id"), nullable=True
     )
@@ -408,9 +406,7 @@ class PolicyPackApproval(Base):
         if self.decision != "PENDING":
             raise ConflictError(f"PolicyPackApproval {self.id} has already been decided")
         if decided_by_user_id == self.requested_by_user_id:
-            raise ValidationError(
-                "A user may not reject their own Policy Pack submission."
-            )
+            raise ValidationError("A user may not reject their own Policy Pack submission.")
         if not reason or not reason.strip():
             raise ValidationError("reason must not be empty when rejecting", field="reason")
         self.decision = "REJECTED"
@@ -423,4 +419,6 @@ class PolicyPackApproval(Base):
         return self.decision == "APPROVED"
 
     def __repr__(self) -> str:
-        return f"<PolicyPackApproval id={self.id} pack={self.policy_pack_id} decision={self.decision}>"
+        return (
+            f"<PolicyPackApproval id={self.id} pack={self.policy_pack_id} decision={self.decision}>"
+        )

@@ -30,9 +30,7 @@ class AssignmentService:
         self._repo = repository
         self._audit = audit
 
-    def get_assignment(
-        self, caller: AuthenticatedUser, application_id: UUID
-    ) -> Assignment | None:
+    def get_assignment(self, caller: AuthenticatedUser, application_id: UUID) -> Assignment | None:
         require_permission(caller, Permission.MANAGE_ASSIGNMENT)
         return self._repo.get_for_application(application_id)
 

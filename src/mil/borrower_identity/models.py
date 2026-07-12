@@ -73,7 +73,9 @@ class IdentityMatchCandidate(Base):
         match_basis: dict[str, object],
     ) -> IdentityMatchCandidate:
         if party_id == candidate_party_id:
-            raise ValidationError("A party cannot be matched against itself", field="candidate_party_id")
+            raise ValidationError(
+                "A party cannot be matched against itself", field="candidate_party_id"
+            )
         if not (0.0 <= match_score <= 1.0):
             raise ValidationError("match_score must be between 0.0 and 1.0", field="match_score")
         return cls(
@@ -103,7 +105,9 @@ class IdentityMatchCandidate(Base):
         self.reviewed_at = datetime.now(UTC)
 
     def __repr__(self) -> str:
-        return f"<IdentityMatchCandidate id={self.id} status={self.status} score={self.match_score}>"
+        return (
+            f"<IdentityMatchCandidate id={self.id} status={self.status} score={self.match_score}>"
+        )
 
 
 class BorrowerIdentity(Base):
@@ -155,9 +159,7 @@ class BorrowerIdentityMember(Base):
         ForeignKey("borrower_identity.borrower_identities.id"), nullable=False
     )
     party_id: Mapped[UUID] = mapped_column(ForeignKey("core.parties.id"), nullable=False)
-    application_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.applications.id"), nullable=False
-    )
+    application_id: Mapped[UUID] = mapped_column(ForeignKey("core.applications.id"), nullable=False)
     linked_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     linked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
@@ -196,4 +198,6 @@ class BorrowerIdentityMember(Base):
         return self.unlinked_at is None
 
     def __repr__(self) -> str:
-        return f"<BorrowerIdentityMember identity={self.borrower_identity_id} party={self.party_id}>"
+        return (
+            f"<BorrowerIdentityMember identity={self.borrower_identity_id} party={self.party_id}>"
+        )

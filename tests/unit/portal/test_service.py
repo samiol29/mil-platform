@@ -61,7 +61,9 @@ def _rm_caller(tenant_id: object) -> AuthenticatedUser:
 
 
 def _readonly_caller(tenant_id: object) -> AuthenticatedUser:
-    return AuthenticatedUser(user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.AUDIT_TEAM}))
+    return AuthenticatedUser(
+        user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.AUDIT_TEAM})
+    )
 
 
 class TestCreateChecklistItem:

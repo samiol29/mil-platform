@@ -69,9 +69,7 @@ describe('UserManagementTable', () => {
   });
 
   it('renders the users heading and existing users', async () => {
-    server.use(
-      http.get('/v1/admin/users', () => HttpResponse.json({ items: [SAMPLE_USER] })),
-    );
+    server.use(http.get('/v1/admin/users', () => HttpResponse.json({ items: [SAMPLE_USER] })));
 
     renderAdministration();
 

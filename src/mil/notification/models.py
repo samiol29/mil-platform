@@ -44,9 +44,7 @@ class Notification(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID] = mapped_column(nullable=False)
-    recipient_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    recipient_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     audit_event_id: Mapped[UUID] = mapped_column(
         ForeignKey("audit.audit_events.id"), nullable=False
     )

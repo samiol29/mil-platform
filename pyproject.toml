@@ -59,8 +59,16 @@ dev = [
     "factory-boy>=3.3.0",
     "testcontainers[postgresql,redis]>=4.9.0",
 
-    # Linting and formatting
-    "ruff>=0.8.0",
+    # Linting and formatting. Upper-bounded (unlike this project's other
+    # `>=`-only deps): ruff's own docs state the *formatter* is not covered
+    # by its semver stability guarantee, so a minor-version bump can
+    # silently change formatting output. RC2 hardening found exactly this —
+    # 40 files failed `ruff format --check` in CI despite no local edits,
+    # because `pip install ruff>=0.8.0` resolved a newer formatter version
+    # than whatever last reformatted the tree. Bump this bound deliberately
+    # (and re-run `ruff format .` in the same change) rather than let CI
+    # silently drift again.
+    "ruff>=0.8.0,<0.16.0",
 
     # Type checking
     "mypy>=1.13.0",

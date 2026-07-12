@@ -50,9 +50,7 @@ def search(
     if "application" in requested_kinds:
         require_permission(user, Permission.READ_APPLICATION)
         for app in workspace.search_applications(user.tenant_id, q):
-            results.append(
-                ApplicationSearchResult(application=ApplicationResponse.from_model(app))
-            )
+            results.append(ApplicationSearchResult(application=ApplicationResponse.from_model(app)))
 
     if "document" in requested_kinds:
         require_permission(user, Permission.READ_DOCUMENT)

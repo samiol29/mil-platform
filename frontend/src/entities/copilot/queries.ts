@@ -38,7 +38,9 @@ export function useCopilotHistory(sessionId: string | null) {
   return useQuery<CopilotHistory>({
     queryKey: ['copilot', 'history', sessionId],
     queryFn: async () => {
-      const response = await httpClient.get<unknown>(`/copilot/sessions/${sessionId ?? ''}/history`);
+      const response = await httpClient.get<unknown>(
+        `/copilot/sessions/${sessionId ?? ''}/history`,
+      );
       return copilotHistorySchema.parse(response.data);
     },
     staleTime: STALE_TIME.informational,

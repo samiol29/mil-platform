@@ -25,7 +25,9 @@ function StatRow({ items }: { items: readonly { label: string; value: string | n
       {items.map((item) => (
         <div key={item.label} className="flex-1 px-4 py-3">
           <div className="text-display tabular-nums">{item.value}</div>
-          <div className="text-caption text-text-tertiary tracking-wide uppercase">{item.label}</div>
+          <div className="text-caption text-text-tertiary tracking-wide uppercase">
+            {item.label}
+          </div>
         </div>
       ))}
     </div>
@@ -40,7 +42,9 @@ function QueueDepthSection() {
     return (
       <ErrorState
         title="Failed to load queue depth"
-        description={queueDepthQuery.error instanceof Error ? queueDepthQuery.error.message : 'Unknown error'}
+        description={
+          queueDepthQuery.error instanceof Error ? queueDepthQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void queueDepthQuery.refetch()}
       />
     );
@@ -85,7 +89,9 @@ function PoisonJobsSection() {
     return (
       <ErrorState
         title="Failed to load poison jobs"
-        description={poisonJobsQuery.error instanceof Error ? poisonJobsQuery.error.message : 'Unknown error'}
+        description={
+          poisonJobsQuery.error instanceof Error ? poisonJobsQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void poisonJobsQuery.refetch()}
       />
     );
@@ -109,7 +115,10 @@ function PoisonJobsSection() {
               key={job.id}
               className="bg-feedback-error-bg border-feedback-error-border flex items-start gap-2 rounded-container border p-3"
             >
-              <AlertTriangle className="text-feedback-error-fg mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <AlertTriangle
+                className="text-feedback-error-fg mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
               <div>
                 <p className="text-body font-medium">
                   {job.stepName} — {job.retryCount}/{job.maxRetries} retries exhausted
@@ -134,7 +143,9 @@ function FunnelSection() {
     return (
       <ErrorState
         title="Failed to load application funnel"
-        description={funnelQuery.error instanceof Error ? funnelQuery.error.message : 'Unknown error'}
+        description={
+          funnelQuery.error instanceof Error ? funnelQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void funnelQuery.refetch()}
       />
     );
@@ -172,7 +183,9 @@ function JobQueueHealthSection() {
     return (
       <ErrorState
         title="Failed to load job queue health"
-        description={healthQuery.error instanceof Error ? healthQuery.error.message : 'Unknown error'}
+        description={
+          healthQuery.error instanceof Error ? healthQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void healthQuery.refetch()}
       />
     );
@@ -185,8 +198,8 @@ function JobQueueHealthSection() {
       <h2 className="text-heading">Job Queue Health</h2>
       <p className="text-caption text-text-tertiary">
         Real, process-wide broker counters (spec 005 §14) — not tenant-scoped. Dead-letter jobs
-        exceeded their retry ceiling and require manual investigation; a periodic reaper
-        (deployment configuration, not shown here) recovers jobs stuck after a worker crash.
+        exceeded their retry ceiling and require manual investigation; a periodic reaper (deployment
+        configuration, not shown here) recovers jobs stuck after a worker crash.
       </p>
       <StatRow
         items={[

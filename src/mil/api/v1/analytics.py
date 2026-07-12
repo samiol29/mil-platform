@@ -49,7 +49,9 @@ def get_snapshot(
             for r in snapshot.finding_outcomes
         ],
         policy_outcomes=[
-            PolicyOutcomeRowResponse(policy_version=r.policy_version, outcome=r.outcome, count=r.count)
+            PolicyOutcomeRowResponse(
+                policy_version=r.policy_version, outcome=r.outcome, count=r.count
+            )
             for r in snapshot.policy_outcomes
         ],
         document_count=snapshot.document_count,

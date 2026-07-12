@@ -92,9 +92,7 @@ class TestAssignRole:
         mock_identity_service.assign_role.side_effect = AuthorizationError(
             "A user may not assign a role to themselves (self-escalation prevention)."
         )
-        response = client.post(
-            f"/v1/admin/users/{user.id}/roles", json={"role_name": "ADMIN"}
-        )
+        response = client.post(f"/v1/admin/users/{user.id}/roles", json={"role_name": "ADMIN"})
         assert response.status_code == 403
 
     def test_returns_201_on_success(

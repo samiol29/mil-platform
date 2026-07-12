@@ -61,7 +61,10 @@ describe('PolicyAdministrationPage', () => {
     server.use(
       http.post('/v1/policy-packs', async ({ request }) => {
         capturedBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ ...SAMPLE_PACK, version: capturedBody.version }, { status: 201 });
+        return HttpResponse.json(
+          { ...SAMPLE_PACK, version: capturedBody.version },
+          { status: 201 },
+        );
       }),
     );
 
@@ -83,7 +86,9 @@ describe('PolicyAdministrationPage', () => {
     server.use(http.get('/v1/policy-packs', () => HttpResponse.json({ items: [SAMPLE_PACK] })));
     server.use(
       http.get(`/v1/policy-packs/${SAMPLE_PACK.id}/rules`, () => HttpResponse.json([])),
-      http.get(`/v1/policy-packs/${SAMPLE_PACK.id}/approvals`, () => HttpResponse.json({ items: [] })),
+      http.get(`/v1/policy-packs/${SAMPLE_PACK.id}/approvals`, () =>
+        HttpResponse.json({ items: [] }),
+      ),
     );
     let submitted = false;
     server.use(

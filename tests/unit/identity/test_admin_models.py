@@ -7,8 +7,8 @@ from uuid import uuid4
 
 import pytest
 
-from mil.kernel.errors import ValidationError
 from mil.identity.models import ApiKey, RoleAssignment, TenantConfiguration, User
+from mil.kernel.errors import ValidationError
 
 
 def _make_user(**overrides: object) -> User:
@@ -46,23 +46,17 @@ class TestUser:
 
 class TestRoleAssignment:
     def test_create_is_active(self) -> None:
-        assignment = RoleAssignment.create(
-            user_id=uuid4(), role_id=uuid4(), assigned_by=uuid4()
-        )
+        assignment = RoleAssignment.create(user_id=uuid4(), role_id=uuid4(), assigned_by=uuid4())
         assert assignment.is_active is True
         assert assignment.revoked_at is None
 
     def test_revoke_sets_revoked_at(self) -> None:
-        assignment = RoleAssignment.create(
-            user_id=uuid4(), role_id=uuid4(), assigned_by=uuid4()
-        )
+        assignment = RoleAssignment.create(user_id=uuid4(), role_id=uuid4(), assigned_by=uuid4())
         assignment.revoke()
         assert assignment.is_active is False
 
     def test_revoke_twice_raises(self) -> None:
-        assignment = RoleAssignment.create(
-            user_id=uuid4(), role_id=uuid4(), assigned_by=uuid4()
-        )
+        assignment = RoleAssignment.create(user_id=uuid4(), role_id=uuid4(), assigned_by=uuid4())
         assignment.revoke()
         with pytest.raises(ValidationError):
             assignment.revoke()

@@ -16,7 +16,11 @@ import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { Skeleton } from '@design-system/components/LoadingState';
 import type { ChecklistItem } from '@entities/portal/types';
-import { usePortalChecklist, usePortalStatus, useUploadForChecklistItem } from '@entities/portal/queries';
+import {
+  usePortalChecklist,
+  usePortalStatus,
+  useUploadForChecklistItem,
+} from '@entities/portal/queries';
 
 const ITEM_STATUS_COPY: Record<ChecklistItem['status'], string> = {
   REQUESTED: 'Please upload this when ready',
@@ -113,9 +117,7 @@ function ChecklistItemCard({ item }: { item: ChecklistItem }) {
         </div>
       )}
       {uploadMutation.isError && (
-        <p className="text-caption text-feedback-error-fg">
-          Upload failed — please try again.
-        </p>
+        <p className="text-caption text-feedback-error-fg">Upload failed — please try again.</p>
       )}
     </li>
   );

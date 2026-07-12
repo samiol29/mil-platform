@@ -45,7 +45,9 @@ export function NotificationBell() {
       <Button
         variant="secondary"
         size="sm"
-        onClick={() => { setOpen((v) => !v); }}
+        onClick={() => {
+          setOpen((v) => !v);
+        }}
         aria-label={`Notifications${unreadCount > 0 ? ` (${String(unreadCount)} unread)` : ''}`}
       >
         <Bell className="size-3.5" aria-hidden="true" />

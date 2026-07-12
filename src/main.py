@@ -38,8 +38,8 @@ from mil.api.v1.audit import router as audit_router
 from mil.api.v1.auth import router as auth_router
 from mil.api.v1.borrower_identity import router as borrower_identity_router
 from mil.api.v1.checklist import router as checklist_router
-from mil.api.v1.compliance import router as compliance_router
 from mil.api.v1.comments import router as comments_router
+from mil.api.v1.compliance import router as compliance_router
 from mil.api.v1.copilot import application_copilot_router
 from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
@@ -50,10 +50,10 @@ from mil.api.v1.integrations import router as integrations_router
 from mil.api.v1.notifications import router as notifications_router
 from mil.api.v1.operational import router as operational_router
 from mil.api.v1.ops import router as ops_router
-from mil.api.v1.portal import router as portal_router
 from mil.api.v1.policy import application_policy_router
 from mil.api.v1.policy import approvals_router as policy_approvals_router
 from mil.api.v1.policy import router as policy_router
+from mil.api.v1.portal import router as portal_router
 from mil.api.v1.search import router as search_router
 from mil.identity.dev_seed import seed_development_identity
 from mil.identity.provider import DevBearerIdentityProvider, IdentityProvider

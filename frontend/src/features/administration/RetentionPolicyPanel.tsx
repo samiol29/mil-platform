@@ -33,7 +33,9 @@ export function RetentionPolicyPanel() {
     return (
       <ErrorState
         title="Failed to load retention policies"
-        description={policiesQuery.error instanceof Error ? policiesQuery.error.message : 'Unknown error'}
+        description={
+          policiesQuery.error instanceof Error ? policiesQuery.error.message : 'Unknown error'
+        }
         onRetry={() => void policiesQuery.refetch()}
       />
     );

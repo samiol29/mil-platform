@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
 
 from mil.kernel.errors import NotFoundError
 from mil.kernel.security import AuthenticatedUser, Role
-from mil.notification.models import Notification
 from mil.notification.service import NotificationService
+
+if TYPE_CHECKING:
+    from mil.notification.models import Notification
 
 
 class FakeNotificationRepository:
@@ -22,7 +25,9 @@ class FakeNotificationRepository:
     def get_by_id(self, notification_id: object) -> Notification | None:
         return self.notifications.get(notification_id)
 
-    def get_for_recipient(self, recipient_user_id: object, *, limit: int = 50) -> list[Notification]:
+    def get_for_recipient(
+        self, recipient_user_id: object, *, limit: int = 50
+    ) -> list[Notification]:
         return [n for n in self.notifications.values() if n.recipient_user_id == recipient_user_id]
 
     def get_unread_count(self, recipient_user_id: object) -> int:
@@ -46,7 +51,7 @@ def _make_service() -> tuple[NotificationService, FakeNotificationRepository]:
 
 class TestNotify:
     def test_creates_notification_pointing_at_audit_event(self) -> None:
-        service, repo = _make_service()
+        service, _repo = _make_service()
         tenant_id, recipient, audit_event_id = uuid4(), uuid4(), uuid4()
 
         notification = service.notify(
@@ -59,7 +64,7 @@ class TestNotify:
 
 class TestListForCaller:
     def test_only_returns_callers_own_notifications(self) -> None:
-        service, repo = _make_service()
+        service, _repo = _make_service()
         tenant_id = uuid4()
         recipient_id = uuid4()
         caller = _caller(tenant_id, recipient_id)
@@ -73,7 +78,7 @@ class TestListForCaller:
 
 class TestMarkRead:
     def test_marks_own_notification_read(self) -> None:
-        service, repo = _make_service()
+        service, _repo = _make_service()
         tenant_id, recipient = uuid4(), uuid4()
         caller = _caller(tenant_id, recipient)
         notification = service.notify(
@@ -85,7 +90,7 @@ class TestMarkRead:
         assert marked.is_read is True
 
     def test_cannot_mark_someone_elses_notification_read(self) -> None:
-        service, repo = _make_service()
+        service, _repo = _make_service()
         tenant_id = uuid4()
         notification = service.notify(
             tenant_id=tenant_id, recipient_user_id=uuid4(), audit_event_id=uuid4()

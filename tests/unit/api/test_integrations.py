@@ -12,22 +12,20 @@ from mil.kernel.errors import NotFoundError, ValidationError
 
 
 class TestCreateConnection:
-    def test_returns_201(
-        self, client: TestClient, mock_integration_workspace: MagicMock
-    ) -> None:
+    def test_returns_201(self, client: TestClient, mock_integration_workspace: MagicMock) -> None:
         connection = LOSConnection.create(
             tenant_id=uuid4(), vendor_type="encompass", created_by_user_id=uuid4()
         )
         mock_integration_workspace.service.create_connection.return_value = connection
-        response = client.post("/v1/integrations/los/connections", json={"vendor_type": "encompass"})
+        response = client.post(
+            "/v1/integrations/los/connections", json={"vendor_type": "encompass"}
+        )
         assert response.status_code == 201
         assert response.json()["vendor_type"] == "encompass"
 
 
 class TestSyncApplication:
-    def test_returns_200(
-        self, client: TestClient, mock_integration_workspace: MagicMock
-    ) -> None:
+    def test_returns_200(self, client: TestClient, mock_integration_workspace: MagicMock) -> None:
         event = LOSSyncEvent.create(
             tenant_id=uuid4(),
             application_id=uuid4(),
@@ -60,9 +58,7 @@ class TestSyncApplication:
 
 
 class TestPushReadiness:
-    def test_returns_200(
-        self, client: TestClient, mock_integration_workspace: MagicMock
-    ) -> None:
+    def test_returns_200(self, client: TestClient, mock_integration_workspace: MagicMock) -> None:
         event = LOSSyncEvent.create(
             tenant_id=uuid4(),
             application_id=uuid4(),

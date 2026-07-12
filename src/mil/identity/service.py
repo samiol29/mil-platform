@@ -197,9 +197,7 @@ class IdentityService:
         require_permission(caller, Permission.MANAGE_ROLES)
         assignment = self._repo.get_active_assignment(user.id, role_id)
         if assignment is None:
-            raise NotFoundError(
-                "RoleAssignment", f"user={user.id} role={role_id}"
-            )
+            raise NotFoundError("RoleAssignment", f"user={user.id} role={role_id}")
         assignment.revoke()
         self._repo.save_role_assignment(assignment)
         self._audit.record(

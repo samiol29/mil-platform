@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock  # noqa: TC003
+from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient  # noqa: TC002
 
@@ -11,9 +11,7 @@ from mil.kernel.errors import AuthorizationError
 
 
 class TestGetQueueDepth:
-    def test_returns_200(
-        self, client: TestClient, mock_operational_workspace: MagicMock
-    ) -> None:
+    def test_returns_200(self, client: TestClient, mock_operational_workspace: MagicMock) -> None:
         mock_operational_workspace.get_queue_depth.return_value = [
             QueueDepthRow(workflow_type="DOCUMENT_INGESTION", status="PENDING", count=3)
         ]
@@ -34,9 +32,7 @@ class TestGetQueueDepth:
 
 
 class TestGetPoisonJobs:
-    def test_returns_200(
-        self, client: TestClient, mock_operational_workspace: MagicMock
-    ) -> None:
+    def test_returns_200(self, client: TestClient, mock_operational_workspace: MagicMock) -> None:
         from datetime import UTC, datetime
         from uuid import uuid4
 
@@ -58,9 +54,7 @@ class TestGetPoisonJobs:
 
 
 class TestGetFunnel:
-    def test_returns_200(
-        self, client: TestClient, mock_operational_workspace: MagicMock
-    ) -> None:
+    def test_returns_200(self, client: TestClient, mock_operational_workspace: MagicMock) -> None:
         mock_operational_workspace.get_funnel.return_value = [
             ApplicationFunnelRow(status="DRAFT", count=2, avg_seconds_since_updated=3600.0)
         ]
@@ -72,9 +66,7 @@ class TestGetFunnel:
 
 
 class TestGetJobQueueHealth:
-    def test_returns_200(
-        self, client: TestClient, mock_operational_workspace: MagicMock
-    ) -> None:
+    def test_returns_200(self, client: TestClient, mock_operational_workspace: MagicMock) -> None:
         from mil.api.deps import JobQueueHealth
 
         mock_operational_workspace.get_job_queue_health.return_value = JobQueueHealth(
@@ -82,4 +74,8 @@ class TestGetJobQueueHealth:
         )
         response = client.get("/v1/operational/job-queue-health")
         assert response.status_code == 200
-        assert response.json() == {"pending_count": 3, "processing_count": 1, "dead_letter_count": 0}
+        assert response.json() == {
+            "pending_count": 3,
+            "processing_count": 1,
+            "dead_letter_count": 0,
+        }

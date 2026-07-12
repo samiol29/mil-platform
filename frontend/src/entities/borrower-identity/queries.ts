@@ -84,9 +84,7 @@ export function useConfirmMatch() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (candidateId: string): Promise<BorrowerIdentity> => {
-      const response = await httpClient.post<unknown>(
-        `/match-candidates/${candidateId}/confirm`,
-      );
+      const response = await httpClient.post<unknown>(`/match-candidates/${candidateId}/confirm`);
       return borrowerIdentitySchema.parse(response.data);
     },
     onSuccess: async () => {

@@ -7,6 +7,21 @@ intentionally left out of the MVP and why, and what's realistically next —
 so future work builds on an accurate picture of the system rather than
 re-discovering these boundaries from scratch.
 
+> **Note (2026-07-12)**: this document describes the original MVP scope
+> (single-application underwriting journey) and predates the Enterprise
+> Platform expansion (`specs/005-enterprise-platform/spec.md`, 17 modules —
+> Waves 1–4: Policy Engine/Administration, AI Copilot, Collaboration, RM
+> Workspace, LOS Integration, Universal Search, Notifications, Borrower
+> Identity Resolution, Cross-Application Intelligence, Operational
+> Dashboard, Business Analytics, Customer Portal, Security & Compliance,
+> Production Infrastructure, Deployment Architecture, Enterprise
+> Administration). Most of the "Deferred by design" items below were
+> resolved by that later work — see the spec file's own per-section
+> implementation-correction notes for what was actually built vs. adjusted
+> from the original wording, and `docs/deployment/RC2_HARDENING_REPORT.md`
+> for the most recent stabilization pass. This file is left as-is below
+> (a historical record of the MVP's own reasoning), not rewritten.
+
 Nothing in this document is implemented. It is a record of intent.
 
 ---

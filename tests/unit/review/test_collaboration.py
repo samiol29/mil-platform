@@ -164,7 +164,7 @@ class TestPostComment:
         assert audit.records[-1]["event_type"] == "REVIEW_COMMENT_ADDED"
 
     def test_no_review_session_yet_raises_not_found(self) -> None:
-        service, repo, _ = _make_service()
+        service, _repo, _ = _make_service()
         caller = _admin_caller(uuid4())
 
         with pytest.raises(NotFoundError):

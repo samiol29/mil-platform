@@ -142,9 +142,7 @@ class Role(Base):
     )
 
     @classmethod
-    def create(
-        cls, *, tenant_id: UUID, name: str, description: str | None = None
-    ) -> Role:
+    def create(cls, *, tenant_id: UUID, name: str, description: str | None = None) -> Role:
         """
         Create a tenant-scoped Role record.
 
@@ -277,9 +275,7 @@ class TenantConfiguration(Base):
     tenant_id: Mapped[UUID] = mapped_column(nullable=False)
     config_key: Mapped[str] = mapped_column(String(255), nullable=False)
     config_value: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
-    updated_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    updated_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
@@ -304,9 +300,7 @@ class TenantConfiguration(Base):
             updated_at=datetime.now(UTC),
         )
 
-    def update_value(
-        self, config_value: dict[str, object], updated_by_user_id: UUID
-    ) -> None:
+    def update_value(self, config_value: dict[str, object], updated_by_user_id: UUID) -> None:
         self.config_value = config_value
         self.updated_by_user_id = updated_by_user_id
         self.updated_at = datetime.now(UTC)
@@ -344,12 +338,8 @@ class ApiKey(Base):
     hashed_key: Mapped[str] = mapped_column(String(128), nullable=False)
     scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_by_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("core.users.id"), nullable=False
-    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )

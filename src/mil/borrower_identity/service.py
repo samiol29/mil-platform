@@ -32,7 +32,11 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mil.borrower_identity.models import BorrowerIdentity, BorrowerIdentityMember, IdentityMatchCandidate
+from mil.borrower_identity.models import (
+    BorrowerIdentity,
+    BorrowerIdentityMember,
+    IdentityMatchCandidate,
+)
 from mil.kernel.errors import NotFoundError
 from mil.kernel.security import Permission, require_permission
 

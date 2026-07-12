@@ -56,11 +56,7 @@ class IdentityRepository:
         return self._session.scalars(stmt).one_or_none()
 
     def list_users_for_tenant(self, tenant_id: UUID) -> list[User]:
-        stmt = (
-            select(User)
-            .where(User.tenant_id == tenant_id)
-            .order_by(User.created_at.desc())
-        )
+        stmt = select(User).where(User.tenant_id == tenant_id).order_by(User.created_at.desc())
         return list(self._session.scalars(stmt))
 
     # ------------------------------------------------------------------
@@ -97,9 +93,7 @@ class IdentityRepository:
         )
         return list(self._session.scalars(stmt))
 
-    def get_active_assignment(
-        self, user_id: UUID, role_id: UUID
-    ) -> RoleAssignment | None:
+    def get_active_assignment(self, user_id: UUID, role_id: UUID) -> RoleAssignment | None:
         stmt = select(RoleAssignment).where(
             RoleAssignment.user_id == user_id,
             RoleAssignment.role_id == role_id,
@@ -125,9 +119,7 @@ class IdentityRepository:
         return self._session.scalars(stmt).one_or_none()
 
     def list_tenant_configuration(self, tenant_id: UUID) -> list[TenantConfiguration]:
-        stmt = select(TenantConfiguration).where(
-            TenantConfiguration.tenant_id == tenant_id
-        )
+        stmt = select(TenantConfiguration).where(TenantConfiguration.tenant_id == tenant_id)
         return list(self._session.scalars(stmt))
 
     # ------------------------------------------------------------------
@@ -147,8 +139,6 @@ class IdentityRepository:
 
     def list_api_keys_for_tenant(self, tenant_id: UUID) -> list[ApiKey]:
         stmt = (
-            select(ApiKey)
-            .where(ApiKey.tenant_id == tenant_id)
-            .order_by(ApiKey.created_at.desc())
+            select(ApiKey).where(ApiKey.tenant_id == tenant_id).order_by(ApiKey.created_at.desc())
         )
         return list(self._session.scalars(stmt))

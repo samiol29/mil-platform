@@ -7,7 +7,11 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient  # noqa: TC002
 
-from mil.borrower_identity.models import BorrowerIdentity, BorrowerIdentityMember, IdentityMatchCandidate
+from mil.borrower_identity.models import (
+    BorrowerIdentity,
+    BorrowerIdentityMember,
+    IdentityMatchCandidate,
+)
 from mil.cross_application_intelligence.service import CrossApplicationObservation
 from mil.kernel.errors import AuthorizationError, NotFoundError
 

@@ -132,7 +132,8 @@ function PrimaryNav() {
   // is the first nav section that actually needs role gating, since it's
   // ADMIN-only; every prior section was visible to all authenticated users.
   const visibleSections = NAV_SECTIONS.filter(
-    (section) => section.roles === undefined || section.roles.some((role) => userRoles.includes(role)),
+    (section) =>
+      section.roles === undefined || section.roles.some((role) => userRoles.includes(role)),
   );
 
   return (
