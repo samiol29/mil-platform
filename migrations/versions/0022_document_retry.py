@@ -30,4 +30,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("documents", "retry_count", schema="core")
+    # destructive-migration-approved
+    op.drop_column(
+        "documents",
+        "retry_count",
+        schema="core",
+    )
