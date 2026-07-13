@@ -1,0 +1,358 @@
+openapi: "3.1.0"
+info:
+  title: MIL Enterprise Administration API
+  version: "1.0"
+  description: >
+    User, role, tenant-configuration, and API-key administration (spec
+    005-enterprise-platform §15). All endpoints require the caller to hold
+    manage:users and/or manage:roles (ADMIN role by default) — enforced by
+    IdentityService, not by the route layer.
+
+paths:
+  /v1/admin/users:
+    post:
+      summary: Create a new platform user
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    get:
+      summary: List platform users for the tenant
+      operationId: listUsers
+      responses:
+        "200":
+          description: Users for the caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+
+  /v1/admin/users/{user_id}:
+    get:
+      summary: Get a platform user
+      operationId: getUser
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/users/{user_id}/deactivate:
+    patch:
+      summary: Deactivate a platform user
+      operationId: deactivateUser
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/users/{user_id}/roles:
+    post:
+      summary: Assign a role to a user
+      operationId: assignRole
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignRoleRequest"
+      responses:
+        "201":
+          description: Role assigned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleAssignment"
+        "403":
+          description: Insufficient permissions, or a self-escalation attempt
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/users/{user_id}/roles/{role_id}:
+    delete:
+      summary: Revoke a user's role assignment
+      operationId: revokeRole
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - name: role_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Role assignment revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleAssignment"
+        "404":
+          description: User or active assignment not found
+
+  /v1/admin/tenant-config:
+    get:
+      summary: List tenant configuration entries
+      operationId: listTenantConfig
+      responses:
+        "200":
+          description: Tenant configuration entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantConfigurationList"
+
+  /v1/admin/tenant-config/{config_key}:
+    put:
+      summary: Create or update a tenant configuration key
+      operationId: setTenantConfig
+      parameters:
+        - name: config_key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantConfigurationRequest"
+      responses:
+        "200":
+          description: Configuration set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantConfiguration"
+
+  /v1/admin/api-keys:
+    post:
+      summary: Create a scoped, expiring API key
+      description: >
+        The raw key value is returned exactly once, in this response body. It
+        cannot be retrieved again — only hashed metadata is stored.
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApiKeyRequest"
+      responses:
+        "201":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreated"
+    get:
+      summary: List API keys (metadata only)
+      operationId: listApiKeys
+      responses:
+        "200":
+          description: API keys for the tenant (raw key values never included)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyList"
+
+  /v1/admin/api-keys/{api_key_id}:
+    delete:
+      summary: Revoke an API key
+      operationId: revokeApiKey
+      parameters:
+        - name: api_key_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: API key revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: Insufficient permissions
+    NotFound:
+      description: Resource not found
+
+  schemas:
+    CreateUserRequest:
+      type: object
+      required: [external_identity_id, email, display_name]
+      properties:
+        external_identity_id:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+
+    User:
+      type: object
+      required: [id, tenant_id, display_name, is_active, roles, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        display_name: { type: string }
+        is_active: { type: boolean }
+        roles:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+
+    UserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+
+    AssignRoleRequest:
+      type: object
+      required: [role_name]
+      properties:
+        role_name:
+          type: string
+          description: One of mil.kernel.security.Role's constants (e.g. UNDERWRITER)
+
+    RoleAssignment:
+      type: object
+      required: [id, user_id, role_id, role_name, assigned_by, assigned_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        role_id: { type: string, format: uuid }
+        role_name: { type: string }
+        assigned_by: { type: string, format: uuid }
+        assigned_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time, nullable: true }
+
+    TenantConfigurationRequest:
+      type: object
+      required: [config_value]
+      properties:
+        config_value:
+          type: object
+          additionalProperties: true
+
+    TenantConfiguration:
+      type: object
+      required: [id, tenant_id, config_key, config_value, updated_by_user_id, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        config_key: { type: string }
+        config_value:
+          type: object
+          additionalProperties: true
+        updated_by_user_id: { type: string, format: uuid }
+        updated_at: { type: string, format: date-time }
+
+    TenantConfigurationList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantConfiguration"
+
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        ttl_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          default: 90
+
+    ApiKey:
+      type: object
+      required: [id, tenant_id, name, scopes, expires_at, created_by_user_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string, format: uuid }
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        created_by_user_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    ApiKeyCreated:
+      allOf:
+        - $ref: "#/components/schemas/ApiKey"
+        - type: object
+          required: [raw_key]
+          properties:
+            raw_key:
+              type: string
+              description: Shown exactly once. Not retrievable again.
+
+    ApiKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiKey"

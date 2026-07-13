@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import String, cast, extract, func, or_, select
 
 from mil.application.models import MortgageApplication, Party
 
@@ -120,6 +120,25 @@ class ApplicationRepository:
         """
         return self._session.get(MortgageApplication, application_id)
 
+    def get_party_by_id(self, party_id: UUID) -> Party | None:
+        """Return a single Party by id, or ``None`` (spec 005 §5, Wave 3)."""
+        return self._session.get(Party, party_id)
+
+    def get_parties_for_tenant(self, tenant_id: TenantId | UUID) -> list[Party]:
+        """
+        Return every Party belonging to any application in this tenant
+        (spec 005-enterprise-platform §5, Wave 3 — Borrower Identity
+        Resolution's candidate-matching input). A join through
+        ``MortgageApplication`` since ``Party`` has no ``tenant_id`` column
+        of its own.
+        """
+        stmt = (
+            select(Party)
+            .join(MortgageApplication, Party.application_id == MortgageApplication.id)
+            .where(MortgageApplication.tenant_id == tenant_id)
+        )
+        return list(self._session.scalars(stmt))
+
     def get_for_tenant(
         self,
         tenant_id: TenantId | UUID,
@@ -169,6 +188,35 @@ class ApplicationRepository:
                 )
             )
         return list(self._session.scalars(stmt))
+
+    def get_status_funnel(self, tenant_id: TenantId | UUID) -> list[tuple[str, int, float]]:
+        """
+        Return ``(status, count, avg_seconds_since_updated)`` rows for every
+        application status in a tenant (spec 005-enterprise-platform §10,
+        Wave 3 — Operational Dashboard's funnel widget). One aggregated
+        query, not a per-row fetch.
+
+        ``avg_seconds_since_updated`` is a real, honest approximation of
+        "time in status" — the actual per-status dwell time would require a
+        status-transition-history table that does not exist in this schema;
+        this is explicitly disclosed as an approximation (time since the
+        application's row was last updated for any reason, not strictly
+        since it entered this status), never presented as exact dwell time.
+        """
+        seconds_since_updated = extract("epoch", func.now() - MortgageApplication.updated_at)
+        stmt = (
+            select(
+                MortgageApplication.status,
+                func.count(MortgageApplication.id),
+                func.avg(seconds_since_updated),
+            )
+            .where(MortgageApplication.tenant_id == tenant_id)
+            .group_by(MortgageApplication.status)
+        )
+        return [
+            (status, int(count), float(avg_seconds) if avg_seconds is not None else 0.0)
+            for status, count, avg_seconds in self._session.execute(stmt).all()
+        ]
 
     def exists(self, application_id: ApplicationId | UUID) -> bool:
         """

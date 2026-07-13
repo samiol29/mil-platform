@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from mil.orchestrator.models import WorkflowRun
+from mil.orchestrator.models import WorkflowRun, WorkflowStep
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -73,5 +73,43 @@ class WorkflowRepository:
             select(WorkflowRun)
             .where(WorkflowRun.application_id == application_id)
             .order_by(WorkflowRun.created_at.desc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def count_by_type_and_status(self, tenant_id: UUID) -> list[tuple[str, str, int]]:
+        """
+        Return ``(workflow_type, status, count)`` rows for every workflow run
+        in a tenant (spec 005-enterprise-platform §10, Wave 3 — Operational
+        Dashboard's real queue-depth signal). A single aggregated query, not
+        an all-rows fetch — scales with the number of distinct
+        (workflow_type, status) pairs, not the number of runs.
+        """
+        stmt = (
+            select(WorkflowRun.workflow_type, WorkflowRun.status, func.count(WorkflowRun.id))
+            .where(WorkflowRun.tenant_id == tenant_id)
+            .group_by(WorkflowRun.workflow_type, WorkflowRun.status)
+        )
+        return [(wt, status, int(count)) for wt, status, count in self._session.execute(stmt).all()]
+
+    def get_poison_steps(self, tenant_id: UUID) -> list[WorkflowStep]:
+        """
+        Return every ``WorkflowStep`` that has exhausted its retry ceiling
+        (``retry_count >= max_retries``) and is still ``FAILED`` — the RC1
+        release checklist's documented "poison job" risk (no redelivery/
+        visibility-timeout on worker crash) made *visible*, not fixed, per
+        spec 005-enterprise-platform §10, Wave 3. A real, defensible proxy
+        for "exceeded retry ceiling": this schema has no separate
+        "abandoned mid-flight" flag, so a step a crashed worker never
+        revisited stays ``IN_PROGRESS`` forever and is not counted here —
+        an honest limitation, not fabricated detection.
+        """
+        stmt = (
+            select(WorkflowStep)
+            .join(WorkflowRun, WorkflowStep.workflow_run_id == WorkflowRun.id)
+            .where(
+                WorkflowRun.tenant_id == tenant_id,
+                WorkflowStep.status == "FAILED",
+                WorkflowStep.retry_count >= WorkflowStep.max_retries,
+            )
         )
         return list(self._session.scalars(stmt))

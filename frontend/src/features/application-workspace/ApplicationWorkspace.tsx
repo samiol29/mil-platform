@@ -32,9 +32,12 @@
  * regions, one definition of the tab-nav pattern instead of two.
  */
 
+import { Link } from '@tanstack/react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useAuthUser } from '@app/auth/authProvider';
+import { useUiStore } from '@app/uiStore';
 import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
@@ -44,12 +47,18 @@ import { ProcessingPipeline } from '@design-system/components/ProcessingPipeline
 import { Tabs, TabsList, TabsTrigger } from '@design-system/components/Tabs';
 import { cn } from '@design-system/lib/cn';
 import type { Application } from '@entities/application/queries';
-import { useApplication } from '@entities/application/queries';
+import {
+  useApplication,
+  useEvaluationStatus,
+  useRetryEvaluation,
+  useSubmitApplication,
+} from '@entities/application/queries';
 import {
   APPLICATION_STATUS_CHIP_BASE_CLASS,
   APPLICATION_STATUS_CHIP_CLASS_NAME,
   APPLICATION_STATUS_LABEL,
 } from '@entities/application/statusLabel';
+import { useAssignment } from '@entities/assignment/queries';
 import { useAuditTrail } from '@entities/audit/queries';
 import { downloadDocument } from '@entities/document/download';
 import type { Document } from '@entities/document/queries';
@@ -57,14 +66,18 @@ import { useDocumentsForApplication } from '@entities/document/queries';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
+import { useApplicationPolicyResults, usePolicyPacks } from '@entities/policy/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { DocumentInspector } from '@features/document-viewer/DocumentInspector';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 import { DocumentProcessingList } from '@features/document-upload/DocumentProcessingList';
 import { UploadSection } from '@features/document-upload/UploadSection';
+import { extractErrorMessage, isConflictError } from '@shared/api/extractErrorMessage';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { ApplicationTimeline } from './ApplicationTimeline';
+import { CopilotPanel } from './CopilotPanel';
+import { LOSSyncPanel } from './LOSSyncPanel';
 import { AuditTimeline } from './AuditTimeline';
 import {
   deriveApplicationStages,
@@ -72,6 +85,7 @@ import {
   zeroFindingsOutcome,
 } from './applicationPipelineSummary';
 import { buildApplicationTimeline } from './buildApplicationTimeline';
+import { commonEvidenceProvenance } from './commonEvidenceProvenance';
 import { EvidenceCard } from './EvidenceCard';
 import { buildEvidenceToFindingsIndex } from './evidenceFindingIndex';
 import { FindingActions } from './FindingActions';
@@ -83,6 +97,28 @@ import { groupFindingsByPolicyVersion } from './groupFindingsByPolicyVersion';
 import { REGION_LABEL, WORKSPACE_REGIONS, type WorkspaceRegion } from './regions';
 import { StaleRecordBanner } from './StaleRecordBanner';
 
+/**
+ * Final product polish sprint (D6): a 409 here means the evaluation is no
+ * longer FAILED (someone already retried it, or it's mid-run) — "try again"
+ * is the wrong instruction for that; distinguish it from a genuine failure.
+ */
+function retryEvaluationErrorTitle(error: unknown): string {
+  return isConflictError(error)
+    ? 'Evaluation is no longer retryable — refresh to see its current status'
+    : 'Could not retry evaluation';
+}
+
+/**
+ * Final product polish sprint (D6): a 409 here means the application is no
+ * longer in a submittable state (e.g. it moved since the page loaded) —
+ * distinguish it from a genuine failure, same rationale as above.
+ */
+function submitErrorTitle(error: unknown): string {
+  return isConflictError(error)
+    ? 'Application is no longer ready to submit — refresh to see its current status'
+    : 'Could not submit application';
+}
+
 export interface ApplicationWorkspaceProps {
   readonly applicationId: string;
   readonly region: WorkspaceRegion;
@@ -90,6 +126,14 @@ export interface ApplicationWorkspaceProps {
   /** Auditor/compliance role (spec 002 FR-037, tasks.md T128): no action controls render. */
   readonly readOnly?: boolean;
 }
+
+/**
+ * `PolicyRegion`'s per-finding row is a compact summary (full detail is one
+ * "View finding →" click away, in the Findings region's own capped
+ * `FindingCard` display) — a dozen+ evidence chips per finding here was
+ * noise, not information, in a row meant to be scanned quickly.
+ */
+const POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT = 6;
 
 export function ApplicationWorkspace({
   applicationId,
@@ -152,6 +196,7 @@ export function ApplicationWorkspace({
                 applicationId={applicationId}
                 application={applicationQuery.data}
                 onRegionChange={onRegionChange}
+                onEvidenceChipActivate={activateEvidenceJump}
               />
             </PanelErrorBoundary>
           )}
@@ -242,6 +287,10 @@ function FindingsRegion({
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const auditQuery = useAuditTrail(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
+  const applicationQuery = useApplication(applicationId);
+  const evaluationQuery = useEvaluationStatus(applicationId);
+  const retryEvaluation = useRetryEvaluation(applicationId);
+  const addToast = useUiStore((state) => state.addToast);
   const findingRefs = useRef(new Map<string, HTMLDivElement>());
 
   // One O(audit entries) pass for every finding's review history, computed
@@ -270,7 +319,53 @@ function FindingsRegion({
     );
   }
   if (findingsQuery.data.length === 0) {
-    const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
+    const outcome = zeroFindingsOutcome(
+      documentsQuery.data ?? [],
+      applicationQuery.data?.status ?? 'DRAFT',
+      evaluationQuery.data,
+    );
+    if (outcome === 'not-submitted') {
+      return (
+        <EmptyState
+          title="Not yet submitted for review"
+          description="Finding generation runs once the application is submitted for review — see the Overview region to submit it."
+        />
+      );
+    }
+    if (outcome === 'evaluation-failed') {
+      return (
+        <EmptyState
+          title="Evaluation failed"
+          description={
+            evaluationQuery.data?.errorMessage ??
+            'The last evaluation attempt failed before any findings could be generated.'
+          }
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={retryEvaluation.isPending}
+              onClick={() => {
+                retryEvaluation.mutate(undefined, {
+                  onSuccess: () => {
+                    addToast({ title: 'Evaluation retry started', variant: 'success' });
+                  },
+                  onError: (error: unknown) => {
+                    addToast({
+                      title: retryEvaluationErrorTitle(error),
+                      description: extractErrorMessage(error, 'Please try again.'),
+                      variant: 'error',
+                    });
+                  },
+                });
+              }}
+            >
+              Retry evaluation
+            </Button>
+          }
+        />
+      );
+    }
     if (outcome === 'clean') {
       return (
         <EmptyState
@@ -412,6 +507,7 @@ function EvidenceRegion({
         {Array.from(groups.entries()).map(([documentId, items]) => {
           const isCollapsed = collapsedGroups.has(documentId);
           const filename = documents.find((doc) => doc.id === documentId)?.filename ?? 'Document';
+          const provenance = commonEvidenceProvenance(items);
           return (
             <div
               key={documentId}
@@ -440,9 +536,14 @@ function EvidenceRegion({
                 )}
                 {filename}
                 <span className="text-text-tertiary font-normal">({items.length})</span>
+                {provenance !== null && (
+                  <span className="text-caption text-text-tertiary ml-auto font-normal normal-case">
+                    {provenance.method} · {provenance.modelVersion}
+                  </span>
+                )}
               </button>
               {!isCollapsed && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="animate-panel-in grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {items.map((item) => {
                     const supersededItem =
                       item.supersedesId !== null ? evidenceById.get(item.supersedesId) : undefined;
@@ -462,6 +563,7 @@ function EvidenceRegion({
                           });
                         }}
                         onViewFindings={relatedFindings.length > 0 ? onViewFindings : undefined}
+                        hideProvenance={provenance !== null}
                       />
                     );
                   })}
@@ -679,6 +781,10 @@ function PolicyRegion({
   const findingsQuery = useFindingsForApplication(applicationId);
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
+  const policyResultsQuery = useApplicationPolicyResults(applicationId);
+  const evaluationQuery = useEvaluationStatus(applicationId);
+  const retryEvaluation = useRetryEvaluation(applicationId);
+  const addToast = useUiStore((state) => state.addToast);
 
   if (findingsQuery.isPending) return <LoadingState label="Loading policy evaluation…" />;
   if (findingsQuery.isError) {
@@ -700,9 +806,71 @@ function PolicyRegion({
     (f) => f.state === 'unreviewed' || f.state === 'escalated',
   ).length;
   const activePolicyPackId = applicationQuery.data?.activePolicyPackId ?? null;
+  // spec 005-enterprise-platform §3: `PolicyResult.evaluatedRuleKeys`/
+  // `passedRuleKeys` are additive/nullable — only evaluations recorded after
+  // this capability shipped carry them. Keyed by findingId (one result per
+  // finding per policy version, per the backend's own uniqueness invariant).
+  const policyResultByFindingId = new Map(
+    (policyResultsQuery.data?.items ?? []).map((result) => [result.findingId, result]),
+  );
+  const anyRuleBreakdownAvailable = (policyResultsQuery.data?.items ?? []).some(
+    (result) => result.evaluatedRuleKeys !== null,
+  );
 
   if (findings.length === 0) {
-    const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
+    const outcome = zeroFindingsOutcome(
+      documentsQuery.data ?? [],
+      applicationQuery.data?.status ?? 'DRAFT',
+      evaluationQuery.data,
+    );
+    if (outcome === 'not-submitted') {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-heading-section text-text-primary">Policy</h2>
+          <EmptyState
+            title="Not yet evaluated"
+            description="Policy evaluation runs once the application is submitted for review and findings are generated — see the Overview region to submit it."
+          />
+        </div>
+      );
+    }
+    if (outcome === 'evaluation-failed') {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-heading-section text-text-primary">Policy</h2>
+          <EmptyState
+            title="Evaluation failed"
+            description={
+              evaluationQuery.data?.errorMessage ??
+              'The last evaluation attempt failed before policy could run.'
+            }
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={retryEvaluation.isPending}
+                onClick={() => {
+                  retryEvaluation.mutate(undefined, {
+                    onSuccess: () => {
+                      addToast({ title: 'Evaluation retry started', variant: 'success' });
+                    },
+                    onError: (error: unknown) => {
+                      addToast({
+                        title: retryEvaluationErrorTitle(error),
+                        description: extractErrorMessage(error, 'Please try again.'),
+                        variant: 'error',
+                      });
+                    },
+                  });
+                }}
+              >
+                Retry evaluation
+              </Button>
+            }
+          />
+        </div>
+      );
+    }
     if (outcome === 'clean') {
       return (
         <div className="flex flex-col gap-4">
@@ -768,9 +936,9 @@ function PolicyRegion({
 
       <div className="border-feedback-warning-border bg-feedback-warning-bg rounded-container border p-4">
         <p className="text-caption text-feedback-warning-fg">
-          This workspace shows findings that were flagged during policy evaluation. It cannot show
-          checks that passed silently, individual rule names, or rule-level rationale — no such data
-          exists in the backend today.
+          {anyRuleBreakdownAvailable
+            ? 'Rule-level detail below (rules evaluated vs. triggered) is only available for evaluations recorded after this capability shipped — older findings may show no rule breakdown, not a fabricated one.'
+            : 'This workspace shows findings that were flagged during policy evaluation. Rule-level detail is not yet available for any evaluation on this application — it appears automatically once new findings are evaluated under the updated Policy Engine.'}
         </p>
       </div>
 
@@ -803,34 +971,44 @@ function PolicyRegion({
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-body text-text-primary">{finding.what}</span>
                     <span
-                      className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}
+                      className={cn(
+                        'text-caption font-medium transition-colors duration-panel ease-standard',
+                        STATE_CLASS_NAME[finding.state],
+                      )}
                     >
                       {STATE_LABEL[finding.state]}
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {finding.evidenceRefs.map((evidenceId) => {
-                      const item = evidenceById.get(evidenceId);
-                      return (
-                        <EvidenceChip
-                          key={evidenceId}
-                          label={item !== undefined ? item.evidenceType : 'Evidence'}
-                          onClick={
-                            item !== undefined
-                              ? () => {
-                                  onEvidenceChipActivate({
-                                    documentId: item.documentId,
-                                    pageNumber: item.pageNumber ?? 1,
-                                    boundingBox: item.fieldLocation?.boundingBox ?? null,
-                                    label: item.evidenceType,
-                                  });
-                                }
-                              : undefined
-                          }
-                          disabled={item === undefined}
-                        />
-                      );
-                    })}
+                    {finding.evidenceRefs
+                      .slice(0, POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT)
+                      .map((evidenceId) => {
+                        const item = evidenceById.get(evidenceId);
+                        return (
+                          <EvidenceChip
+                            key={evidenceId}
+                            label={item !== undefined ? item.evidenceType : 'Evidence'}
+                            onClick={
+                              item !== undefined
+                                ? () => {
+                                    onEvidenceChipActivate({
+                                      documentId: item.documentId,
+                                      pageNumber: item.pageNumber ?? 1,
+                                      boundingBox: item.fieldLocation?.boundingBox ?? null,
+                                      label: item.evidenceType,
+                                    });
+                                  }
+                                : undefined
+                            }
+                            disabled={item === undefined}
+                          />
+                        );
+                      })}
+                    {finding.evidenceRefs.length > POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT && (
+                      <span className="text-caption text-text-tertiary">
+                        +{finding.evidenceRefs.length - POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT} more
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -841,6 +1019,29 @@ function PolicyRegion({
                       View finding →
                     </button>
                   </div>
+                  {(() => {
+                    const result = policyResultByFindingId.get(finding.id);
+                    if (
+                      result?.evaluatedRuleKeys === undefined ||
+                      result.evaluatedRuleKeys === null
+                    )
+                      return null;
+                    const passed = result.passedRuleKeys ?? [];
+                    return (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {result.triggeredRuleKeys.length > 0 && (
+                          <span className="text-caption text-feedback-warning-fg">
+                            Triggered: {result.triggeredRuleKeys.join(', ')}
+                          </span>
+                        )}
+                        {passed.length > 0 && (
+                          <span className="text-caption text-text-tertiary">
+                            Passed: {passed.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </li>
               ))}
             </ul>
@@ -941,37 +1142,100 @@ function OverviewRegion({
   applicationId,
   application,
   onRegionChange,
+  onEvidenceChipActivate,
 }: {
   applicationId: string;
   application: Application;
   onRegionChange: (region: WorkspaceRegion) => void;
+  onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
 }) {
   const applicationQuery = useApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
   const findingsQuery = useFindingsForApplication(applicationId);
   const auditQuery = useAuditTrail(applicationId);
+  const evaluationQuery = useEvaluationStatus(applicationId);
+  const assignmentQuery = useAssignment(applicationId);
+  const submitApplication = useSubmitApplication();
+  const addToast = useUiStore((state) => state.addToast);
+  const currentUser = useAuthUser();
 
   const documents = documentsQuery.data ?? [];
   const findings = findingsQuery.data ?? [];
   const counts = summarizeDocuments(documents);
+  // Submit is only offered once at least one document has been uploaded —
+  // never on a brand-new, empty DRAFT shell.
+  const readyToSubmit = application.status === 'DRAFT' && counts.total > 0;
   const recentActivity = buildApplicationTimeline(auditQuery.data ?? [], documents, findings).slice(
     -5,
   );
 
-  const metadataParts = [
+  // Ownership (final product polish sprint, R2): a real, already-built
+  // backend/entity capability (`Assignment.ownerUserId`/`reviewerUserId`)
+  // that nothing in the UI ever surfaced before that sprint. No
+  // display-name resolution endpoint is reachable at this permission level
+  // (`GET /v1/admin/users` requires `manage:users`), so a truncated id is
+  // shown — honest, never a fabricated name — labeled "You" when it
+  // matches the caller.
+  const assignment = assignmentQuery.data;
+  const partiesQuery = usePartiesForApplication(applicationId);
+  const policyPacksQuery = usePolicyPacks();
+
+  function actorLabel(userId: string): string {
+    return currentUser !== null && userId === currentUser.userId ? 'You' : userId.slice(0, 8);
+  }
+
+  const parties = partiesQuery.data ?? [];
+  const primaryBorrowerName =
+    parties.length === 0
+      ? null
+      : (parties.find((party) => party.partyType === 'APPLICANT') ?? parties[0]).displayName;
+
+  const activePolicyPackName =
+    application.activePolicyPackId === null
+      ? 'Not yet assigned'
+      : (policyPacksQuery.data?.items.find((pack) => pack.id === application.activePolicyPackId)
+          ?.name ?? application.activePolicyPackId.slice(0, 8));
+
+  // Executive-summary review progress (executive review pass, final polish
+  // sprint): "resolved" means a human reached a terminal decision (verified
+  // or overridden) — `escalated` is deliberately non-terminal (it can
+  // re-enter `IN_REVIEW`), so it is not counted as resolved. Omitted
+  // entirely when there are no findings yet, rather than showing a
+  // meaningless "0 of 0".
+  const resolvedFindingsCount = findings.filter(
+    (f) => f.state === 'verified' || f.state === 'overridden',
+  ).length;
+
+  const summaryFields = [
+    assignment !== null && assignment !== undefined
+      ? { label: 'Owner', value: actorLabel(assignment.ownerUserId) }
+      : null,
+    assignment !== null && assignment !== undefined && assignment.reviewerUserId !== null
+      ? { label: 'Reviewer', value: actorLabel(assignment.reviewerUserId) }
+      : null,
+    { label: 'Active policy pack', value: activePolicyPackName },
+    findings.length > 0
+      ? {
+          label: 'Review progress',
+          value: `${String(resolvedFindingsCount)} of ${String(findings.length)} resolved`,
+        }
+      : null,
+    application.updatedAt !== null
+      ? { label: 'Last updated', value: new Date(application.updatedAt).toLocaleDateString() }
+      : null,
+  ].filter((field): field is { label: string; value: string } => field !== null);
+
+  const secondaryMetadataParts = [
     application.losReference !== null ? `LOS ${application.losReference}` : null,
     application.loanNumber !== null ? `Loan ${application.loanNumber}` : null,
     `${String(application.partyCount)} ${application.partyCount === 1 ? 'party' : 'parties'}`,
     `Created ${new Date(application.createdAt).toLocaleDateString()}`,
-    application.updatedAt !== null
-      ? `Updated ${new Date(application.updatedAt).toLocaleDateString()}`
-      : null,
   ].filter((part): part is string => part !== null);
 
   return (
     <section aria-label="Overview" className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <h2 className="text-heading-page text-text-primary">
               {application.loanNumber ?? application.losReference ?? 'Application'}
@@ -982,24 +1246,62 @@ function OverviewRegion({
               {APPLICATION_STATUS_LABEL[application.status]}
             </span>
           </div>
-          <p className="text-caption text-text-tertiary">{metadataParts.join(' · ')}</p>
+          {primaryBorrowerName !== null && (
+            <p className="text-body-emphasis text-text-primary">{primaryBorrowerName}</p>
+          )}
+          {summaryFields.length > 0 && (
+            <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              {summaryFields.map((field) => (
+                <div key={field.label} className="flex items-baseline gap-1.5">
+                  <dt className="text-caption text-text-tertiary">{field.label}:</dt>
+                  <dd className="text-label text-text-primary font-medium">{field.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <p className="text-caption text-text-tertiary">{secondaryMetadataParts.join(' · ')}</p>
           <BorrowerChips applicationId={applicationId} />
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            void applicationQuery.refetch();
-          }}
-        >
-          Refresh
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {readyToSubmit && (
+            <Button
+              variant="primary"
+              size="sm"
+              loading={submitApplication.isPending}
+              onClick={() => {
+                submitApplication.mutate(applicationId, {
+                  onSuccess: () => {
+                    addToast({ title: 'Application submitted for review', variant: 'success' });
+                  },
+                  onError: (error: unknown) => {
+                    addToast({
+                      title: submitErrorTitle(error),
+                      description: extractErrorMessage(error, 'Please try again.'),
+                      variant: 'error',
+                    });
+                  },
+                });
+              }}
+            >
+              Submit for review
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void applicationQuery.refetch();
+            }}
+          >
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {documentsQuery.data !== undefined && (
         <div className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-4 p-5">
           <ProcessingPipeline
-            steps={deriveApplicationStages(documentsQuery.data, findings)}
+            steps={deriveApplicationStages(findings, application.status, evaluationQuery.data)}
             size="md"
           />
           <p className="text-caption text-text-secondary">
@@ -1046,6 +1348,9 @@ function OverviewRegion({
           </ul>
         )}
       </div>
+
+      <CopilotPanel applicationId={applicationId} onEvidenceChipActivate={onEvidenceChipActivate} />
+      <LOSSyncPanel application={application} />
     </section>
   );
 }
@@ -1069,7 +1374,13 @@ function BorrowerChips({ applicationId }: { applicationId: string }) {
           className="bg-surface-sunken text-caption text-text-secondary rounded-chip px-2 py-0.5"
         >
           <span className="text-text-tertiary">{PARTY_TYPE_LABEL[party.partyType]}</span>{' '}
-          <span className="text-text-primary font-medium">{party.displayName}</span>
+          <Link
+            to="/parties/$partyId/borrower-profile"
+            params={{ partyId: party.id }}
+            className="text-text-primary hover:text-interactive-primary-default font-medium underline-offset-2 hover:underline"
+          >
+            {party.displayName}
+          </Link>
         </li>
       ))}
     </ul>

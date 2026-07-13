@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { EvaluationStatus } from '@entities/application/types';
 import type { Document } from '@entities/document/queries';
 import type { Finding } from '@entities/finding/queries';
 
@@ -25,6 +26,7 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
     pageCount: 1,
     ingestionCompletedAt: '2026-01-01T00:05:00Z',
     ingestionError: null,
+    retryCount: 0,
     ...overrides,
   };
 }
@@ -46,6 +48,17 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
     escalatedToRole: null,
     escalatedToUserId: null,
     createdAt: '2026-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function makeEvaluationStatus(overrides: Partial<EvaluationStatus> = {}): EvaluationStatus {
+  return {
+    status: 'NOT_TRIGGERED',
+    errorMessage: null,
+    retryable: false,
+    startedAt: null,
+    completedAt: null,
     ...overrides,
   };
 }
@@ -92,101 +105,133 @@ describe('allDocumentsTerminal', () => {
 });
 
 describe('zeroFindingsOutcome', () => {
+  it('is "not-submitted" for a DRAFT application, regardless of document status', () => {
+    expect(
+      zeroFindingsOutcome(
+        [makeDocument({ ingestionStatus: 'COMPLETED' })],
+        'DRAFT',
+        makeEvaluationStatus(),
+      ),
+    ).toBe('not-submitted');
+  });
+
+  it('is "evaluation-failed" when the last FINDING_GENERATION run FAILED', () => {
+    expect(
+      zeroFindingsOutcome(
+        [makeDocument({ ingestionStatus: 'COMPLETED' })],
+        'SUBMITTED',
+        makeEvaluationStatus({ status: 'FAILED', errorMessage: 'Gemini API returned HTTP 429' }),
+      ),
+    ).toBe('evaluation-failed');
+  });
+
   it('is "pending" while any document is still processing', () => {
     expect(
-      zeroFindingsOutcome([
-        makeDocument({ ingestionStatus: 'COMPLETED' }),
-        makeDocument({ ingestionStatus: 'IN_PROGRESS' }),
-      ]),
+      zeroFindingsOutcome(
+        [
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+          makeDocument({ ingestionStatus: 'IN_PROGRESS' }),
+        ],
+        'SUBMITTED',
+        makeEvaluationStatus({ status: 'RUNNING' }),
+      ),
     ).toBe('pending');
   });
 
   it('is "pending" with zero documents', () => {
-    expect(zeroFindingsOutcome([])).toBe('pending');
+    expect(zeroFindingsOutcome([], 'SUBMITTED', makeEvaluationStatus())).toBe('pending');
   });
 
   it('is "clean" when every document is COMPLETED — the only honest "no material issues" case', () => {
     expect(
-      zeroFindingsOutcome([
-        makeDocument({ ingestionStatus: 'COMPLETED' }),
-        makeDocument({ ingestionStatus: 'COMPLETED' }),
-      ]),
+      zeroFindingsOutcome(
+        [
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+        ],
+        'SUBMITTED',
+        makeEvaluationStatus({ status: 'COMPLETED' }),
+      ),
     ).toBe('clean');
   });
 
   it('is "failures" when documents are terminal but at least one FAILED — never reported as a clean pass', () => {
     expect(
-      zeroFindingsOutcome([
-        makeDocument({ ingestionStatus: 'COMPLETED' }),
-        makeDocument({ ingestionStatus: 'FAILED' }),
-      ]),
+      zeroFindingsOutcome(
+        [
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+          makeDocument({ ingestionStatus: 'FAILED' }),
+        ],
+        'SUBMITTED',
+        makeEvaluationStatus({ status: 'COMPLETED' }),
+      ),
     ).toBe('failures');
   });
 
   it('is "failures" when every document FAILED', () => {
     expect(
-      zeroFindingsOutcome([
-        makeDocument({ ingestionStatus: 'FAILED' }),
-        makeDocument({ ingestionStatus: 'FAILED' }),
-      ]),
+      zeroFindingsOutcome(
+        [makeDocument({ ingestionStatus: 'FAILED' }), makeDocument({ ingestionStatus: 'FAILED' })],
+        'SUBMITTED',
+        makeEvaluationStatus({ status: 'COMPLETED' }),
+      ),
     ).toBe('failures');
   });
 });
 
 describe('deriveApplicationStages', () => {
-  it('no findings yet: Findings/Policy pending, Ready for Review active', () => {
-    const steps = deriveApplicationStages([makeDocument()], []);
+  it('DRAFT application: Submitted active, everything else pending', () => {
+    const steps = deriveApplicationStages([], 'DRAFT', makeEvaluationStatus());
+    expect(statusOf(steps, 'submitted')).toBe('active');
     expect(statusOf(steps, 'findings')).toBe('pending');
     expect(statusOf(steps, 'policy')).toBe('pending');
-    expect(statusOf(steps, 'ready-for-review')).toBe('active');
+  });
+
+  it('submitted with no findings yet: Submitted complete, Findings/Policy pending, Evaluation active', () => {
+    const steps = deriveApplicationStages(
+      [],
+      'SUBMITTED',
+      makeEvaluationStatus({ status: 'RUNNING' }),
+    );
+    expect(statusOf(steps, 'submitted')).toBe('complete');
+    expect(statusOf(steps, 'evaluation')).toBe('active');
+    expect(statusOf(steps, 'findings')).toBe('active');
+    expect(statusOf(steps, 'policy')).toBe('pending');
   });
 
   it('findings exist but not all policy-evaluated: Policy active', () => {
-    const steps = deriveApplicationStages([makeDocument()], [makeFinding({ policyVersion: null })]);
+    const steps = deriveApplicationStages(
+      [makeFinding({ policyVersion: null })],
+      'SUBMITTED',
+      makeEvaluationStatus({ status: 'RUNNING' }),
+    );
     expect(statusOf(steps, 'findings')).toBe('complete');
     expect(statusOf(steps, 'policy')).toBe('active');
   });
 
-  it('every finding policy-evaluated and every document terminal: Ready for Review complete', () => {
+  it('every finding policy-evaluated: Policy complete', () => {
     const steps = deriveApplicationStages(
-      [makeDocument({ ingestionStatus: 'COMPLETED' })],
       [makeFinding({ policyVersion: 'v1' })],
+      'SUBMITTED',
+      makeEvaluationStatus({ status: 'COMPLETED' }),
     );
+    expect(statusOf(steps, 'evaluation')).toBe('complete');
     expect(statusOf(steps, 'policy')).toBe('complete');
-    expect(statusOf(steps, 'ready-for-review')).toBe('complete');
   });
 
-  it('a FAILED document does not block Ready for Review — it counts as terminal, not a blocker', () => {
+  it('a FAILED evaluation run renders the Evaluation step as failed, with the real error message', () => {
     const steps = deriveApplicationStages(
-      [
-        makeDocument({ ingestionStatus: 'COMPLETED' }),
-        makeDocument({ ingestionStatus: 'FAILED', ingestionError: 'Gemini API error' }),
-      ],
-      [makeFinding({ policyVersion: 'v1' })],
+      [],
+      'SUBMITTED',
+      makeEvaluationStatus({ status: 'FAILED', errorMessage: 'Gemini API returned HTTP 429' }),
     );
-    expect(statusOf(steps, 'ready-for-review')).toBe('complete');
+    expect(statusOf(steps, 'evaluation')).toBe('failed');
+    const evaluationStep = steps.find((step) => step.id === 'evaluation');
+    expect(evaluationStep?.detail).toBe('Gemini API returned HTTP 429');
   });
 
-  it('a still-processing document blocks Ready for Review', () => {
-    const steps = deriveApplicationStages(
-      [
-        makeDocument({ ingestionStatus: 'COMPLETED' }),
-        makeDocument({ ingestionStatus: 'IN_PROGRESS' }),
-      ],
-      [makeFinding({ policyVersion: 'v1' })],
-    );
-    expect(statusOf(steps, 'ready-for-review')).toBe('active');
-  });
-
-  it('zero documents never reports Ready for Review as complete', () => {
-    const steps = deriveApplicationStages([], []);
-    expect(statusOf(steps, 'ready-for-review')).toBe('active');
-  });
-
-  it('labels Ready for Review as an estimate, never a backend guarantee', () => {
-    const steps = deriveApplicationStages([makeDocument()], [makeFinding({ policyVersion: 'v1' })]);
-    const readyStep = steps.find((step) => step.id === 'ready-for-review');
-    expect(readyStep?.label).toContain('estimated');
-    expect(readyStep?.detail).toContain('not a backend-verified readiness check');
+  it('handles an undefined evaluation status (query still loading) without throwing', () => {
+    const steps = deriveApplicationStages([], 'SUBMITTED', undefined);
+    expect(statusOf(steps, 'evaluation')).toBe('active');
   });
 });

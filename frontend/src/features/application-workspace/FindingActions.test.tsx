@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { useUiStore } from '@app/uiStore';
 import type { Finding } from '@entities/finding/queries';
 
 import { server } from '../../test/msw/server';
@@ -80,6 +81,33 @@ describe('FindingActions', () => {
     });
     expect(within(dialog).getByLabelText('Previous value')).toHaveValue('6500.00');
     expect(within(dialog).getByLabelText('Corrected value')).toHaveValue('6200.00');
+  });
+
+  it('shows a distinguishing toast title on a 409 conflict, not the generic failure title (D6)', async () => {
+    useUiStore.setState({ toasts: [] });
+    server.use(
+      http.post('/v1/findings/:id/override', () =>
+        HttpResponse.json({ code: 'CONFLICT', message: 'Already overridden' }, { status: 409 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithClient(<FindingActions applicationId={APPLICATION_ID} finding={makeFinding()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Override' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Corrected value'), '6200.00');
+    await user.type(within(dialog).getByLabelText('Reason'), 'Confirmed via payslip');
+    await user.click(within(dialog).getByRole('button', { name: 'Review & Confirm' }));
+
+    await waitFor(() => {
+      const toasts = useUiStore.getState().toasts;
+      expect(toasts.some((t) => t.title === 'This finding was already updated')).toBe(true);
+    });
+    // Never the generic, undifferentiated failure title for this real, distinguishable case.
+    expect(
+      useUiStore.getState().toasts.some((t) => t.title === 'Could not override this finding'),
+    ).toBe(false);
   });
 
   it('disables verify/override/escalate once the finding has already been decided', () => {

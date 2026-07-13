@@ -29,14 +29,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mil.kernel.errors import ConflictError
-from mil.policy.models import PolicyPack, PolicyResult, PolicyRule
+from mil.kernel.errors import ConflictError, NotFoundError
+from mil.kernel.security import Permission, require_permission
+from mil.policy.models import PolicyPack, PolicyPackApproval, PolicyResult, PolicyRule
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from mil.audit.writer import AuditWriter
     from mil.kernel.providers.policy import PolicyEvaluationResult
+    from mil.kernel.security import AuthenticatedUser
     from mil.policy.repository import PolicyRepository
 
 
@@ -154,6 +156,159 @@ class PolicyService:
         return rule
 
     # ------------------------------------------------------------------
+    # Maker-checker approval workflow (spec 005-enterprise-platform §4,
+    # Policy Administration). These are new methods, added purely
+    # additively — `create_pack`/`activate_pack`/`deactivate_pack`/
+    # `add_rule` above are unchanged and keep their existing signatures
+    # (no `caller` parameter) since they are also exercised by the
+    # existing test suite and are not, themselves, HTTP-exposed directly;
+    # the new admin API route layer enforces permissions before calling
+    # them. These new methods DO take `caller` and self-check, matching
+    # `IdentityService`'s convention, since they have no pre-existing
+    # caller to stay compatible with.
+    # ------------------------------------------------------------------
+
+    def submit_for_approval(
+        self, caller: AuthenticatedUser, pack: PolicyPack
+    ) -> PolicyPackApproval:
+        """
+        Submit a drafted (inactive) Policy Pack for maker-checker approval.
+
+        Raises:
+            ConflictError: If a PENDING approval already exists for this pack.
+        """
+        require_permission(caller, Permission.DRAFT_POLICY_PACK)
+        existing = self._repo.get_pending_approval_for_pack(pack.id)
+        if existing is not None:
+            raise ConflictError(f"PolicyPack {pack.id} already has a pending approval request")
+        approval = PolicyPackApproval.create(
+            policy_pack_id=pack.id, requested_by_user_id=caller.user_id
+        )
+        self._repo.save_approval(approval)
+        self._audit.record(
+            event_type="POLICY_PACK_SUBMITTED_FOR_APPROVAL",
+            entity_type="POLICY_PACK_APPROVAL",
+            entity_id=approval.id,
+            tenant_id=pack.tenant_id,
+            actor_id=caller.user_id,
+            event_data={"policy_pack_id": str(pack.id)},
+        )
+        return approval
+
+    def approve_pack(
+        self, caller: AuthenticatedUser, approval: PolicyPackApproval, *, tenant_id: UUID
+    ) -> PolicyPackApproval:
+        """
+        Approve a pending Policy Pack submission.
+
+        Raises:
+            AuthorizationError: If the caller lacks ``manage:policy_packs``.
+            ConflictError: If already decided.
+            ValidationError: If ``caller`` is the same user who requested it
+                (self-escalation prevention — enforced in
+                ``PolicyPackApproval.approve``).
+        """
+        require_permission(caller, Permission.MANAGE_POLICY_PACKS)
+        approval.approve(caller.user_id)
+        self._repo.save_approval(approval)
+        self._audit.record(
+            event_type="POLICY_PACK_APPROVED",
+            entity_type="POLICY_PACK_APPROVAL",
+            entity_id=approval.id,
+            tenant_id=tenant_id,
+            actor_id=caller.user_id,
+            event_data={"policy_pack_id": str(approval.policy_pack_id)},
+        )
+        return approval
+
+    def reject_pack(
+        self,
+        caller: AuthenticatedUser,
+        approval: PolicyPackApproval,
+        *,
+        tenant_id: UUID,
+        reason: str,
+    ) -> PolicyPackApproval:
+        """Reject a pending Policy Pack submission. ``reason`` is mandatory."""
+        require_permission(caller, Permission.MANAGE_POLICY_PACKS)
+        approval.reject(caller.user_id, reason)
+        self._repo.save_approval(approval)
+        self._audit.record(
+            event_type="POLICY_PACK_REJECTED",
+            entity_type="POLICY_PACK_APPROVAL",
+            entity_id=approval.id,
+            tenant_id=tenant_id,
+            actor_id=caller.user_id,
+            event_data={"policy_pack_id": str(approval.policy_pack_id), "reason": reason},
+        )
+        return approval
+
+    def activate_pack_if_approved(self, caller: AuthenticatedUser, pack: PolicyPack) -> PolicyPack:
+        """
+        Activate a Policy Pack, gated on an ``APPROVED`` approval existing for
+        it — the maker-checker gate in front of the existing
+        ``activate_pack()``, which itself is unchanged.
+
+        Raises:
+            AuthorizationError: If the caller lacks ``manage:policy_packs``.
+            NotFoundError: If no approved request exists for this pack.
+            ConflictError: Propagated from ``activate_pack`` (another pack
+                already active for this tenant, or this pack already active).
+        """
+        require_permission(caller, Permission.MANAGE_POLICY_PACKS)
+        approval = self._repo.get_approved_approval_for_pack(pack.id)
+        if approval is None:
+            raise NotFoundError("PolicyPackApproval", f"approved request for pack {pack.id}")
+        return self.activate_pack(pack)
+
+    def get_approvals_for_pack(
+        self, caller: AuthenticatedUser, policy_pack_id: UUID
+    ) -> list[PolicyPackApproval]:
+        require_permission(caller, Permission.READ_POLICY_RESULTS)
+        return self._repo.get_approvals_for_pack(policy_pack_id)
+
+    # ------------------------------------------------------------------
+    # Policy result read access (spec 005-enterprise-platform §3)
+    # ------------------------------------------------------------------
+
+    def get_results_for_application(
+        self, caller: AuthenticatedUser, application_id: UUID
+    ) -> list[PolicyResult]:
+        require_permission(caller, Permission.READ_POLICY_RESULTS)
+        results = self._repo.get_results_for_application(application_id)
+        # Defence in depth: PolicyResult carries its own tenant_id, so even
+        # though this module has no direct dependency on `mil.application`
+        # (dependency rule) to verify the application itself belongs to the
+        # caller's tenant, a result belonging to a different tenant is never
+        # returned even if `application_id` happened to collide across tenants.
+        return [r for r in results if r.tenant_id == caller.tenant_id]
+
+    def get_approval(self, caller: AuthenticatedUser, approval_id: UUID) -> PolicyPackApproval:
+        require_permission(caller, Permission.READ_POLICY_RESULTS)
+        approval = self._repo.get_approval_by_id(approval_id)
+        if approval is None:
+            raise NotFoundError("PolicyPackApproval", approval_id)
+        pack = self._repo.get_pack_by_id(approval.policy_pack_id)
+        if pack is None or pack.tenant_id != caller.tenant_id:
+            raise NotFoundError("PolicyPackApproval", approval_id)
+        return approval
+
+    def get_packs_for_tenant(self, caller: AuthenticatedUser) -> list[PolicyPack]:
+        require_permission(caller, Permission.READ_POLICY_RESULTS)
+        return self._repo.get_packs_for_tenant(caller.tenant_id)
+
+    def get_pack(self, caller: AuthenticatedUser, pack_id: UUID) -> PolicyPack:
+        require_permission(caller, Permission.READ_POLICY_RESULTS)
+        pack = self._repo.get_pack_by_id(pack_id)
+        if pack is None or pack.tenant_id != caller.tenant_id:
+            raise NotFoundError("PolicyPack", pack_id)
+        return pack
+
+    def get_rules_for_pack(self, caller: AuthenticatedUser, pack_id: UUID) -> list[PolicyRule]:
+        require_permission(caller, Permission.READ_POLICY_RESULTS)
+        return self._repo.get_rules_for_pack(pack_id)
+
+    # ------------------------------------------------------------------
     # Policy result persistence (the Policy worker's use case)
     # ------------------------------------------------------------------
 
@@ -166,6 +321,7 @@ class PolicyService:
         workflow_run_id: UUID,
         policy_pack_id: UUID,
         result: PolicyEvaluationResult,
+        evaluated_rule_keys: list[str] | None = None,
     ) -> tuple[PolicyResult, bool]:
         """
         Create one immutable ``PolicyResult`` from a provider evaluation and
@@ -178,6 +334,15 @@ class PolicyService:
         raising, paired with ``False``. The caller still needs a real
         ``PolicyResult`` (to dispatch the next workflow step) but must not
         publish a duplicate audit event.
+
+        ``evaluated_rule_keys`` (spec 005-enterprise-platform §3, optional):
+        the full rule catalogue considered for this evaluation — a superset
+        of ``result.triggered_rules``. The Policy worker passes the pack's
+        complete rule list here (already in scope at the call site, from the
+        same ``PolicyEvaluationContext`` built for the provider call), making
+        "which rules passed" (``PolicyResult.passed_rule_keys``) a real,
+        persisted answer instead of data that existed only transiently
+        during evaluation and was then discarded.
 
         Returns:
             A ``(policy_result, created)`` pair: ``created`` is ``True`` only
@@ -194,6 +359,7 @@ class PolicyService:
             workflow_run_id=workflow_run_id,
             policy_pack_id=policy_pack_id,
             result=result,
+            evaluated_rule_keys=evaluated_rule_keys,
         )
         if not self._repo.save_result_if_not_exists(policy_result):
             existing = self._repo.get_by_finding_and_version(

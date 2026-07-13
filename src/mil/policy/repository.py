@@ -22,10 +22,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from mil.policy.models import PolicyPack, PolicyResult, PolicyRule
+from mil.policy.models import PolicyPack, PolicyPackApproval, PolicyResult, PolicyRule
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -164,3 +164,62 @@ class PolicyRepository:
             PolicyResult.policy_version == policy_version,
         )
         return self._session.scalars(stmt).first() is not None
+
+    def get_results_for_application(self, application_id: UUID) -> list[PolicyResult]:
+        """Return all Policy results for an application, most recent first."""
+        stmt = (
+            select(PolicyResult)
+            .where(PolicyResult.application_id == application_id)
+            .order_by(PolicyResult.created_at.desc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def count_by_version_and_outcome(self, tenant_id: UUID) -> list[tuple[str, str, int]]:
+        """
+        Return ``(policy_version, outcome, count)`` rows for every
+        PolicyResult in a tenant (spec 005-enterprise-platform §11, Wave 3 —
+        Business Analytics' policy-calibration signal: is a given policy
+        version flagging too much or too little). One aggregated query.
+        """
+        stmt = (
+            select(PolicyResult.policy_version, PolicyResult.outcome, func.count(PolicyResult.id))
+            .where(PolicyResult.tenant_id == tenant_id)
+            .group_by(PolicyResult.policy_version, PolicyResult.outcome)
+        )
+        return [
+            (version, outcome, int(count))
+            for version, outcome, count in self._session.execute(stmt).all()
+        ]
+
+    # ------------------------------------------------------------------
+    # PolicyPackApproval (spec 005-enterprise-platform §4)
+    # ------------------------------------------------------------------
+
+    def save_approval(self, approval: PolicyPackApproval) -> None:
+        self._session.add(approval)
+        self._session.flush()
+
+    def get_approval_by_id(self, approval_id: UUID) -> PolicyPackApproval | None:
+        return self._session.get(PolicyPackApproval, approval_id)
+
+    def get_pending_approval_for_pack(self, policy_pack_id: UUID) -> PolicyPackApproval | None:
+        stmt = select(PolicyPackApproval).where(
+            PolicyPackApproval.policy_pack_id == policy_pack_id,
+            PolicyPackApproval.decision == "PENDING",
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_approved_approval_for_pack(self, policy_pack_id: UUID) -> PolicyPackApproval | None:
+        stmt = select(PolicyPackApproval).where(
+            PolicyPackApproval.policy_pack_id == policy_pack_id,
+            PolicyPackApproval.decision == "APPROVED",
+        )
+        return self._session.scalars(stmt).one_or_none()
+
+    def get_approvals_for_pack(self, policy_pack_id: UUID) -> list[PolicyPackApproval]:
+        stmt = (
+            select(PolicyPackApproval)
+            .where(PolicyPackApproval.policy_pack_id == policy_pack_id)
+            .order_by(PolicyPackApproval.created_at.desc())
+        )
+        return list(self._session.scalars(stmt))

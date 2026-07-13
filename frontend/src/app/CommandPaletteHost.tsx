@@ -40,6 +40,7 @@ import {
 import { useTheme } from '@design-system/theme/useTheme';
 import { useApplicationSearch } from '@entities/application/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
+import { useUniversalSearch } from '@entities/search/queries';
 import {
   REGION_LABEL,
   WORKSPACE_REGIONS,
@@ -84,6 +85,22 @@ export function CommandPaletteHost() {
   const searchQuery = useApplicationSearch({ search: query.trim(), enabled: searchEnabled });
   const searchResults = searchEnabled ? (searchQuery.data?.items ?? []) : [];
 
+  // spec 005-enterprise-platform §7 (Universal Search Expansion): the same
+  // palette query also searches documents by filename, via the new unified
+  // `/v1/search` endpoint — one query, a second result group, no separate
+  // search infrastructure. Deliberately `kinds=document` only here since
+  // the application group above already covers that kind via the existing
+  // `useApplicationSearch` (kept as-is, not replaced, per Wave 1/2's own
+  // "extend around it" discipline).
+  const documentSearchQuery = useUniversalSearch({
+    query: query.trim(),
+    kinds: ['document'],
+    enabled: searchEnabled,
+  });
+  const documentResults = searchEnabled
+    ? (documentSearchQuery.data?.results.filter((r) => r.kind === 'document') ?? [])
+    : [];
+
   function goToApplication(id: string) {
     void navigate({
       to: '/applications/$applicationId',
@@ -99,6 +116,15 @@ export function CommandPaletteHost() {
       to: '/applications/$applicationId',
       params: { applicationId },
       search: { region: nextRegion },
+    });
+    closePalette();
+  }
+
+  function goToApplicationDocuments(id: string) {
+    void navigate({
+      to: '/applications/$applicationId',
+      params: { applicationId: id },
+      search: { region: 'documents' },
     });
     closePalette();
   }
@@ -121,6 +147,21 @@ export function CommandPaletteHost() {
               }}
             >
               {app.loanNumber ?? app.losReference ?? app.id}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
+
+      {searchEnabled && documentResults.length > 0 && (
+        <CommandGroup heading="Documents">
+          {documentResults.map((result) => (
+            <CommandItem
+              key={result.documentId}
+              onSelect={() => {
+                goToApplicationDocuments(result.applicationId);
+              }}
+            >
+              {result.filename}
             </CommandItem>
           ))}
         </CommandGroup>

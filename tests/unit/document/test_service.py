@@ -444,6 +444,89 @@ class TestGetDocument:
 
 
 # ---------------------------------------------------------------------------
+# retry_ingestion
+# ---------------------------------------------------------------------------
+
+
+class TestRetryIngestion:
+    def _make_failed_document(self) -> Document:
+        doc = Document.create(
+            tenant_id=uuid4(),
+            application_id=uuid4(),
+            uploaded_by=uuid4(),
+            original_filename="payslip.pdf",
+            mime_type="application/pdf",
+            size_bytes=100,
+            content_hash=_SAMPLE_HASH,
+            storage_reference=_SAMPLE_REFERENCE,
+        )
+        doc.mark_failed("provider unavailable")
+        doc.collect_pending_events()
+        return doc
+
+    def test_resets_failed_document_to_pending(self) -> None:
+        service, repo, _, _ = _make_service()
+        doc = self._make_failed_document()
+        repo.get_by_id.return_value = doc
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        result = service.retry_ingestion(user, document_id=doc.id)
+        assert result.ingestion_status == IngestionStatus.PENDING
+
+    def test_increments_retry_count(self) -> None:
+        service, repo, _, _ = _make_service()
+        doc = self._make_failed_document()
+        repo.get_by_id.return_value = doc
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        result = service.retry_ingestion(user, document_id=doc.id)
+        assert result.retry_count == 1
+
+    def test_saves_with_user_actor(self) -> None:
+        service, repo, _, _ = _make_service()
+        doc = self._make_failed_document()
+        repo.get_by_id.return_value = doc
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        service.retry_ingestion(user, document_id=doc.id)
+        repo.save.assert_called_once()
+        assert repo.save.call_args.kwargs["actor"] is user
+
+    def test_raises_not_found_when_missing(self) -> None:
+        service, repo, _, _ = _make_service()
+        repo.get_by_id.return_value = None
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        with pytest.raises(NotFoundError, match="Document"):
+            service.retry_ingestion(user, document_id=uuid4())
+
+    def test_raises_conflict_when_not_failed(self) -> None:
+        service, repo, _, _ = _make_service()
+        doc = Document.create(
+            tenant_id=uuid4(),
+            application_id=uuid4(),
+            uploaded_by=uuid4(),
+            original_filename="payslip.pdf",
+            mime_type="application/pdf",
+            size_bytes=100,
+            content_hash=_SAMPLE_HASH,
+            storage_reference=_SAMPLE_REFERENCE,
+        )
+        repo.get_by_id.return_value = doc
+        user = _make_user(Role.RELATIONSHIP_MANAGER)
+        with pytest.raises(ConflictError):
+            service.retry_ingestion(user, document_id=doc.id)
+
+    def test_requires_upload_document_permission(self) -> None:
+        service, repo, _, _ = _make_service()
+        doc = self._make_failed_document()
+        repo.get_by_id.return_value = doc
+        user = AuthenticatedUser(
+            user_id=UserId(uuid4()),
+            tenant_id=TenantId(uuid4()),
+            roles=frozenset({Role.RISK_ANALYST}),
+        )
+        with pytest.raises(AuthorizationError):
+            service.retry_ingestion(user, document_id=doc.id)
+
+
+# ---------------------------------------------------------------------------
 # list_documents
 # ---------------------------------------------------------------------------
 

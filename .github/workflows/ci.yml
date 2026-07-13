@@ -14,6 +14,12 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # Full history required so the migration-safety gate below can
+          # diff against origin/main (spec 005-enterprise-platform §17,
+          # Wave 4, FR-DEPLOY-005) — a shallow clone has no base ref to
+          # diff against.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,6 +46,9 @@ jobs:
 
       - name: Byte-compile source, migrations, and tests
         run: python -m compileall -q src migrations tests
+
+      - name: Migration safety gate — block unreviewed destructive migrations
+        run: python scripts/check_destructive_migrations.py --base origin/main
 
   frontend:
     name: Frontend — lint, type-check, test, Storybook (a11y gate), build

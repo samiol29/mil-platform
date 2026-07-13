@@ -3,6 +3,7 @@ Finding REST endpoints — MIL API v1.
 
 Endpoints:
     GET  /v1/applications/{application_id}/findings   List findings for an application
+    GET  /v1/findings/escalated                        List findings escalated to the caller
     POST /v1/findings/{finding_id}/verify              Verify (approve) a finding
     POST /v1/findings/{finding_id}/override             Override a finding
     POST /v1/findings/{finding_id}/escalate             Escalate a finding to another role
@@ -33,6 +34,7 @@ from mil.api.deps import (  # noqa: TC001
     CurrentUser,
     FindingReviewActionsDep,
     FindingServiceDep,
+    ReviewServiceDep,
 )
 from mil.api.v1.schemas import EscalateFindingRequest, FindingResponse, OverrideFindingRequest
 from mil.kernel.errors import NotFoundError
@@ -102,6 +104,48 @@ def list_findings(
                 policy_version=actions.policy_version_for(finding.id),
                 escalated_to_role=session.escalated_to_role if session is not None else None,
                 escalated_to_user_id=session.escalated_to_user_id if session is not None else None,
+            )
+        )
+    return responses
+
+
+@router.get(
+    "/v1/findings/escalated",
+    summary="List findings currently escalated to the caller",
+    description=(
+        "Return every finding whose Review Session is currently ESCALATED "
+        "to a role the caller holds, or specifically to the caller — the "
+        "caller's escalation queue (final product polish sprint, A5). "
+        "Before this, an escalated finding was only discoverable by opening "
+        "the specific application it belonged to (via a notification, or by "
+        "chance). Requires ``read:application`` permission."
+    ),
+    response_model=list[FindingResponse],
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+    },
+)
+def list_escalated_findings(
+    user: CurrentUser,
+    service: FindingServiceDep,
+    actions: FindingReviewActionsDep,
+    reviews: ReviewServiceDep,
+) -> list[FindingResponse]:
+    """Return every finding currently escalated to the caller's role or to them specifically."""
+    sessions = reviews.get_escalated_for_caller(user)
+    responses = []
+    for session in sessions:
+        finding = service.get_by_id(user, finding_id=FindingId(session.finding_id))
+        if finding is None:
+            continue
+        responses.append(
+            FindingResponse.from_model(
+                finding,
+                state=_finding_state(session.status),
+                policy_version=actions.policy_version_for(finding.id),
+                escalated_to_role=session.escalated_to_role,
+                escalated_to_user_id=session.escalated_to_user_id,
             )
         )
     return responses

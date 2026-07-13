@@ -236,6 +236,14 @@ class PolicyResult(Base):
     outcome: Mapped[str] = mapped_column(String(50), nullable=False)
     # Rule keys triggered by this evaluation (JSON-safe strings; empty when none).
     triggered_rule_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # Full rule catalogue considered at evaluation time (spec 005-enterprise-
+    # platform §3 FR-POL-002; additive column). Nullable because historical
+    # rows created before this column existed never recorded it, and the
+    # provider call site may itself be a test double that doesn't supply it —
+    # never fabricated after the fact. `evaluated_rule_keys - triggered_rule_keys`
+    # is what makes "which rules passed" a real, honest answer instead of the
+    # permanent disclosure the Policy region previously had to show.
+    evaluated_rule_keys: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -253,9 +261,15 @@ class PolicyResult(Base):
         workflow_run_id: UUID,
         policy_pack_id: UUID,
         result: PolicyEvaluationResult,
+        evaluated_rule_keys: list[str] | None = None,
     ) -> PolicyResult:
         """
         Build an immutable Policy result from a provider ``PolicyEvaluationResult``.
+
+        ``evaluated_rule_keys`` (spec 005 §3, optional/additive): the full
+        rule catalogue considered at evaluation time — a superset of
+        ``result.triggered_rules``. Omitted (``None``) by callers that don't
+        have it (e.g. older tests); never guessed or backfilled.
 
         Raises:
             PolicyEvaluationError: If ``result`` is missing required
@@ -283,6 +297,7 @@ class PolicyResult(Base):
             policy_version=result.policy_version,
             outcome=result.outcome,
             triggered_rule_keys=[r.rule_key for r in result.triggered_rules],
+            evaluated_rule_keys=evaluated_rule_keys,
             evaluated_at=result.evaluated_at,
             created_at=datetime.now(UTC),
         )
@@ -292,8 +307,118 @@ class PolicyResult(Base):
         """Return ``True`` if this result triggered at least one rule."""
         return bool(self.triggered_rule_keys)
 
+    @property
+    def passed_rule_keys(self) -> list[str] | None:
+        """
+        Rule keys that were evaluated but did not trigger — ``None`` when
+        ``evaluated_rule_keys`` was never recorded for this row (spec 005
+        §3), never an empty list standing in for "unknown."
+        """
+        if self.evaluated_rule_keys is None:
+            return None
+        triggered = set(self.triggered_rule_keys)
+        return [key for key in self.evaluated_rule_keys if key not in triggered]
+
     def __repr__(self) -> str:
         return (
             f"<PolicyResult id={self.id} finding={self.finding_id} "
             f"outcome={self.outcome} version={self.policy_version}>"
+        )
+
+
+class PolicyPackApproval(Base):
+    """
+    A maker-checker approval request/decision for activating a Policy Pack
+    (spec 005-enterprise-platform §4, Policy Administration).
+
+    ``PolicyPack`` itself has no ``status`` column (lifecycle is the existing
+    ``activated_at``/``deactivated_at`` timestamp pair) — this entity is a
+    pure gate layered in front of the already-existing ``PolicyService
+    .activate_pack()``, not a redesign of the pack's own lifecycle
+    representation. A pack can only be activated once an ``APPROVED`` row
+    exists for it; the requester and decider must be different users
+    (self-escalation prevention, mirroring ``mil.identity`` role-assignment).
+
+    Append-only per request cycle: a rejected pack that is resubmitted gets a
+    new ``PolicyPackApproval`` row, never a reopened one — consistent with
+    the immutability discipline already applied to ``ReviewSession``'s own
+    action history and ``PolicyResult``.
+    """
+
+    __tablename__ = "policy_pack_approvals"
+    __table_args__ = ({"schema": "policy"},)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    policy_pack_id: Mapped[UUID] = mapped_column(
+        ForeignKey("policy.policy_packs.id"), nullable=False
+    )
+    requested_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("core.users.id"), nullable=False)
+    decided_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("core.users.id"), nullable=True
+    )
+    decision: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    @classmethod
+    def create(cls, *, policy_pack_id: UUID, requested_by_user_id: UUID) -> PolicyPackApproval:
+        return cls(
+            id=uuid4(),
+            policy_pack_id=policy_pack_id,
+            requested_by_user_id=requested_by_user_id,
+            decision="PENDING",
+            created_at=datetime.now(UTC),
+        )
+
+    def approve(self, decided_by_user_id: UUID) -> None:
+        """
+        Approve this request.
+
+        Raises:
+            ConflictError: If this request has already been decided.
+            ValidationError: If the decider is the same user who requested it
+                (self-escalation prevention — the drafter cannot self-approve).
+        """
+        if self.decision != "PENDING":
+            raise ConflictError(f"PolicyPackApproval {self.id} has already been decided")
+        if decided_by_user_id == self.requested_by_user_id:
+            raise ValidationError(
+                "A user may not approve their own Policy Pack submission "
+                "(self-escalation prevention)."
+            )
+        self.decision = "APPROVED"
+        self.decided_by_user_id = decided_by_user_id
+        self.decided_at = datetime.now(UTC)
+
+    def reject(self, decided_by_user_id: UUID, reason: str) -> None:
+        """
+        Reject this request. ``reason`` is mandatory (mirrors the existing
+        Override/Escalate mandatory-reason convention in ``mil.review``).
+
+        Raises:
+            ConflictError: If this request has already been decided.
+            ValidationError: If ``reason`` is empty, or the decider is the
+                requester.
+        """
+        if self.decision != "PENDING":
+            raise ConflictError(f"PolicyPackApproval {self.id} has already been decided")
+        if decided_by_user_id == self.requested_by_user_id:
+            raise ValidationError("A user may not reject their own Policy Pack submission.")
+        if not reason or not reason.strip():
+            raise ValidationError("reason must not be empty when rejecting", field="reason")
+        self.decision = "REJECTED"
+        self.decided_by_user_id = decided_by_user_id
+        self.reason = reason.strip()
+        self.decided_at = datetime.now(UTC)
+
+    @property
+    def is_approved(self) -> bool:
+        return self.decision == "APPROVED"
+
+    def __repr__(self) -> str:
+        return (
+            f"<PolicyPackApproval id={self.id} pack={self.policy_pack_id} decision={self.decision}>"
         )

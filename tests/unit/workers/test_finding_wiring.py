@@ -197,6 +197,49 @@ class TestStartFindingGenerationWorkflow:
         )
         assert run.idempotency_key == f"{FINDING_WORKFLOW_TYPE}:{application_id}"
 
+    def test_retry_count_zero_preserves_original_key(self) -> None:
+        application_id = uuid4()
+        session = _mock_session()
+        container, _ = self._container_with_job_queue()
+        run = start_finding_generation_workflow(
+            session, container, application_id=application_id, tenant_id=uuid4(), retry_count=0
+        )
+        assert run.idempotency_key == f"{FINDING_WORKFLOW_TYPE}:{application_id}"
+
+    def test_retry_count_distinguishes_the_idempotency_key(self) -> None:
+        """
+        A real retry must mint a new key — IntelligenceOrchestrator.start_workflow
+        returns the existing run for a repeat key, so an unchanged key would
+        make retry a silent no-op.
+        """
+        application_id = uuid4()
+        session = _mock_session()
+        container, _ = self._container_with_job_queue()
+        run = start_finding_generation_workflow(
+            session, container, application_id=application_id, tenant_id=uuid4(), retry_count=1
+        )
+        assert run.idempotency_key == f"{FINDING_WORKFLOW_TYPE}:{application_id}:retry1"
+
+    def test_retry_dispatches_a_new_job_instead_of_no_op(self) -> None:
+        application_id = uuid4()
+        tenant_id = uuid4()
+        container, queue = self._container_with_job_queue()
+
+        first = start_finding_generation_workflow(
+            _mock_session(), container, application_id=application_id, tenant_id=tenant_id
+        )
+        queue.dequeue()
+
+        retried = start_finding_generation_workflow(
+            _mock_session(),
+            container,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            retry_count=1,
+        )
+        assert retried.id != first.id
+        assert queue.dequeue() is not None
+
     def test_repeat_call_with_existing_run_returns_it_unchanged(self) -> None:
         """Simulates a replay where the idempotency lookup finds a prior run."""
         application_id = uuid4()

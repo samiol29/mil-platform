@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
@@ -138,8 +138,85 @@ describe('DocumentProcessingList', () => {
     const user = userEvent.setup();
     const detailsButtons = await screen.findAllByText('Details');
     await user.click(detailsButtons[1]);
-    expect(
-      screen.getByText(/Gemini API returned HTTP 400.*Upload this document again to retry/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Gemini API returned HTTP 400/)).toBeInTheDocument();
+  });
+
+  it('shows a Retry action only for FAILED documents', async () => {
+    mockDocuments([
+      makeDocument({ id: 'aaaaaaaa-1111-4111-a111-111111111111', ingestionStatus: 'COMPLETED' }),
+      makeDocument({
+        id: 'bbbbbbbb-2222-4222-a222-222222222222',
+        ingestionStatus: 'FAILED',
+        ingestionError: 'boom',
+      }),
+    ]);
+    renderList();
+    await screen.findByText(/2 documents/);
+    expect(screen.getAllByText('Retry', { exact: false })).toHaveLength(1);
+  });
+
+  it('calls the retry endpoint for a single FAILED document', async () => {
+    mockDocuments([
+      makeDocument({
+        id: 'bbbbbbbb-2222-4222-a222-222222222222',
+        ingestionStatus: 'FAILED',
+        ingestionError: 'boom',
+      }),
+    ]);
+    let retried = false;
+    server.use(
+      http.post(
+        `/v1/applications/${APPLICATION_ID}/documents/bbbbbbbb-2222-4222-a222-222222222222/retry`,
+        () => {
+          retried = true;
+          return HttpResponse.json(
+            makeDocument({
+              id: 'bbbbbbbb-2222-4222-a222-222222222222',
+              ingestionStatus: 'PENDING',
+              ingestionError: null,
+              retryCount: 1,
+            }),
+          );
+        },
+      ),
+    );
+    renderList();
+    const user = userEvent.setup();
+    await user.click(await screen.findByText('Retry'));
+    await waitFor(() => {
+      expect(retried).toBe(true);
+    });
+  });
+
+  it('"Retry all failed" retries every FAILED document, not just one', async () => {
+    mockDocuments([
+      makeDocument({
+        id: 'aaaaaaaa-1111-4111-a111-111111111111',
+        ingestionStatus: 'FAILED',
+        ingestionError: 'boom 1',
+      }),
+      makeDocument({
+        id: 'bbbbbbbb-2222-4222-a222-222222222222',
+        ingestionStatus: 'FAILED',
+        ingestionError: 'boom 2',
+      }),
+    ]);
+    const retriedIds = new Set<string>();
+    server.use(
+      http.post(`/v1/applications/${APPLICATION_ID}/documents/:documentId/retry`, ({ params }) => {
+        retriedIds.add(params.documentId as string);
+        return HttpResponse.json(
+          makeDocument({ id: params.documentId, ingestionStatus: 'PENDING' }),
+        );
+      }),
+    );
+    renderList();
+    const user = userEvent.setup();
+    await user.click(await screen.findByText(/Retry all failed \(2\)/));
+    await waitFor(() => {
+      expect(retriedIds).toEqual(
+        new Set(['aaaaaaaa-1111-4111-a111-111111111111', 'bbbbbbbb-2222-4222-a222-222222222222']),
+      );
+    });
   });
 });

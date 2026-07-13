@@ -35,7 +35,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mil.kernel.errors import ConflictError, ValidationError
+from mil.kernel.errors import ConflictError, NotFoundError, ValidationError
+from mil.kernel.security import Permission, require_permission
 from mil.review.models import (
     ACTION_APPROVED,
     ACTION_ASSIGNED,
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from mil.audit.writer import AuditWriter
+    from mil.kernel.security import AuthenticatedUser
     from mil.review.repository import ReviewRepository
 
 
@@ -167,8 +169,16 @@ class ReviewService:
         )
         return session
 
-    def approve_finding(self, session: ReviewSession, *, actor_user_id: UUID) -> ReviewSession:
-        """Approve the Finding under review, closing the session as ``APPROVED``."""
+    def approve_finding(
+        self, session: ReviewSession, *, actor_user_id: UUID
+    ) -> tuple[ReviewSession, UUID]:
+        """
+        Approve the Finding under review, closing the session as ``APPROVED``.
+
+        Returns the session and the id of the audit event this call wrote —
+        the caller (the API route) uses the event id to create a Notification
+        for the application's owner, mirroring ``post_comment``'s pattern.
+        """
         previous_status = session.status
         session.transition_to(APPROVED)
         self._repo.save_session(session)
@@ -182,7 +192,7 @@ class ReviewService:
         )
         self._repo.save_action(action)
 
-        self._audit.record(
+        event = self._audit.record(
             event_type="REVIEW_FINDING_APPROVED",
             entity_type="REVIEW_SESSION",
             entity_id=session.id,
@@ -191,7 +201,7 @@ class ReviewService:
             actor_id=actor_user_id,
             event_data={"finding_id": str(session.finding_id)},
         )
-        return session
+        return session, event.id
 
     def reject_finding(
         self, session: ReviewSession, *, actor_user_id: UUID, reason: str
@@ -233,7 +243,7 @@ class ReviewService:
         reason: str,
         previous_value: str,
         new_value: str,
-    ) -> ReviewSession:
+    ) -> tuple[ReviewSession, UUID]:
         """
         Override the Finding under review, closing the session as
         ``OVERRIDDEN``.
@@ -243,6 +253,10 @@ class ReviewService:
         on the resulting ``ReviewAction``), a reason, the previous finding
         state, and the new decision. All five are required here and recorded
         permanently — this ``ReviewAction`` row is never updated or deleted.
+
+        Returns the session and the id of the audit event this call wrote —
+        the caller (the API route) uses the event id to create a Notification
+        for the application's owner, mirroring ``post_comment``'s pattern.
         """
         if not reason or not reason.strip():
             raise ValidationError("reason must not be empty", field="reason")
@@ -265,7 +279,7 @@ class ReviewService:
         )
         self._repo.save_action(action)
 
-        self._audit.record(
+        event = self._audit.record(
             event_type="REVIEW_FINDING_OVERRIDDEN",
             entity_type="REVIEW_SESSION",
             entity_id=session.id,
@@ -279,7 +293,7 @@ class ReviewService:
                 "new_value": new_value,
             },
         )
-        return session
+        return session, event.id
 
     def escalate_finding(
         self,
@@ -289,7 +303,7 @@ class ReviewService:
         reason: str,
         target_role: str,
         target_user_id: UUID | None = None,
-    ) -> ReviewSession:
+    ) -> tuple[ReviewSession, UUID]:
         """
         Escalate the Finding under review to another role's queue.
 
@@ -299,6 +313,11 @@ class ReviewService:
         into the target role's queue, and the same ``approve_finding``,
         ``reject_finding``, and ``override_finding`` methods resolve it —
         there is no separate "resolve escalation" action.
+
+        Returns the session and the id of the audit event this call wrote —
+        the caller (the API route) uses the event id to create a Notification
+        for the application's owner and, when a specific ``target_user_id``
+        was given, for that person too.
         """
         if not reason or not reason.strip():
             raise ValidationError("reason must not be empty", field="reason")
@@ -321,7 +340,7 @@ class ReviewService:
         )
         self._repo.save_action(action)
 
-        self._audit.record(
+        event = self._audit.record(
             event_type="REVIEW_FINDING_ESCALATED",
             entity_type="REVIEW_SESSION",
             entity_id=session.id,
@@ -335,7 +354,7 @@ class ReviewService:
                 "target_user_id": str(target_user_id) if target_user_id is not None else None,
             },
         )
-        return session
+        return session, event.id
 
     def add_comment(
         self, session: ReviewSession, *, author_user_id: UUID, comment_text: str
@@ -358,3 +377,116 @@ class ReviewService:
             event_data={"comment_id": str(comment.id)},
         )
         return comment
+
+    # ------------------------------------------------------------------
+    # Collaboration (spec 005-enterprise-platform §9) — new methods, added
+    # purely additively. Unlike `add_comment` above (unchanged, pre-existing,
+    # no `caller`/permission self-check, to stay compatible with its
+    # existing callers/tests), these new methods DO take `caller` and
+    # self-check, matching the convention established by `IdentityService`/
+    # `PolicyService`'s new maker-checker methods in this same wave.
+    # ------------------------------------------------------------------
+
+    def get_session_for_finding(self, caller: AuthenticatedUser, finding_id: UUID) -> ReviewSession:
+        require_permission(caller, Permission.COMMENT_ON_FINDING)
+        session = self._repo.get_session_for_finding(finding_id)
+        if session is None or session.tenant_id != caller.tenant_id:
+            raise NotFoundError("ReviewSession", f"finding={finding_id}")
+        return session
+
+    def get_comments_for_finding(
+        self, caller: AuthenticatedUser, finding_id: UUID
+    ) -> list[ReviewComment]:
+        session = self.get_session_for_finding(caller, finding_id)
+        return self._repo.get_comments_for_session(session.id)
+
+    def post_comment(
+        self,
+        caller: AuthenticatedUser,
+        finding_id: UUID,
+        *,
+        comment_text: str,
+        mentioned_user_ids: list[UUID] | None = None,
+    ) -> tuple[ReviewComment, UUID]:
+        """
+        Post a comment on a Finding's Review Session.
+
+        Returns:
+            A ``(comment, audit_event_id)`` pair — the audit event id lets
+            the caller (the API route) create a Notification pointing at
+            this exact event for each mentioned user (spec 005 §13, Wave 2)
+            without this service importing ``mil.notification`` itself
+            (dependency rule).
+
+        Raises:
+            NotFoundError: If no Review Session exists yet for this Finding
+                (a comment can only be posted once the Finding is under
+                review — matching the real lifecycle, not an application-
+                wide free-for-all thread).
+        """
+        require_permission(caller, Permission.COMMENT_ON_FINDING)
+        session = self.get_session_for_finding(caller, finding_id)
+        comment = ReviewComment.create(
+            review_session_id=session.id,
+            author_user_id=caller.user_id,
+            comment_text=comment_text,
+            mentioned_user_ids=mentioned_user_ids or [],
+        )
+        self._repo.save_comment(comment)
+        event = self._audit.record(
+            event_type="REVIEW_COMMENT_ADDED",
+            entity_type="REVIEW_SESSION",
+            entity_id=session.id,
+            tenant_id=session.tenant_id,
+            application_id=session.application_id,
+            actor_id=caller.user_id,
+            event_data={
+                "comment_id": str(comment.id),
+                "mentioned_user_ids": [str(uid) for uid in (mentioned_user_ids or [])],
+            },
+        )
+        return comment, event.id
+
+    def get_comment(self, caller: AuthenticatedUser, comment_id: UUID) -> ReviewComment:
+        require_permission(caller, Permission.COMMENT_ON_FINDING)
+        comment = self._repo.get_comment_by_id(comment_id)
+        if comment is None:
+            raise NotFoundError("ReviewComment", comment_id)
+        session = self._repo.get_session_by_id(comment.review_session_id)
+        if session is None or session.tenant_id != caller.tenant_id:
+            raise NotFoundError("ReviewComment", comment_id)
+        return comment
+
+    def edit_comment(
+        self, caller: AuthenticatedUser, comment: ReviewComment, new_text: str
+    ) -> ReviewComment:
+        """
+        Edit a comment. Raises ``AuthorizationError`` (from ``ReviewComment
+        .edit``) if the caller isn't the author, or ``ConflictError`` if the
+        edit window has elapsed.
+        """
+        require_permission(caller, Permission.COMMENT_ON_FINDING)
+        comment.edit(caller.user_id, new_text)
+        self._repo.save_comment(comment)
+        return comment
+
+    def delete_comment(self, caller: AuthenticatedUser, comment: ReviewComment) -> ReviewComment:
+        require_permission(caller, Permission.COMMENT_ON_FINDING)
+        comment.soft_delete(caller.user_id)
+        self._repo.save_comment(comment)
+        return comment
+
+    def get_escalated_for_caller(self, caller: AuthenticatedUser) -> list[ReviewSession]:
+        """
+        Return every Review Session currently escalated to the caller — to
+        any role they hold, or to them specifically (final product polish
+        sprint, A5: the escalation queue). Gated on ``read:application``
+        (visibility only); actually resolving one of these sessions still
+        requires ``verify:finding``/``override:finding`` and passes through
+        ``FindingReviewActions._authorize_resolution``'s existing ownership
+        check unchanged.
+        """
+        require_permission(caller, Permission.READ_APPLICATION)
+        return self._repo.get_escalated_for_caller(
+            caller.tenant_id, roles=caller.roles, user_id=caller.user_id
+        )

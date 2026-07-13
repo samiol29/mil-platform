@@ -260,3 +260,66 @@ class TestAcknowledgeAndReject:
         assert job is not None
         queue.reject(job.job_id, requeue=True)
         assert queue.pending_count() == 0
+
+    def test_reject_at_max_retries_moves_to_dead_letter(self, redis_client: redis.Redis) -> None:
+        queue = RedisJobQueue(redis_client, key_prefix="test:reject-dead-letter")
+        exhausted_job = Job(
+            job_type="workflow_step", idempotency_key="exhausted-dl", max_retries=1, retry_count=1
+        )
+        queue.enqueue(exhausted_job)
+        job = queue.dequeue()
+        assert job is not None
+        queue.reject(job.job_id, requeue=True)
+        assert queue.dead_letter_count() == 1
+
+
+class TestReclaimStale:
+    def test_stale_claimed_job_with_retries_is_redelivered(self, redis_client: redis.Redis) -> None:
+        queue = RedisJobQueue(redis_client, key_prefix="test:reclaim-retry")
+        queue.enqueue(_job("stuck-job"))
+        job = queue.dequeue()  # simulates a worker claiming it, then crashing
+        assert job is not None
+        assert queue.processing_count() == 1
+
+        reclaimed = queue.reclaim_stale(visibility_timeout_seconds=0.0)
+
+        assert reclaimed == 1
+        assert queue.processing_count() == 0
+        redelivered = queue.dequeue()
+        assert redelivered is not None
+        assert redelivered.idempotency_key == "stuck-job"
+        assert redelivered.retry_count == 1
+
+    def test_stale_claimed_job_at_max_retries_goes_to_dead_letter(
+        self, redis_client: redis.Redis
+    ) -> None:
+        queue = RedisJobQueue(redis_client, key_prefix="test:reclaim-dead-letter")
+        exhausted_job = Job(
+            job_type="workflow_step",
+            idempotency_key="stuck-exhausted",
+            max_retries=0,
+            retry_count=0,
+        )
+        queue.enqueue(exhausted_job)
+        job = queue.dequeue()
+        assert job is not None
+
+        reclaimed = queue.reclaim_stale(visibility_timeout_seconds=0.0)
+
+        assert reclaimed == 1
+        assert queue.processing_count() == 0
+        assert queue.dead_letter_count() == 1
+
+    def test_recently_claimed_job_is_not_reclaimed(self, redis_client: redis.Redis) -> None:
+        queue = RedisJobQueue(redis_client, key_prefix="test:reclaim-recent")
+        queue.enqueue(_job("fresh-job"))
+        queue.dequeue()
+
+        reclaimed = queue.reclaim_stale(visibility_timeout_seconds=3600.0)
+
+        assert reclaimed == 0
+        assert queue.processing_count() == 1
+
+    def test_reclaim_with_no_processing_jobs_is_a_noop(self, redis_client: redis.Redis) -> None:
+        queue = RedisJobQueue(redis_client, key_prefix="test:reclaim-empty")
+        assert queue.reclaim_stale(visibility_timeout_seconds=0.0) == 0

@@ -302,6 +302,13 @@ class TestSuccess:
         h.run_processor()
         assert len(h.policy.calls) == 1
 
+    def test_logs_policy_evaluated(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Final product polish sprint (B1): policy_pipeline.py had zero logger calls before this."""
+        h = _Harness()
+        with caplog.at_level("INFO", logger="workers.policy_pipeline"):
+            h.run_processor()
+        assert "Policy evaluated" in [record.message for record in caplog.records]
+
     def test_marks_step_completed(self) -> None:
         h = _Harness()
         h.run_processor()
@@ -609,6 +616,13 @@ class TestTerminalFailure:
     def test_records_no_result(self) -> None:
         h = self._run()
         assert h.policy.calls == []
+
+    def test_logs_permanent_failure(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("ERROR", logger="workers.policy_pipeline"):
+            self._run()
+        assert "Policy evaluation permanently failed" in [
+            record.message for record in caplog.records
+        ]
 
 
 # ---------------------------------------------------------------------------

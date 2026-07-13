@@ -129,7 +129,7 @@ export function Table<TData>({
                     <button
                       type="button"
                       onClick={header.column.getToggleSortingHandler()}
-                      className="hover:text-text-primary inline-flex items-center gap-1 outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                      className="hover:text-text-primary inline-flex items-center gap-1 outline-none transition-colors duration-micro ease-standard focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
                     >
                       {header.isPlaceholder
                         ? null
@@ -179,7 +179,7 @@ export function Table<TData>({
                   : undefined
               }
               className={cn(
-                'border-border-subtle flex items-center border-b',
+                'border-border-subtle flex items-center border-b transition-colors duration-micro ease-standard',
                 // Selected state (Product Experience phase, Phase 11): a
                 // brand left edge + subtle fill — unmistakable without
                 // washing the whole row in color.

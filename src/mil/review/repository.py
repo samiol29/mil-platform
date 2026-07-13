@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import extract, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from mil.review.models import (
@@ -136,6 +136,51 @@ class ReviewRepository:
         )
         return list(self._session.scalars(stmt))
 
+    def get_escalated_for_caller(
+        self, tenant_id: UUID, *, roles: frozenset[str], user_id: UUID
+    ) -> list[ReviewSession]:
+        """
+        Return every Review Session currently escalated either to any of
+        ``roles`` (the caller's own roles) or specifically to ``user_id`` —
+        the caller's full escalation queue (final product polish sprint,
+        A5: "findings escalated to my role or to me specifically").
+
+        Generalises ``get_escalated_for_role`` (role-only) for any caller-
+        facing endpoint; that method is kept for the one existing role-only
+        call site. Before this, a caller had no way to see everything
+        escalated to them — only by opening the specific application (via a
+        notification or by chance).
+        """
+        stmt = (
+            select(ReviewSession)
+            .where(
+                ReviewSession.tenant_id == tenant_id,
+                ReviewSession.status == ESCALATED,
+                or_(
+                    ReviewSession.escalated_to_role.in_(roles),
+                    ReviewSession.escalated_to_user_id == user_id,
+                ),
+            )
+            .order_by(ReviewSession.updated_at.asc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def get_average_duration_seconds(self, tenant_id: UUID) -> float | None:
+        """
+        Return the average ``closed_at - created_at`` in seconds across
+        every *closed* Review Session in a tenant, or ``None`` if none have
+        closed yet (an honest absence, not a fabricated zero) — spec 005-
+        enterprise-platform §11, Wave 3 — Business Analytics' real average
+        review duration signal.
+        """
+        duration_seconds = extract("epoch", ReviewSession.closed_at - ReviewSession.created_at)
+        stmt = select(func.avg(duration_seconds)).where(
+            ReviewSession.tenant_id == tenant_id,
+            ReviewSession.closed_at.is_not(None),
+        )
+        result = self._session.scalars(stmt).one_or_none()
+        return float(result) if result is not None else None
+
     # ------------------------------------------------------------------
     # ReviewAction (append-only)
     # ------------------------------------------------------------------
@@ -171,3 +216,6 @@ class ReviewRepository:
             .order_by(ReviewComment.created_at.asc())
         )
         return list(self._session.scalars(stmt))
+
+    def get_comment_by_id(self, comment_id: UUID) -> ReviewComment | None:
+        return self._session.get(ReviewComment, comment_id)

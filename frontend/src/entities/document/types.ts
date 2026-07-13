@@ -25,6 +25,12 @@ export const documentSchema = z.object({
   pageCount: z.number().int().nonnegative().nullable(),
   ingestionCompletedAt: z.iso.datetime().nullable(),
   ingestionError: z.string().nullable(),
+  /**
+   * Number of times ingestion has been retried after a FAILED state (final
+   * product polish sprint) — real, additive column, defaults to 0 for every
+   * document that has never been retried.
+   */
+  retryCount: z.number().int().nonnegative().default(0),
 });
 
 export type Document = z.infer<typeof documentSchema>;

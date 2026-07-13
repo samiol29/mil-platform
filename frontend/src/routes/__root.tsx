@@ -47,6 +47,7 @@ import { UserMenu } from '@app/UserMenu';
 import { useAuthUser } from '@app/auth/authProvider';
 import { useUiStore } from '@app/uiStore';
 import { Breadcrumb } from '@design-system/components/Breadcrumb';
+import { NotificationBell } from '@features/notifications/NotificationBell';
 import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { cn } from '@design-system/lib/cn';
@@ -67,6 +68,24 @@ export interface RouterContext {
 function RootLayout() {
   const openCommandPalette = useUiStore((state) => state.openCommandPalette);
   const user = useAuthUser();
+  const pathname = useLocation({ select: (location) => location.pathname });
+
+  // Customer Portal routes (spec 005-enterprise-platform §12, Wave 4) are a
+  // genuinely separate trust boundary — a borrower never sees internal
+  // chrome (PrimaryNav, UserMenu, command palette) or the internal
+  // session-expiry gate, since they were never signed into the internal
+  // app to begin with. Bypassing the shell here, rather than gating each
+  // portal route's own component, is what keeps this a structural
+  // guarantee instead of a per-page opt-out that could be forgotten.
+  if (pathname.startsWith('/portal')) {
+    return (
+      <div className="bg-surface-background min-h-screen">
+        <RouteErrorBoundary>
+          <Outlet />
+        </RouteErrorBoundary>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-surface-background min-h-screen">
@@ -87,6 +106,7 @@ function RootLayout() {
             <Search className="size-3.5" aria-hidden="true" />
             <span className="text-text-tertiary">⌘K</span>
           </Button>
+          <NotificationBell />
           <UserMenu />
         </div>
       </header>
@@ -105,10 +125,20 @@ function RootLayout() {
 function PrimaryNav() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const user = useAuthUser();
+  const userRoles = user?.roles ?? [];
+  // `section.roles` (navConfig.ts) was declared but never consulted here —
+  // the Administration entry (Enterprise Administration, spec 005 §15)
+  // is the first nav section that actually needs role gating, since it's
+  // ADMIN-only; every prior section was visible to all authenticated users.
+  const visibleSections = NAV_SECTIONS.filter(
+    (section) =>
+      section.roles === undefined || section.roles.some((role) => userRoles.includes(role)),
+  );
 
   return (
     <nav aria-label="Primary" className="flex items-center gap-1">
-      {NAV_SECTIONS.map((section) => {
+      {visibleSections.map((section) => {
         const Icon = section.icon;
         // Active state (Product Experience phase, Phase 11): exact match for
         // the root section, prefix match for sections with sub-routes — so

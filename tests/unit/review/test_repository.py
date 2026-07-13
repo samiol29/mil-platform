@@ -110,6 +110,24 @@ class TestGetEscalatedForRole:
         assert repo.get_escalated_for_role(uuid4(), "COMPLIANCE_OFFICER") == [s1, s2]
 
 
+class TestGetEscalatedForCaller:
+    def test_returns_list(self) -> None:
+        repo, session = _make_repo()
+        s1, s2 = _session(), _session()
+        session.scalars.return_value = iter([s1, s2])
+        result = repo.get_escalated_for_caller(
+            uuid4(), roles=frozenset({"COMPLIANCE_OFFICER"}), user_id=uuid4()
+        )
+        assert result == [s1, s2]
+
+    def test_accepts_empty_roles(self) -> None:
+        """A caller with no roles still gets a valid (empty IN-clause) query, not an error."""
+        repo, session = _make_repo()
+        session.scalars.return_value = iter([])
+        result = repo.get_escalated_for_caller(uuid4(), roles=frozenset(), user_id=uuid4())
+        assert result == []
+
+
 class TestSaveAction:
     def test_adds_and_flushes(self) -> None:
         repo, session = _make_repo()
@@ -147,3 +165,15 @@ class TestGetCommentsForSession:
         c1, c2 = _comment(), _comment()
         session.scalars.return_value = iter([c1, c2])
         assert repo.get_comments_for_session(uuid4()) == [c1, c2]
+
+
+class TestGetAverageDurationSeconds:
+    def test_returns_average(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value.one_or_none.return_value = 3600.0
+        assert repo.get_average_duration_seconds(uuid4()) == 3600.0
+
+    def test_returns_none_when_no_closed_sessions(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value.one_or_none.return_value = None
+        assert repo.get_average_duration_seconds(uuid4()) is None

@@ -92,7 +92,7 @@ function ToastItem({
     <div
       role={toast.variant === 'error' ? 'alert' : 'status'}
       className={cn(
-        'bg-surface-overlay border-border-default shadow-overlay flex items-start gap-3',
+        'bg-surface-overlay border-border-default shadow-overlay animate-panel-in flex items-start gap-3',
         'rounded-container border p-3',
         toast.variant === 'error' && 'border-l-text-critical border-l-4',
       )}

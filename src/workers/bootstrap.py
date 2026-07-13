@@ -48,8 +48,7 @@ happen to touch.
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import create_engine
@@ -60,6 +59,13 @@ from mil.kernel.container import build_container
 from mil.kernel.context import RequestContext, reset_request_context, set_request_context
 from mil.kernel.job_queue import JobQueue
 from mil.kernel.model_registration import register_all_models as _register_all_models
+from mil.kernel.observability import (
+    configure_logging,
+    get_log_context,
+    get_logger,
+    reset_log_context,
+    set_log_context,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -68,7 +74,7 @@ if TYPE_CHECKING:
     from mil.kernel.container import Container
     from mil.kernel.job_queue import Job
 
-_log = logging.getLogger(__name__)
+_log = get_logger(__name__)
 
 
 class JobHandler(Protocol):
@@ -106,12 +112,14 @@ def build_worker_context(
     settings: Settings | None = None,
     container: Container | None = None,
     session_factory: sessionmaker[Session] | None = None,
+    service_name: str = "mil-worker",
 ) -> WorkerContext:
     """
     Assemble a ``WorkerContext`` for a worker process.
 
-    Mirrors the API process bootstrap in ``main.py``: build the container from
-    settings, create a synchronous session factory, and resolve the job queue.
+    Mirrors the API process bootstrap in ``main.py``: configure structured
+    logging, build the container from settings, create a synchronous session
+    factory, and resolve the job queue.
 
     All collaborators are injectable so tests can supply fakes without touching
     real infrastructure. When not supplied:
@@ -122,11 +130,22 @@ def build_worker_context(
       ``settings.database_sync_url`` (the engine connects lazily, not at build
       time).
 
+    ``service_name`` (default ``"mil-worker"``) is written into every JSON log
+    line's ``service`` field via ``configure_logging`` — each real worker's
+    ``main()`` passes its own name (e.g. ``"mil-worker-ocr"``,
+    ``"mil-worker-finding"``) so an on-call engineer can filter logs by which
+    pipeline emitted them. Before this, worker processes never called
+    ``configure_logging`` at all: only the API process (``main.py``) did, so
+    a worker's log lines (when it logged anything) were unstructured
+    plain-text, not the JSON format this platform's logging is otherwise
+    built around.
+
     Returns:
         A fully resolved ``WorkerContext``.
     """
     _register_all_models()
     resolved_settings = settings if settings is not None else get_settings()
+    configure_logging(log_level=resolved_settings.mil_log_level, service_name=service_name)
     resolved_container = container if container is not None else build_container(resolved_settings)
 
     if session_factory is not None:
@@ -155,7 +174,11 @@ def process_next(
 
     Steps:
       1. Dequeue a job; return ``False`` immediately if the queue is empty.
-      2. Bind the job's correlation id to the request context (ADR-009).
+      2. Bind the job's correlation id to the request context (ADR-009) and to
+         the structured-logging context, so every log line emitted while this
+         job is processed — by this function or by the pipeline-specific
+         handler it calls — carries the same ``correlation_id``/
+         ``application_id``/``tenant_id`` an on-call engineer would grep for.
       3. Open a session and invoke ``handler`` within it.
       4. On success: commit and acknowledge the job.
          On failure: roll back, reject (requeue within the retry budget), and
@@ -184,22 +207,61 @@ def process_next(
     if job is None:
         return False
 
-    correlation_id = str(job.payload.get("correlation_id", "")) if job.payload else ""
+    payload = job.payload or {}
+    correlation_id = str(payload.get("correlation_id", ""))
+    application_id = str(payload.get("application_id", ""))
+    tenant_id = str(payload.get("tenant_id", ""))
     context = RequestContext(correlation_id=correlation_id) if correlation_id else RequestContext()
-    token = set_request_context(context)
+    request_token = set_request_context(context)
+    # `replace(...)` preserves `service` (set once, process-wide, by
+    # `configure_logging` in `build_worker_context` — e.g. "mil-worker-ocr")
+    # rather than constructing a fresh `LogContext`, which would silently
+    # reset `service` back to its dataclass default ("mil-api") on every
+    # single job, defeating the whole point of a per-worker-type service name.
+    log_token = set_log_context(
+        replace(
+            get_log_context(),
+            correlation_id=correlation_id,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            component="worker",
+        )
+    )
+
+    _log.info(
+        "Job dequeued",
+        event_type="worker.job.dequeued",
+        job_type=job.job_type,
+        job_id=str(job.job_id),
+        retry_count=job.retry_count,
+    )
 
     session = ctx.session_factory()
     try:
         handler(session, job)
         session.commit()
         ctx.job_queue.acknowledge(job.job_id)
+        _log.info(
+            "Job completed",
+            event_type="worker.job.completed",
+            job_type=job.job_type,
+            job_id=str(job.job_id),
+        )
     except Exception:
         session.rollback()
         ctx.job_queue.reject(job.job_id, requeue=True)
+        _log.warning_with_traceback(
+            "Job failed; rolled back and requeued for retry",
+            event_type="worker.job.failed",
+            job_type=job.job_type,
+            job_id=str(job.job_id),
+            retry_count=job.retry_count,
+        )
         raise
     finally:
         session.close()
-        reset_request_context(token)
+        reset_request_context(request_token)
+        reset_log_context(log_token)
 
     return True
 
@@ -237,6 +299,7 @@ def run_forever(
             process_next(ctx, handler, timeout=poll_timeout, job_type=job_type)
         except Exception:
             _log.exception(
-                "Unhandled exception processing a %s job; continuing to poll.",
-                job_type,
+                f"Unhandled exception processing a {job_type} job; continuing to poll.",
+                event_type="worker.job.unhandled_exception",
+                job_type=job_type,
             )

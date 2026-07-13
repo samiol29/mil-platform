@@ -9,11 +9,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
 
-import { ApplicationQueueTable } from '@features/application-queue/ApplicationQueueTable';
+import {
+  ApplicationQueueTable,
+  type AttentionFilterKey,
+} from '@features/application-queue/ApplicationQueueTable';
 import type { ApplicationStatus } from '@entities/application/types';
 
 const searchSchema = z.object({
   status: z.enum(['DRAFT', 'SUBMITTED', 'IN_REVIEW', 'REVIEW_COMPLETE', 'WITHDRAWN']).optional(),
+  assignedToMe: z.boolean().optional(),
+  escalated: z.boolean().optional(),
 });
 
 export const Route = createFileRoute('/applications/')({
@@ -22,14 +27,24 @@ export const Route = createFileRoute('/applications/')({
 });
 
 function ApplicationQueueRoute() {
-  const { status } = Route.useSearch();
+  const { status, assignedToMe, escalated } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const attentionFilterActive: Record<AttentionFilterKey, boolean> = {
+    assignedToMe: assignedToMe ?? false,
+    escalated: escalated ?? false,
+  };
 
   return (
     <ApplicationQueueTable
       status={status ?? null}
       onStatusChange={(next: ApplicationStatus | null) => {
-        void navigate({ search: { status: next ?? undefined } });
+        void navigate({ search: (prev) => ({ ...prev, status: next ?? undefined }) });
+      }}
+      assignedToMe={attentionFilterActive.assignedToMe}
+      escalated={attentionFilterActive.escalated}
+      onAttentionFilterToggle={(key: AttentionFilterKey) => {
+        const next = !attentionFilterActive[key];
+        void navigate({ search: (prev) => ({ ...prev, [key]: next ? true : undefined }) });
       }}
     />
   );

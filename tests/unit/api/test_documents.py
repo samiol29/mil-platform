@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient  # noqa: TC002
 
 from mil.document.models import IngestionStatus
-from mil.kernel.errors import AuthorizationError, NotFoundError, ValidationError
+from mil.kernel.errors import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from tests.unit.api.conftest import (
     TEST_APP_ID,
     TEST_DOC_ID,
@@ -296,6 +296,56 @@ class TestGetDocument:
         client.get(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}")
         call_kwargs = mock_doc_service.get_document.call_args.kwargs
         assert str(call_kwargs["document_id"]) == str(TEST_DOC_ID)
+
+
+class TestRetryDocument:
+    def test_returns_200(
+        self, client: TestClient, mock_doc_service: MagicMock, mock_ingestion_trigger: MagicMock
+    ) -> None:
+        doc = make_document()
+        mock_doc_service.retry_ingestion.return_value = doc
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/retry")
+        assert response.status_code == 200
+
+    def test_passes_document_id_to_service(
+        self, client: TestClient, mock_doc_service: MagicMock, mock_ingestion_trigger: MagicMock
+    ) -> None:
+        doc = make_document()
+        mock_doc_service.retry_ingestion.return_value = doc
+        client.post(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/retry")
+        call_kwargs = mock_doc_service.retry_ingestion.call_args.kwargs
+        assert str(call_kwargs["document_id"]) == str(TEST_DOC_ID)
+
+    def test_re_triggers_ingestion_workflow(
+        self, client: TestClient, mock_doc_service: MagicMock, mock_ingestion_trigger: MagicMock
+    ) -> None:
+        doc = make_document()
+        mock_doc_service.retry_ingestion.return_value = doc
+        client.post(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/retry")
+        mock_ingestion_trigger.trigger.assert_called_once_with(doc)
+
+    def test_not_found_returns_404(
+        self, client: TestClient, mock_doc_service: MagicMock, mock_ingestion_trigger: MagicMock
+    ) -> None:
+        mock_doc_service.retry_ingestion.side_effect = NotFoundError("Document", TEST_DOC_ID)
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/retry")
+        assert response.status_code == 404
+
+    def test_conflict_when_not_failed_returns_409(
+        self, client: TestClient, mock_doc_service: MagicMock, mock_ingestion_trigger: MagicMock
+    ) -> None:
+        mock_doc_service.retry_ingestion.side_effect = ConflictError(
+            "Cannot retry a COMPLETED document"
+        )
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/retry")
+        assert response.status_code == 409
+
+    def test_authorization_error_returns_403(
+        self, client: TestClient, mock_doc_service: MagicMock, mock_ingestion_trigger: MagicMock
+    ) -> None:
+        mock_doc_service.retry_ingestion.side_effect = AuthorizationError("Permission denied")
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/documents/{TEST_DOC_ID}/retry")
+        assert response.status_code == 403
 
 
 class TestGetDocumentContent:

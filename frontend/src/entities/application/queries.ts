@@ -24,7 +24,7 @@ import { httpClient } from '@app/auth/httpClient';
 import { STALE_TIME } from '@app/queryClient';
 import { useEntityQuery } from '@shared/api/createEntityQuery';
 
-import { applicationSchema, type Application } from './types';
+import { applicationSchema, evaluationStatusSchema, type Application } from './types';
 
 /**
  * Fetch one application by id.
@@ -50,7 +50,7 @@ export function useApplication(applicationId: string) {
  * `page_size` belong to the eventual queue view (tasks.md T075), not this
  * bootstrap redirect.
  */
-const applicationListResponseSchema = z.object({
+export const applicationListResponseSchema = z.object({
   items: z.array(applicationSchema),
 });
 
@@ -71,6 +71,17 @@ export interface ApplicationSearchParams {
   /** Case-insensitive substring match against LOS reference, loan number, application ID, or borrower display name. */
   readonly search?: string;
   readonly status?: Application['status'];
+  /**
+   * Real Application Queue filters (final product polish sprint, A1) — both
+   * compose with `status`/`search` (AND, not OR). `assignedToMe` restricts
+   * to applications the caller owns or reviews (`Assignment.ownerUserId`/
+   * `reviewerUserId`); `escalated` restricts to applications with a Finding
+   * currently escalated to the caller's role or to them specifically. Both
+   * were previously reserved (see `features/application-queue/filters.ts`)
+   * because no backend field/query existed — they do now.
+   */
+  readonly assignedToMe?: boolean;
+  readonly escalated?: boolean;
   /** Set `false` to skip the request entirely (e.g. Global Search below a minimum query length). Defaults to `true`. */
   readonly enabled?: boolean;
 }
@@ -90,11 +101,24 @@ export function useApplicationSearch(params: ApplicationSearchParams = {}) {
   if (params.status !== undefined) {
     query.set('status', params.status);
   }
+  if (params.assignedToMe === true) {
+    query.set('assigned_to_me', 'true');
+  }
+  if (params.escalated === true) {
+    query.set('escalated', 'true');
+  }
   const queryString = query.toString();
   const url = queryString.length > 0 ? `/applications?${queryString}` : '/applications';
 
   return useEntityQuery({
-    queryKey: ['applications', 'search', params.search ?? null, params.status ?? null],
+    queryKey: [
+      'applications',
+      'search',
+      params.search ?? null,
+      params.status ?? null,
+      params.assignedToMe ?? false,
+      params.escalated ?? false,
+    ],
     url,
     schema: applicationListResponseSchema,
     staleTime: STALE_TIME.informational,
@@ -125,6 +149,75 @@ export function useCreateApplication() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['applications'] });
+    },
+  });
+}
+
+/**
+ * Submit an application for intelligence review (DRAFT -> SUBMITTED).
+ * Triggers Finding Generation server-side (`src/mil/api/v1/applications.py`
+ * `submit_application`) — nothing further needs to be called client-side to
+ * start evaluation. This is the missing frontend half of a real, working
+ * backend endpoint (final product polish sprint Root Cause #1): without a
+ * caller, findings/policy/review remain empty forever for any application
+ * uploaded and processed entirely through the product itself.
+ */
+export function useSubmitApplication() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (applicationId: string) => {
+      const response = await httpClient.post<unknown>(`/applications/${applicationId}/submit`);
+      return applicationSchema.parse(response.data);
+    },
+    onSuccess: async (_data, applicationId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['application', applicationId] }),
+        queryClient.invalidateQueries({ queryKey: ['applications'] }),
+        queryClient.invalidateQueries({ queryKey: ['application', applicationId, 'evaluation'] }),
+      ]);
+    },
+  });
+}
+
+/**
+ * Real status of the application's FINDING_GENERATION evaluation run
+ * (`GET /v1/applications/{id}/evaluation`) — the honest signal for
+ * distinguishing "not yet submitted" / "evaluation failed" / "still
+ * running" / "completed" that document-processing status alone cannot
+ * answer (final product polish sprint).
+ */
+export function useEvaluationStatus(applicationId: string) {
+  return useEntityQuery({
+    queryKey: ['application', applicationId, 'evaluation'],
+    url: `/applications/${applicationId}/evaluation`,
+    schema: evaluationStatusSchema,
+    staleTime: STALE_TIME.informational,
+  });
+}
+
+/**
+ * Retry a FAILED evaluation run (Finding Generation -> Policy -> Review),
+ * e.g. after a transient AI provider outage (final product polish sprint,
+ * Root Cause #2). Only valid when `useEvaluationStatus` reports
+ * `retryable: true` — the backend rejects any other state with a 409.
+ */
+export function useRetryEvaluation(applicationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const response = await httpClient.post<unknown>(
+        `/applications/${applicationId}/retry-evaluation`,
+      );
+      return applicationSchema.parse(response.data);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['application', applicationId, 'evaluation'] }),
+        // Matches the private `findingsQueryKey` shape in `entities/finding/queries.ts`
+        // (['findings', 'byApplication', applicationId]) — not imported directly since
+        // it isn't exported, but the key shape is a stable, established convention.
+        queryClient.invalidateQueries({ queryKey: ['findings', 'byApplication', applicationId] }),
+      ]);
     },
   });
 }

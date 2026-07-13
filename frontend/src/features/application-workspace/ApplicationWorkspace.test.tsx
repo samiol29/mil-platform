@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { useState } from 'react';
@@ -129,7 +129,11 @@ describe('ApplicationWorkspace — Evidence Workspace (Phase 5)', () => {
     mockWorkspaceData();
     renderWorkspace('evidence');
 
-    expect((await screen.findAllByText(/Extracted via LLM_EXTRACTION_V1/)).length).toBe(2);
+    // Final polish sprint: when every item in a document's group shares the
+    // same extraction method/model (true here — one item per group), the
+    // provenance is hoisted once into the group header instead of repeated
+    // on every card (see `commonEvidenceProvenance`).
+    expect((await screen.findAllByText(/LLM_EXTRACTION_V1/)).length).toBe(2);
     expect(screen.getAllByRole('meter').length).toBeGreaterThan(0);
   });
 
@@ -184,8 +188,40 @@ describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
       screen.getByText(/This workspace shows findings that were flagged during policy evaluation/),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/cannot show checks that passed silently, individual rule names/),
+      screen.getByText(/Rule-level detail is not yet available for any evaluation/),
     ).toBeInTheDocument();
+  });
+
+  it('shows rule-level triggered/passed breakdown when the backend has recorded it (spec 005 §3)', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/policy-results`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'ffffffff-6666-4666-a666-666666666666',
+              findingId: FINDING_A,
+              applicationId: FIXTURE_APPLICATION_ID,
+              policyPackId: '11111111-7777-4777-a777-777777777777',
+              policyVersion: 'v1.0.0',
+              outcome: 'FLAGGED',
+              triggeredRuleKeys: ['INCOME_MISMATCH'],
+              evaluatedRuleKeys: ['INCOME_MISMATCH', 'MISSING_DOCUMENT', 'LOW_CONFIDENCE'],
+              passedRuleKeys: ['MISSING_DOCUMENT', 'LOW_CONFIDENCE'],
+              evaluatedAt: '2026-07-11T00:00:00Z',
+              createdAt: '2026-07-11T00:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    renderWorkspace('policy');
+
+    expect(
+      await screen.findByText(/Rule-level detail below \(rules evaluated vs\. triggered\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Triggered: INCOME_MISMATCH/)).toBeInTheDocument();
+    expect(screen.getByText(/Passed: MISSING_DOCUMENT, LOW_CONFIDENCE/)).toBeInTheDocument();
   });
 
   it('shows the real activePolicyPackId with an honest caption when one exists, never a fabricated name', async () => {
@@ -488,5 +524,271 @@ describe("ApplicationWorkspace — Timeline: the application's case history (Pha
 
     await user.click(await screen.findByText('View full timeline →'));
     expect(await screen.findByRole('heading', { name: 'Timeline' })).toBeInTheDocument();
+  });
+});
+
+describe('ApplicationWorkspace — Submit for review + ownership (final product polish sprint)', () => {
+  it('shows "Submit for review" only for a DRAFT application with at least one document', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}`, () =>
+        HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-1',
+          loanNumber: null,
+          status: 'DRAFT',
+          activePolicyPackId: null,
+          partyCount: 0,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: null,
+        }),
+      ),
+    );
+    renderWorkspace('overview');
+    expect(await screen.findByRole('button', { name: 'Submit for review' })).toBeInTheDocument();
+  });
+
+  it('does not show "Submit for review" once the application is no longer DRAFT', async () => {
+    mockWorkspaceData();
+    renderWorkspace('overview');
+    await screen.findByText(/documents ready/);
+    expect(screen.queryByRole('button', { name: 'Submit for review' })).not.toBeInTheDocument();
+  });
+
+  it('submitting calls the real submit endpoint and reflects the new status', async () => {
+    mockWorkspaceData();
+    let currentStatus = 'DRAFT';
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}`, () =>
+        HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-1',
+          loanNumber: null,
+          status: currentStatus,
+          activePolicyPackId: null,
+          partyCount: 0,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: null,
+        }),
+      ),
+      http.post(`/v1/applications/${FIXTURE_APPLICATION_ID}/submit`, () => {
+        currentStatus = 'SUBMITTED';
+        return HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-1',
+          loanNumber: null,
+          status: currentStatus,
+          activePolicyPackId: null,
+          partyCount: 0,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: null,
+        });
+      }),
+    );
+    renderWorkspace('overview');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Submit for review' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Submit for review' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows the real assignment owner when one exists', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/assignment`, () =>
+        HttpResponse.json({
+          id: '99999999-9999-4999-a999-999999999999',
+          applicationId: FIXTURE_APPLICATION_ID,
+          ownerUserId: '88888888-8888-4888-a888-888888888888',
+          reviewerUserId: null,
+          assignedByUserId: '88888888-8888-4888-a888-888888888888',
+          assignedAt: '2026-06-20T09:00:00Z',
+        }),
+      ),
+    );
+    renderWorkspace('overview');
+    // Executive header refinement (final polish sprint): "Owner"/its value
+    // now render as separate <dt>/<dd> elements, not one joined text node.
+    expect(await screen.findByText('Owner:')).toBeInTheDocument();
+    expect(screen.getByText('88888888')).toBeInTheDocument();
+  });
+
+  it('shows nothing ownership-related when no assignment exists yet (honest, not fabricated)', async () => {
+    mockWorkspaceData();
+    renderWorkspace('overview');
+    await screen.findByText(/documents ready/);
+    expect(screen.queryByText(/Owner:/)).not.toBeInTheDocument();
+  });
+});
+
+describe('ApplicationWorkspace — AI Case Copilot (spec 005 §8)', () => {
+  it('shows an honest "no questions yet" state when no Copilot session exists', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/copilot`, () =>
+        HttpResponse.json({ code: 'NOT_FOUND', message: 'not found' }, { status: 404 }),
+      ),
+    );
+    renderWorkspace('overview');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('Ask Copilot about this application'));
+
+    expect(
+      await screen.findByText('No questions asked yet on this application.'),
+    ).toBeInTheDocument();
+  });
+
+  it('renders history with a grounded answer and a clickable document citation', async () => {
+    mockWorkspaceData();
+    const sessionId = '99999999-9999-4999-a999-999999999999';
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/copilot`, () =>
+        HttpResponse.json({
+          id: sessionId,
+          applicationId: FIXTURE_APPLICATION_ID,
+          tenantId: '22222222-2222-4222-8222-222222222222',
+          createdByUserId: '33333333-3333-4333-8333-333333333333',
+          correlationId: 'corr-1',
+          createdAt: '2026-07-11T00:00:00Z',
+        }),
+      ),
+      http.get(`/v1/copilot/sessions/${sessionId}/history`, () =>
+        HttpResponse.json({
+          sessionId,
+          items: [
+            {
+              queryId: '44444444-4444-4444-8444-444444444444',
+              question: 'What evidence supports the income finding?',
+              askedByUserId: '33333333-3333-4333-8333-333333333333',
+              askedAt: '2026-07-11T00:01:00Z',
+              response: {
+                id: '55555555-5555-4555-a555-555555555555',
+                queryId: '44444444-4444-4444-8444-444444444444',
+                sessionId,
+                answer: 'The income finding is supported by the pay stub evidence item.',
+                promptVersion: 'v1',
+                modelVersion: 'gemini-1',
+                citations: [{ kind: 'DOCUMENT', ref: DOC_A, locator: '1' }],
+                createdAt: '2026-07-11T00:01:05Z',
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    renderWorkspace('overview');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('Ask Copilot about this application'));
+
+    expect(await screen.findByText(/supported by the pay stub evidence item/)).toBeInTheDocument();
+    const citation = screen.getByText(/DOCUMENT:/);
+    await user.click(citation);
+
+    // Confirms the DOCUMENT citation reused the existing jump mechanism:
+    // the Documents region opens directly in viewer mode (not the list),
+    // signposted by its "← All documents" back affordance.
+    expect(await screen.findByText('← All documents')).toBeInTheDocument();
+  });
+});
+
+describe('ApplicationWorkspace — Collaboration (spec 005 §9)', () => {
+  it('shows an honest "no comments yet" state, then posts a new comment', async () => {
+    mockWorkspaceData();
+    let posted: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`/v1/findings/${FINDING_A}/comments`, () => HttpResponse.json({ items: [] })),
+      http.post(`/v1/findings/${FINDING_A}/comments`, async ({ request }) => {
+        posted = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            id: '66666666-6666-4666-a666-666666666666',
+            reviewSessionId: '77777777-7777-4777-a777-777777777777',
+            authorUserId: '88888888-8888-4888-a888-888888888888',
+            commentText: posted.comment_text,
+            mentionedUserIds: [],
+            editedAt: null,
+            deletedAt: null,
+            createdAt: '2026-07-11T00:00:00Z',
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    renderWorkspace('findings');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('Comments'));
+    expect(await screen.findByText('No comments yet on this finding.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Add a comment'), 'Can compliance confirm this?');
+    await user.click(screen.getByRole('button', { name: 'Comment' }));
+
+    await waitFor(() => {
+      expect(posted).toMatchObject({ comment_text: 'Can compliance confirm this?' });
+    });
+  });
+
+  it('shows an existing comment from a real Review Session', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/findings/${FINDING_A}/comments`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: '66666666-6666-4666-a666-666666666666',
+              reviewSessionId: '77777777-7777-4777-a777-777777777777',
+              authorUserId: '88888888-8888-4888-a888-888888888888',
+              commentText: 'Please double-check the pay stub math.',
+              mentionedUserIds: [],
+              editedAt: null,
+              deletedAt: null,
+              createdAt: '2026-07-11T00:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    renderWorkspace('findings');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('Comments'));
+
+    expect(await screen.findByText('Please double-check the pay stub math.')).toBeInTheDocument();
+  });
+});
+
+describe('ApplicationWorkspace — LOS Integration (spec 005 §2, Wave 2)', () => {
+  it('syncs from the LOS and shows the real outcome', async () => {
+    mockWorkspaceData();
+    const syncEvent = {
+      id: '99999999-8888-4888-a888-888888888888',
+      applicationId: FIXTURE_APPLICATION_ID,
+      direction: 'INBOUND',
+      outcome: 'SUCCESS',
+      detail: { documentCount: 2 },
+      errorMessage: null,
+      initiatedByUserId: '11111111-2222-4222-a222-222222222222',
+      occurredAt: '2026-07-11T00:00:00Z',
+    };
+    let syncEvents: (typeof syncEvent)[] = [];
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/los-sync-events`, () =>
+        HttpResponse.json({ items: syncEvents }),
+      ),
+      http.post(`/v1/applications/${FIXTURE_APPLICATION_ID}/los-sync`, () => {
+        syncEvents = [syncEvent];
+        return HttpResponse.json(syncEvent);
+      }),
+    );
+    renderWorkspace('overview');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText('LOS Sync — LOS-0000042'));
+    await user.click(screen.getByRole('button', { name: 'Sync from LOS' }));
+
+    expect(await screen.findByText(/INBOUND · SUCCESS/)).toBeInTheDocument();
   });
 });

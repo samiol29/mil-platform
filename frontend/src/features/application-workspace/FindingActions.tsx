@@ -43,7 +43,18 @@ import {
   useOverrideFinding,
   useVerifyFinding,
 } from '@entities/finding/queries';
-import { extractErrorMessage } from '@shared/api/extractErrorMessage';
+import { extractErrorMessage, isConflictError } from '@shared/api/extractErrorMessage';
+
+/**
+ * Final product polish sprint (D6): a 409 means someone else already acted
+ * on this finding (or its state moved since the page loaded) — a
+ * distinguishing title beats routing it through the same generic
+ * "Could not verify/override/escalate" every other failure gets, since
+ * "try again" is the wrong instruction for a conflict.
+ */
+function reviewActionErrorTitle(error: unknown, fallbackTitle: string): string {
+  return isConflictError(error) ? 'This finding was already updated' : fallbackTitle;
+}
 
 const overrideFormSchema = z.object({
   reason: z.string().min(1, 'A reason is required.'),
@@ -149,7 +160,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         },
         onError: (error) => {
           addToast({
-            title: 'Could not override this finding',
+            title: reviewActionErrorTitle(error, 'Could not override this finding'),
             description: extractErrorMessage(error, 'Please try again.'),
             variant: 'error',
           });
@@ -172,7 +183,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
         },
         onError: (error) => {
           addToast({
-            title: 'Could not escalate this finding',
+            title: reviewActionErrorTitle(error, 'Could not escalate this finding'),
             description: extractErrorMessage(error, 'Please try again.'),
             variant: 'error',
           });
@@ -233,7 +244,7 @@ export function FindingActions({ applicationId, finding }: FindingActionsProps) 
               },
               onError: (error) => {
                 addToast({
-                  title: 'Could not verify this finding',
+                  title: reviewActionErrorTitle(error, 'Could not verify this finding'),
                   description: extractErrorMessage(error, 'Please try again.'),
                   variant: 'error',
                 });

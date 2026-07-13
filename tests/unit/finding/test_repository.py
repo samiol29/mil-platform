@@ -68,3 +68,18 @@ class TestGetForApplication:
         f1, f2 = _finding(), _finding()
         session.scalars.return_value = iter([f1, f2])
         assert repo.get_for_application(uuid4()) == [f1, f2]
+
+
+class TestCountByLifecycleState:
+    def test_returns_grouped_rows(self) -> None:
+        repo, session = _make_repo()
+        session.execute.return_value.all.return_value = [
+            ("verified", 3),
+            ("overridden", 1),
+        ]
+        assert repo.count_by_lifecycle_state(uuid4()) == [("verified", 3), ("overridden", 1)]
+
+    def test_returns_empty_list(self) -> None:
+        repo, session = _make_repo()
+        session.execute.return_value.all.return_value = []
+        assert repo.count_by_lifecycle_state(uuid4()) == []

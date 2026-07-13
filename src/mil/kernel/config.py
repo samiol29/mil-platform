@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     mil_port: int = 8000
     mil_secret_key: SecretStr = Field(default=SecretStr("changeme-replace-in-all-environments"))
     mil_region: str | None = None
+    # Dedicated HMAC signing key for Customer Portal session tokens (spec
+    # 005-enterprise-platform §12, Wave 4) — deliberately distinct from
+    # mil_secret_key so a portal-token verification bug can never be
+    # confused with internal-staff token verification (a genuinely separate
+    # trust boundary, not a shared-secret convenience).
+    mil_portal_secret_key: SecretStr = Field(
+        default=SecretStr("changeme-replace-in-all-environments")
+    )
 
     # ---- PostgreSQL --------------------------------------------------------
     postgres_host: str = "localhost"
@@ -186,9 +194,18 @@ class Settings(BaseSettings):
         if not self.is_production():
             return self
 
-        _insecure_markers = {"changeme", "changeme-replace-in-all-environments"}
+        # Substring match, not an exact-value set (spec 005-enterprise-
+        # platform §16/§14, Wave 4 — a real gap found during this module's
+        # audit): the checked-in `.env.example`'s own placeholder,
+        # "changeme-use-openssl-rand-hex-32-in-production", was NOT caught
+        # by the previous exact-match `_insecure_markers` set — a
+        # deployment that forgot to override MIL_SECRET_KEY but did set
+        # MIL_ENV=production would have silently passed this check. Any
+        # value containing "changeme" is now rejected, closing that gap.
+        def _is_placeholder(value: str) -> bool:
+            return "changeme" in value.lower()
 
-        if self.mil_secret_key.get_secret_value().lower() in _insecure_markers:
+        if _is_placeholder(self.mil_secret_key.get_secret_value()):
             print(
                 "FATAL: MIL_SECRET_KEY is set to a development placeholder. "
                 "Production deployments must use a cryptographically random secret key.",
@@ -196,8 +213,11 @@ class Settings(BaseSettings):
             )
             raise ValueError("MIL_SECRET_KEY must not be a placeholder value in production")
 
-        if self.postgres_password.get_secret_value().lower() in _insecure_markers:
+        if _is_placeholder(self.postgres_password.get_secret_value()):
             raise ValueError("POSTGRES_PASSWORD must not be a placeholder value in production")
+
+        if _is_placeholder(self.mil_portal_secret_key.get_secret_value()):
+            raise ValueError("MIL_PORTAL_SECRET_KEY must not be a placeholder value in production")
 
         return self
 

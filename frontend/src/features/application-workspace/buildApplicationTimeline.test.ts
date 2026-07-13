@@ -40,6 +40,7 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
     pageCount: 3,
     ingestionCompletedAt: '2026-06-20T09:05:00Z',
     ingestionError: null,
+    retryCount: 0,
     ...overrides,
   };
 }

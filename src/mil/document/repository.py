@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from mil.document.models import Document
 
@@ -105,6 +105,38 @@ class DocumentRepository:
     def exists(self, document_id: UUID) -> bool:
         """Return ``True`` if a Document with the given id exists."""
         return self.get_by_id(document_id) is not None
+
+    def count_for_tenant(self, tenant_id: UUID) -> int:
+        """
+        Return the total Document count for a tenant (spec 005-enterprise-
+        platform §11, Wave 3 — Business Analytics' document-volume signal).
+        """
+        stmt = select(func.count(Document.id)).where(Document.tenant_id == tenant_id)
+        return int(self._session.scalars(stmt).one())
+
+    def search_for_tenant(self, tenant_id: UUID, search: str, *, limit: int = 20) -> list[Document]:
+        """
+        Case-insensitive substring match against ``original_filename``,
+        scoped to the tenant (spec 005-enterprise-platform §7, Universal
+        Search Expansion). Plain ``ILIKE``, matching the exact same non-
+        full-text-search discipline already established by
+        ``ApplicationRepository.get_for_tenant``'s own ``search`` param — no
+        new search infrastructure introduced.
+
+        Filename only: confirmed by direct inspection that ``Document`` has
+        no ``document_type``/category column at all (the frontend's own
+        "detected type" is a client-side-only heuristic over the filename,
+        never persisted) — this method does not invent a second field to
+        search against.
+        """
+        pattern = f"%{search}%"
+        stmt = (
+            select(Document)
+            .where(Document.tenant_id == tenant_id, Document.original_filename.ilike(pattern))
+            .order_by(Document.uploaded_at.desc())
+            .limit(limit)
+        )
+        return list(self._session.scalars(stmt))
 
     def get_by_application_and_hash(
         self, application_id: UUID, content_hash: str

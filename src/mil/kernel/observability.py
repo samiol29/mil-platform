@@ -226,6 +226,24 @@ class StructuredLogger:
     def critical(self, message: str, event_type: str = "", **extra: object) -> None:
         self._logger.critical(message, extra=self._extra(event_type, **extra))
 
+    def warning_with_traceback(self, message: str, event_type: str = "", **extra: object) -> None:
+        """Log at WARNING with the current exception's traceback attached. See ``exception()``."""
+        self._logger.warning(message, exc_info=True, extra=self._extra(event_type, **extra))
+
+    def exception(self, message: str, event_type: str = "", **extra: object) -> None:
+        """
+        Log at ERROR with the current exception's traceback attached.
+
+        Mirrors ``logging.Logger.exception`` (call only from an active
+        ``except`` block). Distinct from ``error(...)`` — the other methods
+        on this class forward arbitrary ``**extra`` straight into the JSON
+        payload as custom fields, so a bare ``exc_info=True`` passed as an
+        extra kwarg would only ever become a (useless) ``"exc_info": true``
+        field rather than actually attaching the traceback ``logging``
+        captures internally.
+        """
+        self._logger.error(message, exc_info=True, extra=self._extra(event_type, **extra))
+
 
 def get_logger(name: str, **bound_context: object) -> StructuredLogger:
     """

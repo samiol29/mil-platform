@@ -85,3 +85,31 @@ class TestGetForApplication:
         repo, session = _make_repo()
         session.scalars.return_value = iter([])
         assert repo.get_for_application(uuid4()) == []
+
+
+class TestCountByTypeAndStatus:
+    def test_returns_grouped_rows(self) -> None:
+        repo, session = _make_repo()
+        session.execute.return_value.all.return_value = [
+            ("DOCUMENT_INGESTION", "PENDING", 3),
+            ("FINDING_GENERATION", "FAILED", 1),
+        ]
+        rows = repo.count_by_type_and_status(uuid4())
+        assert rows == [("DOCUMENT_INGESTION", "PENDING", 3), ("FINDING_GENERATION", "FAILED", 1)]
+
+    def test_returns_empty_list(self) -> None:
+        repo, session = _make_repo()
+        session.execute.return_value.all.return_value = []
+        assert repo.count_by_type_and_status(uuid4()) == []
+
+
+class TestGetPoisonSteps:
+    def test_returns_list(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value = iter(["step1", "step2"])
+        assert repo.get_poison_steps(uuid4()) == ["step1", "step2"]
+
+    def test_returns_empty_list(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value = iter([])
+        assert repo.get_poison_steps(uuid4()) == []

@@ -8,18 +8,20 @@ and the production readiness checklist. It complements `ARCHITECTURE.md`
 
 ## 1. Processes and supported deployment model
 
-> **Supported deployment model (Backend Freeze Patch v1.0).** The
-> multi-process topology below is the platform's **target** design. It
-> requires a broker-backed `JobQueue` / `EventBus` so the API and worker
-> processes can exchange jobs and events. Only the in-process (single-process,
-> in-memory) implementations exist today; a broker-backed implementation is
-> **not** part of this freeze. Accordingly, the platform is runnable and
-> **supported only in development** (`MIL_ENV=development`, single process,
-> in-memory queue/bus). A non-development process is **deliberately refused at
-> startup** while it would be wired with development-only messaging or
-> providers — see §6. Do not run this build as a distributed production
-> deployment: the workers cannot receive jobs from the API until a broker
-> `JobQueue`/`EventBus` is implemented and registered.
+> **Supported deployment model — corrected 2026-07-12 (spec 005-enterprise-platform §14, Wave 4).**
+> This box previously claimed neither `JobQueue` nor `EventBus` had a broker-backed
+> implementation. Direct inspection of `mil.kernel.container.build_container` found that claim
+> half-stale: **`JobQueue` is already Redis-backed in *every* environment** (`RedisJobQueue`,
+> unconditionally constructed by `_build_job_queue` — never `InProcessJobQueue` outside tests), and
+> this wave added the redelivery/visibility-timeout mechanism (`reclaim_stale`) and a real
+> dead-letter list that the RC1 checklist had flagged as the queue's one remaining gap (§10's
+> Operational Dashboard now surfaces both via `GET /v1/operational/job-queue-health`).
+> **`EventBus` is the actual remaining blocker**: `build_container` unconditionally registers
+> `InProcessEventBus`, with no broker-backed alternative implemented anywhere in this codebase —
+> `_reject_in_process_messaging` (§6 below) will refuse to start any non-development process for
+> this reason alone. Until a broker-backed `EventBus` is implemented and registered, the platform
+> remains runnable and **supported only in development** (`MIL_ENV=development`, single process). Do
+> not run this build as a distributed production deployment.
 
 The platform is a modular monolith whose **target** topology runs as **six
 independent processes**, all built from the same installed package:
@@ -36,9 +38,11 @@ independent processes**, all built from the same installed package:
 All six read the same environment configuration (below) and connect to the
 same PostgreSQL database, object store, and message broker. There is no
 separate "worker image" — the Dockerfile at the repository root builds one
-image; which process runs is just the container's command. **This topology is
-not runnable until a broker-backed `JobQueue`/`EventBus` is added** (ADR-007/008
-always scoped the in-process implementations as development-only).
+image; which process runs is just the container's command. **`JobQueue` is
+already broker-backed (Redis) in every environment; this topology remains
+unsupported outside development until a broker-backed `EventBus` is also
+added** (ADR-007/008 scoped the in-process `EventBus` as development-only;
+see the corrected note in §1 above).
 
 ---
 
@@ -223,3 +227,94 @@ Before routing production traffic:
   platform does not implement distributed tracing. `mil.kernel.observability`
   retains a `TraceContext` primitive for future OpenTelemetry span
   propagation if that is added later; nothing wires it today.
+- **Job queue health** (Wave 4): `GET /v1/operational/job-queue-health`
+  (`read:operational`) surfaces the real, process-wide `JobQueue` counters —
+  `pending_count`, `processing_count`, and `dead_letter_count` (jobs that
+  exhausted their retry ceiling, via `RedisJobQueue.dead_letter_count()`).
+  Not tenant-scoped — the broker has no tenant concept, same as
+  `GET /v1/metrics`.
+
+---
+
+## 8. Migration safety (spec 005-enterprise-platform §17, Wave 4)
+
+Every migration in `migrations/versions/` remains additive-by-default,
+matching this repository's existing practice. `scripts/
+check_destructive_migrations.py` is a new CI gate (wired into `.github/
+workflows/ci.yml`'s `validate` job) that diffs changed migration files
+against `origin/main` and fails the build if any contains a destructive
+operation (`drop_table`, `drop_column`, `drop_constraint`, an `ALTER COLUMN
+... TYPE`, or a `DELETE FROM` against the immutable `audit`/`finding`/
+`evidence` schemas) without the literal sign-off comment
+`# destructive-migration-approved` present in the same file. This is a
+mechanical pattern check — a safety net, not a replacement for a reviewer
+actually reading the migration's diff — but it makes "did anyone notice
+this drops a column" a build failure instead of a hope.
+
+Run it locally before opening a PR that touches `migrations/versions/`:
+
+```bash
+python scripts/check_destructive_migrations.py --base origin/main
+```
+
+## 9. Job queue redelivery (spec 005-enterprise-platform §14, Wave 4)
+
+`RedisJobQueue.reclaim_stale(visibility_timeout_seconds)` requeues (or
+dead-letters) any job a worker claimed and never acknowledged/rejected
+within the given window — the fix for the RC1 checklist's documented "no
+redelivery on worker crash" gap. **This is not invoked automatically** —
+a deployment must run it periodically. The simplest correct wiring is a
+dedicated lightweight scheduled task (a cron job, a Kubernetes `CronJob`,
+or a sidecar loop) calling it every 30–60 seconds per job type in use:
+
+```python
+from mil.kernel.container import build_container
+from mil.kernel.job_queue import JobQueue
+from mil.kernel.config import get_settings
+
+container = build_container(get_settings())
+queue = container.resolve(JobQueue)
+reclaimed = queue.reclaim_stale(visibility_timeout_seconds=120.0)
+```
+
+A visibility timeout of 120 seconds is a reasonable starting point given
+`WORKER_JOB_TIMEOUT` (default 120s, §3) — tune both together, and always
+longer than the slowest real job this platform's workers process (OCR/
+extraction against a large multi-page document can legitimately take
+longer than a trivial job; a timeout shorter than real processing time
+would reclaim jobs that are still being worked on, not actually stuck).
+
+## 10. Disaster recovery and backups (spec 005-enterprise-platform §14, Wave 4)
+
+This platform does not implement backup tooling itself (Principle VI:
+on-premises-capable, vendor-agnostic — backup/DR is infrastructure-layer
+responsibility, not application code) — the concrete requirement this
+section documents, per FR-INFRA-004/17.13:
+
+- **PostgreSQL** (system of record for Evidence/Audit — Principle VIII's
+  immutability guarantee is only as good as its backup story): enable WAL
+  archiving and point-in-time recovery (`pg_basebackup` + WAL-G, or your
+  cloud provider's managed-PostgreSQL PITR feature). Test a real restore in
+  a non-production environment before depending on it — an untested backup
+  is not a backup.
+- **Object storage** (document archive): enable versioning and cross-region
+  replication (S3/MinIO) or your cloud provider's equivalent. `Document`
+  rows reference storage by `storage_reference` (ADR-006) — a restored
+  object store must preserve the same keys for existing `Document` rows to
+  remain resolvable.
+- **RPO/RTO targets**: this spec defines the *requirement* to have explicit,
+  tested targets (FR-INFRA-004's own framing) — not the specific numbers,
+  which depend on the hosting institution's own regulatory requirements.
+  Document your institution's actual RPO/RTO in this section once chosen,
+  and re-verify them with a real restore drill on a defined cadence (at
+  minimum: after any major schema or infrastructure change).
+- **Secrets** (`MIL_SECRET_KEY`, `MIL_PORTAL_SECRET_KEY`, `POSTGRES_PASSWORD`,
+  `GEMINI_API_KEY`, `STORAGE_SECRET_KEY`): this platform has no secrets-
+  manager integration of its own (FR-INFRA-002 remains open — a real Vault/
+  cloud-KMS integration is infrastructure work, not something this codebase
+  can fabricate). Until one exists, these MUST be injected via your
+  orchestrator's own secret mechanism (Kubernetes `Secret`, ECS task
+  secrets, etc.) — never committed, never baked into the image — and the
+  production-safety validator (`Settings._reject_insecure_defaults_in_
+  production`) will refuse to start the process if any of them is left at
+  its placeholder value.

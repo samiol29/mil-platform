@@ -323,6 +323,17 @@ class TestSuccess:
         h.run_processor()
         assert h.documents.failed == []
 
+    def test_logs_ocr_completed(self, caplog: pytest.LogCaptureFixture) -> None:
+        """
+        Final product polish sprint (B1): before this, document_pipeline.py
+        had zero logger calls — an on-call engineer had no way to grep logs
+        for "did OCR succeed for document X" and had to query the DB.
+        """
+        h = _Harness()
+        with caplog.at_level("INFO", logger="workers.document_pipeline"):
+            h.run_processor()
+        assert "OCR completed" in [record.message for record in caplog.records]
+
     def test_no_next_step_dispatches_no_job(self) -> None:
         """A run with only an OCR step (no EXTRACTION step planned) is a no-op."""
         h = _Harness()
@@ -477,6 +488,13 @@ class TestTerminalFailure:
     def test_emits_no_ocr_completed(self) -> None:
         h = self._terminal()
         assert all(not isinstance(e, OCRCompleted) for e in h.outbox.added)
+
+    def test_logs_permanent_failure(self, caplog: pytest.LogCaptureFixture) -> None:
+        provider = FakeOCRProvider(raises=ProviderError("bad scan", retryable=False))
+        h = _Harness(provider=provider)
+        with caplog.at_level("ERROR", logger="workers.document_pipeline"):
+            h.run_processor()
+        assert "OCR permanently failed" in [record.message for record in caplog.records]
 
 
 # ---------------------------------------------------------------------------

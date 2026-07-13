@@ -29,15 +29,32 @@ from sqlalchemy.orm import sessionmaker
 from mil.api.errors import register_error_handlers
 from mil.api.middleware.security_headers import SecurityHeadersMiddleware
 from mil.api.middleware.telemetry import TelemetryMiddleware
+from mil.api.v1.admin import router as admin_router
+from mil.api.v1.analytics import router as analytics_router
 from mil.api.v1.applications import router as applications_router
+from mil.api.v1.assignments import portfolio_router as rm_portfolio_router
+from mil.api.v1.assignments import router as assignments_router
 from mil.api.v1.audit import router as audit_router
 from mil.api.v1.auth import router as auth_router
+from mil.api.v1.borrower_identity import router as borrower_identity_router
+from mil.api.v1.checklist import router as checklist_router
+from mil.api.v1.comments import router as comments_router
+from mil.api.v1.compliance import router as compliance_router
 from mil.api.v1.copilot import application_copilot_router
 from mil.api.v1.copilot import router as copilot_router
 from mil.api.v1.documents import router as documents_router
 from mil.api.v1.evidence import router as evidence_router
 from mil.api.v1.findings import router as findings_router
+from mil.api.v1.integrations import application_integration_router
+from mil.api.v1.integrations import router as integrations_router
+from mil.api.v1.notifications import router as notifications_router
+from mil.api.v1.operational import router as operational_router
 from mil.api.v1.ops import router as ops_router
+from mil.api.v1.policy import application_policy_router
+from mil.api.v1.policy import approvals_router as policy_approvals_router
+from mil.api.v1.policy import router as policy_router
+from mil.api.v1.portal import router as portal_router
+from mil.api.v1.search import router as search_router
 from mil.identity.dev_seed import seed_development_identity
 from mil.identity.provider import DevBearerIdentityProvider, IdentityProvider
 from mil.kernel.config import Settings, get_settings
@@ -179,6 +196,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_router)
     app.include_router(copilot_router)
     app.include_router(application_copilot_router)
+    app.include_router(admin_router)
+    app.include_router(policy_router)
+    app.include_router(policy_approvals_router)
+    app.include_router(application_policy_router)
+    app.include_router(comments_router)
+    app.include_router(assignments_router)
+    app.include_router(rm_portfolio_router)
+    app.include_router(integrations_router)
+    app.include_router(application_integration_router)
+    app.include_router(search_router)
+    app.include_router(notifications_router)
+    app.include_router(borrower_identity_router)
+    app.include_router(operational_router)
+    app.include_router(analytics_router)
+    app.include_router(checklist_router)
+    app.include_router(compliance_router)
+    app.include_router(portal_router)
 
     return app
 

@@ -318,6 +318,63 @@ class TestDocumentStatusTransitions:
         assert doc.is_completed
 
 
+class TestDocumentResetForRetry:
+    def test_reset_for_retry_from_failed(self) -> None:
+        doc = _make_document()
+        doc.mark_failed("provider unavailable")
+        doc.reset_for_retry()
+        assert doc.ingestion_status == IngestionStatus.PENDING
+
+    def test_reset_for_retry_clears_ingestion_error(self) -> None:
+        doc = _make_document()
+        doc.mark_failed("provider unavailable")
+        doc.reset_for_retry()
+        assert doc.ingestion_error is None
+
+    def test_reset_for_retry_increments_retry_count(self) -> None:
+        doc = _make_document()
+        assert doc.retry_count == 0
+        doc.mark_failed("provider unavailable")
+        doc.reset_for_retry()
+        assert doc.retry_count == 1
+
+    def test_reset_for_retry_twice_increments_again(self) -> None:
+        doc = _make_document()
+        doc.mark_failed("first failure")
+        doc.reset_for_retry()
+        doc.mark_processing()
+        doc.mark_failed("second failure")
+        doc.reset_for_retry()
+        assert doc.retry_count == 2
+
+    def test_reset_for_retry_from_pending_raises(self) -> None:
+        doc = _make_document()
+        with pytest.raises(ConflictError):
+            doc.reset_for_retry()
+
+    def test_reset_for_retry_from_in_progress_raises(self) -> None:
+        doc = _make_document()
+        doc.mark_processing()
+        with pytest.raises(ConflictError):
+            doc.reset_for_retry()
+
+    def test_reset_for_retry_from_completed_raises(self) -> None:
+        doc = _make_document()
+        doc.mark_processing()
+        doc.mark_completed(page_count=2, evidence_item_count=5)
+        with pytest.raises(ConflictError):
+            doc.reset_for_retry()
+
+    def test_reset_for_retry_enqueues_retried_event(self) -> None:
+        doc = _make_document()
+        doc.mark_failed("provider error")
+        doc.collect_pending_events()  # drain upload + failed events
+        doc.reset_for_retry()
+        events = doc.collect_pending_events()
+        event_types = [e["event_type"] for e in events]
+        assert "DOCUMENT_INGESTION_RETRIED" in event_types
+
+
 # ---------------------------------------------------------------------------
 # Document ORM metadata
 # ---------------------------------------------------------------------------

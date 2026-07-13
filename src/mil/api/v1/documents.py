@@ -8,6 +8,8 @@ Endpoints:
         List all documents for an application.
     GET  /v1/applications/{application_id}/documents/{document_id}
         Retrieve document metadata.
+    POST /v1/applications/{application_id}/documents/{document_id}/retry
+        Retry a FAILED document's ingestion pipeline (reuses stored bytes).
 
 Upload notes:
     The endpoint accepts ``multipart/form-data`` with:
@@ -205,6 +207,38 @@ def get_document(
 ) -> DocumentResponse:
     """Retrieve document metadata by document ID."""
     doc = service.get_document(user, document_id=document_id)
+    return DocumentResponse.from_model(doc)
+
+
+@router.post(
+    "/{document_id}/retry",
+    summary="Retry a failed document's ingestion pipeline",
+    description=(
+        "Re-run OCR -> Extraction -> Evidence for a document whose ingestion "
+        "previously ended in FAILED. Reuses the already-stored file bytes — "
+        "no re-upload is required (see ADR-006). Only available for FAILED "
+        "documents; retrying a PENDING/IN_PROGRESS document (already has a "
+        "workflow in flight) or a COMPLETED document (nothing to retry) is "
+        "rejected. Requires ``upload:document`` permission."
+    ),
+    response_model=DocumentResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Document not found"},
+        409: {"description": "Document is not FAILED — retry is not applicable"},
+    },
+)
+def retry_document(
+    application_id: UUID,
+    document_id: UUID,
+    user: CurrentUser,
+    service: DocService,
+    ingestion_trigger: DocIngestionTriggerDep,
+) -> DocumentResponse:
+    """Reset a FAILED document to PENDING and re-trigger DOCUMENT_INGESTION."""
+    doc = service.retry_ingestion(user, document_id=document_id)
+    ingestion_trigger.trigger(doc)
     return DocumentResponse.from_model(doc)
 
 

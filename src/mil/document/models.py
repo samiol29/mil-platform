@@ -116,6 +116,11 @@ class Document(Base):
         DateTime(timezone=True), nullable=True
     )
     ingestion_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Number of times ingestion has been retried after a FAILED terminal
+    # state. Zero until the first retry. Drives the idempotency key for each
+    # re-triggered DOCUMENT_INGESTION workflow (see reset_for_retry()) and is
+    # surfaced verbatim in processing feedback ("Attempt 2 of 3").
+    retry_count: Mapped[int] = mapped_column(nullable=False, default=0)
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -201,6 +206,7 @@ class Document(Base):
             evidence_item_count=0,
             ingestion_completed_at=None,
             ingestion_error=None,
+            retry_count=0,
         )
 
         # DOCUMENT_UPLOADED: the business action — a user submitted a file.
@@ -318,6 +324,42 @@ class Document(Base):
                     "application_id": str(self.application_id),
                     "reason": reason,
                     "content_hash": self.content_hash,
+                },
+            }
+        )
+
+    def reset_for_retry(self) -> None:
+        """
+        Reset a FAILED document back to PENDING so the ingestion pipeline can
+        be re-triggered from scratch.
+
+        Only FAILED documents may be retried — a PENDING/IN_PROGRESS document
+        already has a workflow in flight, and a COMPLETED document has
+        nothing to retry (ADR-006: documents and their storage bytes are
+        immutable, so retry never re-uploads, it only re-runs the pipeline).
+        Increments ``retry_count`` so the caller can mint a fresh, distinguishing
+        idempotency key for the workflow (a repeat key would be a no-op —
+        ``IntelligenceOrchestrator.start_workflow`` returns the existing run).
+        Clears the prior ``ingestion_error`` since it no longer describes the
+        document's current state.
+        """
+        if self.ingestion_status != IngestionStatus.FAILED:
+            raise ConflictError(
+                f"Cannot retry a {self.ingestion_status} document (id={self.id}) — "
+                "only FAILED documents can be retried"
+            )
+        self.ingestion_status = IngestionStatus.PENDING
+        self.ingestion_error = None
+        self.retry_count += 1
+        self._pending_events.append(
+            {
+                "event_type": "DOCUMENT_INGESTION_RETRIED",
+                "entity_type": "DOCUMENT",
+                "entity_id": self.id,
+                "data": {
+                    "application_id": str(self.application_id),
+                    "content_hash": self.content_hash,
+                    "retry_count": self.retry_count,
                 },
             }
         )

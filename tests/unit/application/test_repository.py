@@ -235,3 +235,19 @@ class TestRepositoryGetForTenant:
         )
         assert "ILIKE" in compiled.upper()
         assert "'DRAFT'" in compiled
+
+
+class TestGetStatusFunnel:
+    def test_returns_grouped_rows(self) -> None:
+        repo, session, _ = _make_repo()
+        session.execute.return_value.all.return_value = [
+            ("DRAFT", 2, 3600.0),
+            ("UNDER_REVIEW", 1, None),
+        ]
+        rows = repo.get_status_funnel(uuid4())
+        assert rows == [("DRAFT", 2, 3600.0), ("UNDER_REVIEW", 1, 0.0)]
+
+    def test_returns_empty_list(self) -> None:
+        repo, session, _ = _make_repo()
+        session.execute.return_value.all.return_value = []
+        assert repo.get_status_funnel(uuid4()) == []

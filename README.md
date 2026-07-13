@@ -409,6 +409,75 @@ dependencies (database, providers, migrations) respectively. See
 checklist, and `specs/001-mil-platform-spec/quickstart.md` for end-to-end
 validation scenarios.
 
+### Local Development — one-command startup
+
+Once `make install-dev` and `(cd frontend && npm install)` have been run
+once, three scripts manage the entire local stack for day-to-day work —
+API, all five pipeline workers, and the frontend — without needing a
+terminal per process:
+
+```bash
+scripts/dev-up.sh     # start everything
+scripts/status.sh     # check what's running
+scripts/dev-down.sh   # stop everything
+```
+
+**`scripts/dev-up.sh`** brings the whole platform online in one command:
+verifies the Python virtual environment (`.venv`) and activates it, checks
+`GEMINI_API_KEY` is set (OCR/Extraction/Inference have no mock fallback and
+refuse to start without it), starts PostgreSQL/Redis/MinIO via
+`docker compose` if they aren't already up, runs `alembic upgrade head`,
+then starts the API, all five workers, and the frontend dev server — waiting
+on each one's real readiness signal (`GET /v1/ready` for the API, an HTTP
+response for the frontend, "still alive after its startup window" for
+workers, which have no HTTP surface of their own) rather than a fixed sleep.
+It's safe to re-run at any time: anything already running is detected via
+its PID file and left alone, never duplicated. On success it prints a
+summary with every URL you need:
+
+```
+MIL Enterprise Platform started successfully
+
+Frontend:
+  http://localhost:5173
+
+Backend API:
+  http://localhost:8000
+
+Swagger:
+  http://localhost:8000/v1/docs
+
+Workers:
+  ✓ OCR
+  ✓ Extraction
+  ✓ Finding
+  ✓ Policy
+  ✓ Review
+```
+
+(There are exactly five pipeline workers — Document/OCR, Extraction,
+Finding generation, Policy evaluation, and Review handoff, matching
+`src/workers/` and the existing `make run-worker` target. There is no
+separate notification worker: notifications are written synchronously by
+`NotificationService` within the same request/job that triggers them, not
+consumed from a queue by a standalone process.)
+
+**`scripts/status.sh`** is read-only — it never starts or stops anything —
+and reports each component's real state, explaining *why* something isn't
+healthy where that's knowable (a stale PID file from a process that already
+exited vs. never started vs. alive but not yet answering its health check).
+
+**`scripts/dev-down.sh`** stops the frontend, API, and all five workers
+(`SIGTERM`, then `SIGKILL` after a grace period if needed) and removes their
+PID files. It deliberately leaves PostgreSQL/Redis/MinIO running — they're
+shared, stateful infrastructure managed by `docker compose`, not part of a
+single dev session — run `docker compose down` explicitly if you want those
+stopped too.
+
+Logs for every managed process live under `logs/dev/<component>.log`; PID
+files live under `.dev/pids/` (both gitignored). The shared logic all three
+scripts build on is in `scripts/lib/dev-common.sh`.
+
 ---
 
 ## Platform Vision

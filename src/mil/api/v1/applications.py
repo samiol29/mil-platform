@@ -6,6 +6,8 @@ Endpoints:
     GET    /v1/applications                              List applications for the tenant
     GET    /v1/applications/{application_id}             Get application
     POST   /v1/applications/{application_id}/submit      Submit application for review
+    GET    /v1/applications/{application_id}/evaluation  Get real FINDING_GENERATION run status
+    POST   /v1/applications/{application_id}/retry-evaluation  Retry a FAILED evaluation run
     POST   /v1/applications/{application_id}/withdraw    Withdraw application
     POST   /v1/applications/{application_id}/parties     Add party
     DELETE /v1/applications/{application_id}/parties/{party_id}  Remove party
@@ -30,12 +32,19 @@ from uuid import UUID  # noqa: TC003
 
 from fastapi import APIRouter, Query, status
 
-from mil.api.deps import AppService, CurrentUser, FindingTriggerDep  # noqa: TC001
+from mil.api.deps import (  # noqa: TC001
+    AppService,
+    AssignmentServiceDep,
+    CurrentUser,
+    FindingTriggerDep,
+    ReviewServiceDep,
+)
 from mil.api.v1.schemas import (
     AddPartyRequest,
     ApplicationListResponse,
     ApplicationResponse,
     CreateApplicationRequest,
+    EvaluationStatusResponse,
     PartyResponse,
 )
 from mil.kernel.types import ApplicationId, TenantId
@@ -91,6 +100,12 @@ def create_application(
         "substring match against LOS reference, loan number, application ID, or "
         "a registered party's display name. Existing clients that omit "
         "``search`` are unaffected: the parameter is optional and additive. "
+        "``assigned_to_me`` (final product polish sprint, A1) restricts results "
+        "to applications where the caller is the owner or reviewer — requires "
+        "``manage:assignment``. ``escalated`` restricts results to applications "
+        "with at least one Finding currently escalated to the caller's role or "
+        "to them specifically — requires ``read:application``. Both compose "
+        "with ``status``/``search`` (AND, not OR). "
         "Results are not paginated in Sprint 3D "
         "— the ``page`` and ``page_size`` parameters are accepted and echoed in "
         "the response for forward compatibility but do not slice the result set. "
@@ -105,6 +120,8 @@ def create_application(
 def list_applications(
     user: CurrentUser,
     service: AppService,
+    assignments: AssignmentServiceDep,
+    reviews: ReviewServiceDep,
     status_filter: str | None = Query(default=None, alias="status"),
     search: str | None = Query(
         default=None,
@@ -113,6 +130,17 @@ def list_applications(
         description=(
             "Case-insensitive substring match against LOS reference, loan "
             "number, application ID, or borrower display name."
+        ),
+    ),
+    assigned_to_me: bool = Query(
+        default=False,
+        description="Restrict to applications the caller owns or reviews.",
+    ),
+    escalated: bool = Query(
+        default=False,
+        description=(
+            "Restrict to applications with a Finding currently escalated to "
+            "the caller's role or to them specifically."
         ),
     ),
     page: int = Query(default=1, ge=1),
@@ -125,6 +153,12 @@ def list_applications(
         status=status_filter,
         search=search,
     )
+    if assigned_to_me:
+        assigned_ids = {a.application_id for a in assignments.get_assigned_to_me(user)}
+        apps = [a for a in apps if a.id in assigned_ids]
+    if escalated:
+        escalated_ids = {s.application_id for s in reviews.get_escalated_for_caller(user)}
+        apps = [a for a in apps if a.id in escalated_ids]
     items = [ApplicationResponse.from_model(a) for a in apps]
     return ApplicationListResponse(
         items=items,
@@ -193,6 +227,82 @@ def submit_application(
     """Submit an application for intelligence review."""
     app = service.submit_application(user, application_id=ApplicationId(application_id))
     finding_trigger.trigger(app)
+    return ApplicationResponse.from_model(app)
+
+
+@router.get(
+    "/{application_id}/evaluation",
+    summary="Get the application's evaluation (Finding Generation) status",
+    description=(
+        "Return the real status of the application's FINDING_GENERATION "
+        "workflow run — NOT_TRIGGERED if evaluation was never started (e.g. "
+        "the application has not been submitted), or the run's actual "
+        "PENDING/RUNNING/COMPLETED/FAILED status. Distinguishes 'no findings "
+        "because evaluation never ran or failed' from 'no findings because "
+        "the application is genuinely clean' — never inferred from document "
+        "processing status alone. Requires ``read:application`` permission."
+    ),
+    response_model=EvaluationStatusResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Application not found"},
+    },
+)
+def get_evaluation_status(
+    application_id: UUID,
+    user: CurrentUser,
+    service: AppService,
+    finding_trigger: FindingTriggerDep,
+) -> EvaluationStatusResponse:
+    """Return the application's real FINDING_GENERATION run status."""
+    app = service.get_application(user, application_id=ApplicationId(application_id))
+    run = finding_trigger.latest_run(app)
+    if run is None:
+        return EvaluationStatusResponse(status="NOT_TRIGGERED")
+
+    error_message = None
+    if run.status == "FAILED":
+        failed_step = next((s for s in run.steps if s.status == "FAILED"), None)
+        error_message = failed_step.error_message if failed_step else None
+
+    return EvaluationStatusResponse(
+        status=run.status,
+        error_message=error_message,
+        retryable=run.status == "FAILED",
+        started_at=run.created_at,
+        completed_at=run.completed_at,
+    )
+
+
+@router.post(
+    "/{application_id}/retry-evaluation",
+    summary="Retry a failed evaluation (Finding Generation)",
+    description=(
+        "Re-run Finding Generation -> Policy Evaluation -> Review handoff for "
+        "an application whose most recent evaluation run ended in FAILED "
+        "(e.g. an AI provider outage). Only available when the real run "
+        "status is FAILED — retrying a run still in flight, or one that "
+        "never started or already succeeded, is rejected. "
+        "Requires ``write:application`` permission."
+    ),
+    response_model=ApplicationResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Application not found"},
+        409: {"description": "No FAILED evaluation run exists to retry"},
+    },
+)
+def retry_evaluation(
+    application_id: UUID,
+    user: CurrentUser,
+    service: AppService,
+    finding_trigger: FindingTriggerDep,
+) -> ApplicationResponse:
+    """Retry evaluation for an application whose last run FAILED."""
+    app = service.get_application(user, application_id=ApplicationId(application_id))
+    finding_trigger.retry(user, app)
     return ApplicationResponse.from_model(app)
 
 

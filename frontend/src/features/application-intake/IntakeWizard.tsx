@@ -34,10 +34,12 @@ import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 
+import { useAuthUser } from '@app/auth/authProvider';
 import { useUiStore } from '@app/uiStore';
 import { Button } from '@design-system/components/Button';
 import { Drawer } from '@design-system/components/Drawer';
 import { useCreateApplication } from '@entities/application/queries';
+import { useSetAssignment } from '@entities/assignment/queries';
 import { useAddParty } from '@entities/party/queries';
 import { extractErrorMessage } from '@shared/api/extractErrorMessage';
 
@@ -105,6 +107,8 @@ function IntakeWizardBody() {
 
   const createApplication = useCreateApplication();
   const addParty = useAddParty();
+  const setAssignment = useSetAssignment();
+  const currentUser = useAuthUser();
 
   function goToBorrowers() {
     // Nothing to validate on this step anymore — the identifiers are
@@ -133,6 +137,14 @@ function IntakeWizardBody() {
         });
         applicationId = application.id;
         setCreatedApplicationId(applicationId);
+        // spec 005-enterprise-platform §1 (RM/Banker Workspace): the
+        // originating user becomes the application's owner so it appears
+        // in their portfolio immediately. Best-effort — a failure here
+        // never blocks intake; the application still exists and can be
+        // assigned later from the Banker Workspace.
+        if (currentUser !== null) {
+          setAssignment.mutate({ applicationId, ownerUserId: currentUser.userId });
+        }
       } catch (error) {
         setApplicationCreateError(true);
         setIsSubmitting(false);

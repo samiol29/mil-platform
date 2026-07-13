@@ -202,6 +202,20 @@ class JobQueue:
         """Return the number of jobs currently claimed by workers."""
         raise NotImplementedError
 
+    def reclaim_stale(self, visibility_timeout_seconds: float) -> int:
+        """
+        Requeue (or dead-letter) any job claimed longer ago than
+        ``visibility_timeout_seconds`` and never acknowledged/rejected —
+        the redelivery mechanism for a worker that crashed mid-job (spec
+        005-enterprise-platform §14, Wave 4; the RC1 release checklist's
+        documented gap). Returns the number of jobs reclaimed.
+        """
+        raise NotImplementedError
+
+    def dead_letter_count(self) -> int:
+        """Return the number of jobs that exhausted their retry ceiling."""
+        raise NotImplementedError
+
 
 # ---------------------------------------------------------------------------
 # In-process implementation
@@ -274,6 +288,20 @@ class InProcessJobQueue(JobQueue):
     def processing_count(self) -> int:
         return len(self._processing)
 
+    def reclaim_stale(self, visibility_timeout_seconds: float) -> int:
+        """
+        Always a no-op (returns 0): a single in-process queue has no
+        cross-process worker-crash scenario to recover from — a crashed
+        process takes this queue's entire in-memory state down with it,
+        so there is nothing left to reclaim. Real crash recovery is
+        ``RedisJobQueue``'s responsibility (the only implementation used
+        in a real multi-process deployment).
+        """
+        return 0
+
+    def dead_letter_count(self) -> int:
+        return 0
+
     def clear(self) -> None:
         """Discard all pending and processing jobs. Useful between test cases."""
         self._pending.clear()
@@ -334,14 +362,21 @@ class RedisJobQueue(JobQueue):
     Known limitations (documented, not hidden):
 
     - A worker crash between dequeuing a job (moved into ``processing``) and
-      acknowledging/rejecting it leaves that job parked in ``processing`` with
-      no automatic reaper to requeue it. Per ADR-008, the platform's durable
-      correctness guarantee is the database unique constraint at each
-      worker's repository layer, not queue-level exactly-once bookkeeping — a
-      stuck job here is an operational liveness concern (visible via
-      ``processing_count()``), not a correctness one. A stale-job reaper is a
-      reasonable future addition, out of scope for making the existing
-      architecture function.
+      acknowledging/rejecting it leaves that job parked in ``processing``
+      until ``reclaim_stale(visibility_timeout_seconds)`` is called (spec
+      005-enterprise-platform §14, Wave 4 — this is the fix for the RC1
+      release checklist's documented gap: "the job queue has no redelivery/
+      visibility-timeout for a worker that dies mid-job"). ``reclaim_stale``
+      is not invoked automatically by this class — a deployment must run it
+      periodically (a scheduled task/reaper process, e.g. every 30-60
+      seconds), or a crashed worker's job stays stuck until the next call.
+      That periodic-invocation wiring is deployment configuration (§17), not
+      built into this class, matching the existing "broker implementation
+      is a replaceable deployment configuration" principle. Per ADR-008, the
+      platform's durable correctness guarantee remains the database unique
+      constraint at each worker's repository layer, not queue-level exactly-
+      once bookkeeping — ``reclaim_stale`` restores liveness (the job gets
+      redelivered), correctness was already handled elsewhere.
     - A blocking ``dequeue(timeout=..., job_type=None)`` cannot wait for a job
       type that has never been enqueued in this Redis keyspace before: with no
       job of that type ever seen, there is no per-type list key yet for
@@ -443,6 +478,11 @@ class RedisJobQueue(JobQueue):
         raw = self._as_str(raw)
         job = self._deserialize(raw)
         self._redis.hset(self._key("processing"), job.job_id, raw)
+        # Record the claim time (spec 005-enterprise-platform §14, Wave 4)
+        # — the visibility-timeout mechanism ``reclaim_stale`` needs to
+        # know how long a job has been claimed, mirroring the standard
+        # SQS/Redis-streams visibility-timeout pattern.
+        self._redis.hset(self._key("claimed_at"), job.job_id, _now_utc().isoformat())
         return job
 
     def acknowledge(self, job_id: str) -> None:
@@ -450,6 +490,7 @@ class RedisJobQueue(JobQueue):
         if raw is None:
             return
         self._redis.hdel(self._key("processing"), job_id)
+        self._redis.hdel(self._key("claimed_at"), job_id)
         job = self._deserialize(raw)
         self._redis.srem(self._key("idempotency"), job.idempotency_key)
 
@@ -458,15 +499,58 @@ class RedisJobQueue(JobQueue):
         if raw is None:
             return
         self._redis.hdel(self._key("processing"), job_id)
+        self._redis.hdel(self._key("claimed_at"), job_id)
         job = self._deserialize(raw)
         if requeue and job.retry_count < job.max_retries:
             retry_job = dataclasses.replace(job, retry_count=job.retry_count + 1)
             self._redis.lpush(self._pending_key(job.job_type), self._serialize(retry_job))
         else:
             self._redis.srem(self._key("idempotency"), job.idempotency_key)
+            self._redis.rpush(self._key("dead_letter"), self._serialize(job))
 
     def pending_count(self) -> int:
         return sum(int(self._redis.llen(self._pending_key(t))) for t in self._known_job_types())
 
     def processing_count(self) -> int:
         return int(self._redis.hlen(self._key("processing")))
+
+    def reclaim_stale(self, visibility_timeout_seconds: float) -> int:
+        """
+        Requeue (or dead-letter) any job claimed longer than
+        ``visibility_timeout_seconds`` ago and never acknowledged/rejected
+        — the concrete fix for the RC1 release checklist's documented gap
+        ("the job queue has no redelivery/visibility-timeout for a worker
+        that dies mid-job"). Intended to be called periodically by a
+        dedicated reaper process/scheduled task, not by workers themselves.
+
+        A reclaimed job that still has retry budget is requeued (LPUSH, so
+        it is dequeued next, same priority as a normal ``reject`` retry);
+        one that has exhausted its retries is moved to the dead-letter list
+        instead of being requeued forever.
+        """
+        now = _now_utc()
+        reclaimed = 0
+        claimed_at_raw = self._redis.hgetall(self._key("claimed_at"))
+        for job_id_raw, claimed_at_str in claimed_at_raw.items():
+            job_id = self._as_str(job_id_raw)
+            claimed_at = datetime.fromisoformat(self._as_str(claimed_at_str))
+            if (now - claimed_at).total_seconds() < visibility_timeout_seconds:
+                continue
+
+            raw = self._redis.hget(self._key("processing"), job_id)
+            self._redis.hdel(self._key("processing"), job_id)
+            self._redis.hdel(self._key("claimed_at"), job_id)
+            if raw is None:
+                continue
+            job = self._deserialize(raw)
+            if job.retry_count < job.max_retries:
+                retry_job = dataclasses.replace(job, retry_count=job.retry_count + 1)
+                self._redis.lpush(self._pending_key(job.job_type), self._serialize(retry_job))
+            else:
+                self._redis.srem(self._key("idempotency"), job.idempotency_key)
+                self._redis.rpush(self._key("dead_letter"), self._serialize(job))
+            reclaimed += 1
+        return reclaimed
+
+    def dead_letter_count(self) -> int:
+        return int(self._redis.llen(self._key("dead_letter")))

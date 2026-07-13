@@ -19,6 +19,7 @@ actually caught.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from uuid import uuid4
 
 from mil.api.deps import FindingReviewActions
@@ -47,9 +48,39 @@ class FakeReviewRepository:
         self.sessions[session.finding_id] = session
 
 
+class _FakeAuditEvent:
+    def __init__(self) -> None:
+        self.id = uuid4()
+
+
 class FakeAuditWriter:
-    def record(self, **kwargs: object) -> object:
-        return object()
+    def record(self, **kwargs: object) -> _FakeAuditEvent:
+        return _FakeAuditEvent()
+
+
+class FakeFindingRepository:
+    """Stub sufficient for _notify_owner's get_finding_or_404 lookup."""
+
+    def __init__(self, session: RealReviewSession) -> None:
+        self._application_id = session.application_id
+
+    def get_by_id(self, finding_id: object) -> object:
+        return SimpleNamespace(application_id=self._application_id)
+
+
+class FakeAssignmentRepository:
+    """No Assignment exists for these tests — _notify_owner is a no-op."""
+
+    def get_for_application(self, application_id: object) -> None:
+        return None
+
+
+class FakeNotificationService:
+    def __init__(self) -> None:
+        self.notified: list[dict[str, object]] = []
+
+    def notify(self, **kwargs: object) -> None:
+        self.notified.append(kwargs)
 
 
 def _make_session(*, status: str = PENDING_REVIEW) -> RealReviewSession:
@@ -73,9 +104,11 @@ def _make_actions(
     repo = FakeReviewRepository()
     repo.seed(session_override)
     actions = object.__new__(FindingReviewActions)
-    actions._findings = None  # type: ignore[attr-defined]
+    actions._findings = FakeFindingRepository(session_override)  # type: ignore[attr-defined]
     actions._reviews = repo  # type: ignore[attr-defined]
     actions._policy = None  # type: ignore[attr-defined]
+    actions._assignments = FakeAssignmentRepository()  # type: ignore[attr-defined]
+    actions._notifications = FakeNotificationService()  # type: ignore[attr-defined]
     actions._review_service = ReviewService(repo, FakeAuditWriter())  # type: ignore[arg-type]
     return actions, repo
 
@@ -153,3 +186,55 @@ class TestEscalateUnaffectedByAutoAssign:
         )
         assert result.status == ESCALATED
         assert result.assigned_reviewer_id is None
+
+
+class TestNotifiesOwnerOnReviewActions:
+    """
+    Final product polish sprint: Verify/Override/Escalate previously updated
+    Timeline/Audit but never notified anyone — these confirm the new wiring.
+    """
+
+    def test_verify_notifies_the_assignment_owner(self) -> None:
+        session = _make_session(status=IN_REVIEW)
+        actions, _ = _make_actions(session)
+        owner_id = uuid4()
+        actions._assignments = SimpleNamespace(  # type: ignore[attr-defined]
+            get_for_application=lambda _app_id: SimpleNamespace(owner_user_id=owner_id)
+        )
+        user = _user(Role.UNDERWRITER)
+        actions.verify(user, session.finding_id)
+        notified = actions._notifications.notified  # type: ignore[attr-defined]
+        assert len(notified) == 1
+        assert notified[0]["recipient_user_id"] == owner_id
+        assert notified[0]["tenant_id"] == user.tenant_id
+
+    def test_no_notification_when_no_assignment_exists(self) -> None:
+        session = _make_session(status=IN_REVIEW)
+        actions, _ = _make_actions(session)
+        actions.verify(_user(Role.UNDERWRITER), session.finding_id)
+        assert actions._notifications.notified == []  # type: ignore[attr-defined]
+
+    def test_escalate_with_target_user_notifies_them_directly(self) -> None:
+        session = _make_session(status=PENDING_REVIEW)
+        actions, _ = _make_actions(session)
+        target_user_id = uuid4()
+        actions.escalate(
+            _user(Role.UNDERWRITER),
+            session.finding_id,
+            reason="Needs compliance sign-off",
+            target_role="COMPLIANCE_OFFICER",
+            target_user_id=target_user_id,
+        )
+        notified = actions._notifications.notified  # type: ignore[attr-defined]
+        assert any(n["recipient_user_id"] == target_user_id for n in notified)
+
+    def test_escalate_without_target_user_does_not_fan_out_to_role(self) -> None:
+        session = _make_session(status=PENDING_REVIEW)
+        actions, _ = _make_actions(session)
+        actions.escalate(
+            _user(Role.UNDERWRITER),
+            session.finding_id,
+            reason="Needs compliance sign-off",
+            target_role="COMPLIANCE_OFFICER",
+        )
+        assert actions._notifications.notified == []  # type: ignore[attr-defined]

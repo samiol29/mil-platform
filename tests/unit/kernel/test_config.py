@@ -111,6 +111,7 @@ class TestEnvironmentPredicates:
             mil_env="production",
             mil_secret_key="crypto-random-long-enough-secret-key",
             postgres_password="secure-db-password",
+            mil_portal_secret_key="crypto-random-long-enough-portal-key",
         )
         assert s.is_production() is True
         assert s.is_development() is False
@@ -139,11 +140,20 @@ class TestProductionSafetyValidator:
                 postgres_password="changeme",
             )
 
+    def test_placeholder_portal_secret_key_fails_in_production(self) -> None:
+        with pytest.raises(ValueError, match="MIL_PORTAL_SECRET_KEY"):
+            Settings(
+                mil_env="production",
+                mil_secret_key="crypto-long-random-secret-key-value",
+                postgres_password="secure-db-password",
+            )
+
     def test_valid_production_settings_accepted(self) -> None:
         s = Settings(
             mil_env="production",
             mil_secret_key="crypto-random-long-enough-secret-key",
             postgres_password="secure-db-password",
+            mil_portal_secret_key="crypto-random-long-enough-portal-key",
         )
         assert s.is_production()
 

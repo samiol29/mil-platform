@@ -105,3 +105,10 @@ class TestGetForApplication:
         i1, i2 = _item(), _item()
         session.scalars.return_value = iter([i1, i2])
         assert repo.get_for_application(uuid4()) == [i1, i2]
+
+
+class TestCountForTenant:
+    def test_returns_count(self) -> None:
+        repo, session = _make_repo()
+        session.scalars.return_value.one.return_value = 7
+        assert repo.count_for_tenant(uuid4()) == 7

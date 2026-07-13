@@ -34,3 +34,21 @@ export const applicationSchema = z.object({
 
 export type Application = z.infer<typeof applicationSchema>;
 export type ApplicationStatus = Application['status'];
+
+/**
+ * Real status of an application's FINDING_GENERATION evaluation run
+ * (`GET /v1/applications/{id}/evaluation` — final product polish sprint).
+ * `NOT_TRIGGERED` means evaluation was never started (most commonly: the
+ * application has never been submitted) — never inferred from document
+ * processing status, which is a separate pipeline. `retryable` is only
+ * `true` when `status === 'FAILED'`.
+ */
+export const evaluationStatusSchema = z.object({
+  status: z.enum(['NOT_TRIGGERED', 'PENDING', 'RUNNING', 'COMPLETED', 'FAILED']),
+  errorMessage: z.string().nullable(),
+  retryable: z.boolean(),
+  startedAt: z.iso.datetime().nullable(),
+  completedAt: z.iso.datetime().nullable(),
+});
+
+export type EvaluationStatus = z.infer<typeof evaluationStatusSchema>;

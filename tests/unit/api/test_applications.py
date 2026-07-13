@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock  # noqa: TC003
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from fastapi.testclient import TestClient  # noqa: TC002
@@ -173,6 +174,64 @@ class TestListApplications:
         assert call_kwargs["status"] == "DRAFT"
         assert call_kwargs["search"] == "LOS-123"
 
+    def test_assigned_to_me_filters_to_caller_assigned_applications(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_assignment_service: MagicMock,
+    ) -> None:
+        mine_id = uuid4()
+        other_id = uuid4()
+        mock_app_service.list_applications.return_value = [
+            make_application(app_id=mine_id),
+            make_application(app_id=other_id),
+        ]
+        mock_assignment_service.get_assigned_to_me.return_value = [
+            SimpleNamespace(application_id=mine_id)
+        ]
+        data = client.get("/v1/applications?assigned_to_me=true").json()
+        assert [item["id"] for item in data["items"]] == [str(mine_id)]
+
+    def test_assigned_to_me_defaults_to_false_and_does_not_filter(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_assignment_service: MagicMock,
+    ) -> None:
+        mock_app_service.list_applications.return_value = [make_application(), make_application()]
+        data = client.get("/v1/applications").json()
+        assert len(data["items"]) == 2
+        mock_assignment_service.get_assigned_to_me.assert_not_called()
+
+    def test_escalated_filters_to_applications_with_escalated_sessions(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        escalated_id = uuid4()
+        clean_id = uuid4()
+        mock_app_service.list_applications.return_value = [
+            make_application(app_id=escalated_id),
+            make_application(app_id=clean_id),
+        ]
+        mock_review_service.get_escalated_for_caller.return_value = [
+            SimpleNamespace(application_id=escalated_id)
+        ]
+        data = client.get("/v1/applications?escalated=true").json()
+        assert [item["id"] for item in data["items"]] == [str(escalated_id)]
+
+    def test_escalated_defaults_to_false_and_does_not_filter(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        mock_app_service.list_applications.return_value = [make_application(), make_application()]
+        data = client.get("/v1/applications").json()
+        assert len(data["items"]) == 2
+        mock_review_service.get_escalated_for_caller.assert_not_called()
+
     def test_search_too_long_returns_422(
         self, client: TestClient, mock_app_service: MagicMock
     ) -> None:
@@ -252,6 +311,97 @@ class TestSubmitApplication:
         )
         response = client.post(f"/v1/applications/{TEST_APP_ID}/submit")
         assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/applications/{id}/evaluation
+# ---------------------------------------------------------------------------
+
+
+class TestGetEvaluationStatus:
+    def test_returns_not_triggered_when_no_run_exists(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        mock_finding_trigger.latest_run.return_value = None
+        data = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation").json()
+        assert data["status"] == "NOT_TRIGGERED"
+        assert data["retryable"] is False
+
+    def test_returns_completed_status(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        run = MagicMock(status="COMPLETED", steps=[])
+        mock_finding_trigger.latest_run.return_value = run
+        data = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation").json()
+        assert data["status"] == "COMPLETED"
+        assert data["retryable"] is False
+
+    def test_failed_run_is_retryable_with_error_message(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        failed_step = MagicMock(status="FAILED", error_message="Gemini API returned HTTP 429")
+        run = MagicMock(status="FAILED", steps=[failed_step])
+        mock_finding_trigger.latest_run.return_value = run
+        data = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation").json()
+        assert data["status"] == "FAILED"
+        assert data["retryable"] is True
+        assert data["error_message"] == "Gemini API returned HTTP 429"
+
+    def test_not_found_returns_404(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        mock_app_service.get_application.side_effect = NotFoundError(
+            "MortgageApplication", TEST_APP_ID
+        )
+        response = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/applications/{id}/retry-evaluation
+# ---------------------------------------------------------------------------
+
+
+class TestRetryEvaluation:
+    def test_returns_200(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        assert response.status_code == 200
+
+    def test_calls_finding_trigger_retry(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        mock_finding_trigger.retry.assert_called_once()
+
+    def test_conflict_when_no_failed_run_returns_409(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        mock_finding_trigger.retry.side_effect = ConflictError("No FAILED evaluation run exists")
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        assert response.status_code == 409
+
+    def test_not_found_returns_404(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        mock_app_service.get_application.side_effect = NotFoundError(
+            "MortgageApplication", TEST_APP_ID
+        )
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

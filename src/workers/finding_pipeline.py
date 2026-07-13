@@ -78,7 +78,7 @@ from mil.kernel.errors import (
 from mil.kernel.events import FindingGenerated, WorkflowStepFailed
 from mil.kernel.job_queue import Job, JobQueue
 from mil.kernel.metrics import MetricName
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter, get_logger
 from mil.kernel.providers.inference import EvidenceEntry, InferenceContext
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, FindingId, TenantId, WorkflowRunId
@@ -130,6 +130,8 @@ FINDING_WORKFLOW_TYPE = "FINDING_GENERATION"
 # a job before checking again. A long-running worker process, not a one-shot
 # drain — see main()'s docstring.
 _POLL_TIMEOUT_SECONDS = 5.0
+
+_log = get_logger(__name__)
 
 # Fixed prompt version for this sprint's generic evidence-assessment prompt.
 # No prompt-management system exists yet; this is a passive attribution
@@ -254,6 +256,7 @@ class FindingJobProcessor:
             return self._handle_failure(
                 run=run,
                 step=step,
+                application_id=application_id,
                 workflow_run_id=workflow_run_id,
                 tenant_id=tenant_id,
                 correlation_id=correlation_id,
@@ -272,6 +275,7 @@ class FindingJobProcessor:
             return self._handle_failure(
                 run=run,
                 step=step,
+                application_id=application_id,
                 workflow_run_id=workflow_run_id,
                 tenant_id=tenant_id,
                 correlation_id=correlation_id,
@@ -317,6 +321,13 @@ class FindingJobProcessor:
             tenant_id=tenant_id,
             correlation_id=correlation_id,
             finding_id=finding.id,
+        )
+        _log.info(
+            "Finding generated",
+            event_type="worker.finding.completed",
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            finding_id=str(finding.id),
         )
         return FindingProcessingOutcome.COMPLETED
 
@@ -370,6 +381,7 @@ class FindingJobProcessor:
         *,
         run: WorkflowRun,
         step: WorkflowStep,
+        application_id: UUID,
         workflow_run_id: UUID,
         tenant_id: UUID,
         correlation_id: str,
@@ -380,6 +392,16 @@ class FindingJobProcessor:
             exc, retry_count=job.retry_count, max_retries=job.max_retries
         )
         if decision is RetryDecision.RETRY:
+            _log.warning(
+                "Finding generation failed; retryable, requeueing",
+                event_type="worker.finding.retry",
+                application_id=str(application_id),
+                workflow_run_id=str(workflow_run_id),
+                error_code=exc.code,
+                error_message=exc.message,
+                retry_count=job.retry_count,
+                max_retries=job.max_retries,
+            )
             # Re-raise so the Unit of Work rolls back and the queue requeues.
             raise exc
 
@@ -402,6 +424,15 @@ class FindingJobProcessor:
                 retry_count=job.retry_count,
                 correlation_id=correlation_id,
             )
+        )
+        _log.error(
+            "Finding generation permanently failed",
+            event_type="worker.finding.failed",
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            error_code=exc.code,
+            error_message=exc.message,
+            retry_count=job.retry_count,
         )
         return FindingProcessingOutcome.FAILED_TERMINAL
 
@@ -538,6 +569,7 @@ def start_finding_generation_workflow(
     application_id: UUID,
     tenant_id: UUID,
     correlation_id: str | None = None,
+    retry_count: int = 0,
 ) -> WorkflowRun:
     """
     Start (or return the existing) ``FINDING_GENERATION`` workflow run for an
@@ -554,6 +586,15 @@ def start_finding_generation_workflow(
     Idempotent (ADR-008): the idempotency key is deterministic per application,
     so a repeat call (e.g. a retried request) returns the existing run rather
     than creating a duplicate or re-dispatching the job.
+
+    ``retry_count`` distinguishes a genuine human-triggered retry of a FAILED
+    evaluation (see ``FindingTrigger.retry`` in ``mil.api.deps``) from the
+    original submission trigger. Left at its default of ``0``, the
+    idempotency key is unchanged from the original call — a real retry passes
+    the number of prior FINDING_GENERATION runs for this application so a
+    *new* key is minted per attempt; without this, a retry would be a no-op,
+    since ``IntelligenceOrchestrator.start_workflow`` returns the existing run
+    for a repeat key rather than dispatching new work.
     """
     registry = container.resolve(ProviderRegistry)
     inference_version = registry.get_inference().version()
@@ -576,7 +617,11 @@ def start_finding_generation_workflow(
         tenant_id=tenant_id,
         application_id=application_id,
         workflow_type=FINDING_WORKFLOW_TYPE,
-        idempotency_key=f"{FINDING_WORKFLOW_TYPE}:{application_id}",
+        idempotency_key=(
+            f"{FINDING_WORKFLOW_TYPE}:{application_id}"
+            if retry_count == 0
+            else f"{FINDING_WORKFLOW_TYPE}:{application_id}:retry{retry_count}"
+        ),
         step_names=[FINDING_STEP_NAME, _POLICY_STEP_NAME, _REVIEW_STEP_NAME],
         pinned_versions=pinned,
         correlation_id=correlation_id,
@@ -660,7 +705,7 @@ def main() -> None:  # pragma: no cover - process entry point
     Runs indefinitely as a long-running service — see
     ``workers.document_pipeline.main``'s docstring for the same rationale.
     """
-    ctx = build_worker_context()
+    ctx = build_worker_context(service_name="mil-worker-finding")
     handler = make_finding_handler(ctx.container)
     run_forever(ctx, handler, job_type=FINDING_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
