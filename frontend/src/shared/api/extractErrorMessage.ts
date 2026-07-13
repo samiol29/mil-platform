@@ -42,3 +42,18 @@ export function extractErrorMessage(error: unknown, fallback: string): string {
 
   return fallback;
 }
+
+/**
+ * True when the failure is a real 409 Conflict — the backend's own signal
+ * that the record moved under the caller (e.g. someone else already
+ * resolved this finding, or a retry target is no longer in a retryable
+ * state), as distinct from a validation error, a permissions error, or a
+ * network failure (final product polish sprint, D6). Before this, every
+ * mutation's `onError` routed a 409 through the exact same generic-failure
+ * toast as any other error — a real, undifferentiated case that specifically
+ * benefits from a "someone else already acted on this — refresh and check"
+ * framing rather than "try again," which implies retrying would help.
+ */
+export function isConflictError(error: unknown): boolean {
+  return isAxiosError(error) && error.response?.status === 409;
+}

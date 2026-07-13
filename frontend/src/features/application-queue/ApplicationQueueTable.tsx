@@ -41,7 +41,9 @@ import {
 } from '@entities/application/statusLabel';
 import type { Application, ApplicationStatus } from '@entities/application/types';
 
-import { STATUS_FILTERS } from './filters';
+import { ATTENTION_FILTERS, STATUS_FILTERS, type AttentionFilterKey } from './filters';
+
+export type { AttentionFilterKey };
 
 function ageInDays(createdAt: string): number {
   const created = new Date(createdAt).getTime();
@@ -117,16 +119,33 @@ const columns: ColumnDef<Application>[] = [
 export interface ApplicationQueueTableProps {
   readonly status: ApplicationStatus | null;
   readonly onStatusChange: (status: ApplicationStatus | null) => void;
+  /** Real Application Queue filters (final product polish sprint, A1) — URL state, same convention as `status`. */
+  readonly assignedToMe: boolean;
+  readonly escalated: boolean;
+  readonly onAttentionFilterToggle: (key: AttentionFilterKey) => void;
 }
 
-export function ApplicationQueueTable({ status, onStatusChange }: ApplicationQueueTableProps) {
+export function ApplicationQueueTable({
+  status,
+  onStatusChange,
+  assignedToMe,
+  escalated,
+  onAttentionFilterToggle,
+}: ApplicationQueueTableProps) {
   const navigate = useNavigate();
   const openIntakeWizard = useUiStore((state) => state.openIntakeWizard);
   const [search, setSearch] = useState('');
 
+  const attentionFilterActive: Record<AttentionFilterKey, boolean> = {
+    assignedToMe,
+    escalated,
+  };
+
   const applicationsQuery = useApplicationSearch({
     ...(search.length > 0 ? { search } : {}),
     ...(status !== null ? { status } : {}),
+    assignedToMe,
+    escalated,
   });
 
   return (
@@ -180,6 +199,23 @@ export function ApplicationQueueTable({ status, onStatusChange }: ApplicationQue
             />
           ))}
         </div>
+
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Filter by attention needed"
+        >
+          {ATTENTION_FILTERS.map((option) => (
+            <FilterChip
+              key={option.key}
+              label={option.label}
+              isActive={attentionFilterActive[option.key]}
+              onClick={() => {
+                onAttentionFilterToggle(option.key);
+              }}
+            />
+          ))}
+        </div>
       </div>
 
       {applicationsQuery.isPending && (
@@ -215,13 +251,13 @@ export function ApplicationQueueTable({ status, onStatusChange }: ApplicationQue
           emptyState={
             <EmptyState
               title={
-                search.length > 0 || status !== null
+                search.length > 0 || status !== null || assignedToMe || escalated
                   ? 'No matching applications'
                   : 'No applications yet'
               }
               description={
-                search.length > 0 || status !== null
-                  ? 'Try a different search term or clear the stage filter.'
+                search.length > 0 || status !== null || assignedToMe || escalated
+                  ? 'Try a different search term or clear a filter.'
                   : 'Applications created in the Loan Origination System will appear here.'
               }
             />

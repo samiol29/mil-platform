@@ -18,6 +18,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useUiStore } from '@app/uiStore';
 import { Button } from '@design-system/components/Button';
+import { cn } from '@design-system/lib/cn';
 import { Dialog } from '@design-system/components/Dialog';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
@@ -288,6 +289,21 @@ function RejectDialog({
   );
 }
 
+/**
+ * Final polish sprint: previously plain text, inconsistent with every other
+ * lifecycle status in the product (Application Queue's Stage column, the
+ * Workspace header) rendering as a colored chip — same
+ * `rounded-chip`/soft-tint convention as `APPLICATION_STATUS_CHIP_CLASS_NAME`,
+ * applied to this pack's own five-state maker-checker lifecycle.
+ */
+const PACK_STATUS_CHIP_CLASS_NAME: Record<string, string> = {
+  Draft: 'bg-surface-sunken text-text-secondary',
+  'Pending approval': 'bg-feedback-warning-bg text-feedback-warning-fg',
+  'Approved — not yet activated': 'bg-feedback-warning-bg text-feedback-warning-fg',
+  Active: 'bg-feedback-success-bg text-feedback-success-fg',
+  Retired: 'bg-surface-sunken text-text-tertiary',
+};
+
 function PolicyPackRow({ pack }: { pack: PolicyPack }) {
   const [expanded, setExpanded] = useState(false);
   const rulesQuery = usePolicyPackRules(expanded ? pack.id : null);
@@ -327,11 +343,18 @@ function PolicyPackRow({ pack }: { pack: PolicyPack }) {
             {pack.name} <span className="text-text-tertiary">v{pack.version}</span>
           </span>
         </span>
-        <span className="text-caption text-text-secondary">{status}</span>
+        <span
+          className={cn(
+            'rounded-chip px-2 py-0.5 text-caption font-medium',
+            PACK_STATUS_CHIP_CLASS_NAME[status],
+          )}
+        >
+          {status}
+        </span>
       </button>
 
       {expanded && (
-        <div className="border-border-subtle flex flex-col gap-4 border-t pt-3">
+        <div className="border-border-subtle animate-panel-in flex flex-col gap-4 border-t pt-3">
           <div className="flex flex-wrap items-center gap-2">
             {status === 'Draft' && (
               <Button

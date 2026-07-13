@@ -23,6 +23,7 @@ import {
   FolderKanban,
   Gavel,
   LayoutDashboard,
+  ShieldAlert,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -45,6 +46,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     icon: Briefcase,
     path: '/banker-workspace',
     roles: ['RELATIONSHIP_MANAGER', 'ADMIN'],
+  },
+  {
+    id: 'escalation-queue',
+    label: 'Escalations',
+    icon: ShieldAlert,
+    path: '/escalation-queue',
+    roles: ['UNDERWRITER', 'VERIFICATION_OFFICER', 'RISK_ANALYST', 'COMPLIANCE_OFFICER', 'ADMIN'],
   },
   {
     id: 'administration',

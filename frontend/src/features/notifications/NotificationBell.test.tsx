@@ -152,6 +152,25 @@ describe('NotificationBell (spec 005 §13, Wave 2)', () => {
     expect(screen.getByText('June 1, 2026')).toBeInTheDocument();
   });
 
+  it('shows an error state (not a misleading empty state) when the fetch fails', async () => {
+    /* Final product polish sprint (D2): before this, a failed fetch rendered
+     * identically to "No notifications" — a real error was indistinguishable
+     * from a genuinely empty inbox. */
+    server.use(http.get('/v1/notifications', () => HttpResponse.json(null, { status: 500 })));
+
+    renderBell();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Notifications' }));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('Could not load notifications')).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+    expect(screen.queryByText('No notifications')).not.toBeInTheDocument();
+  });
+
   it('shows an honest empty state with no notifications', async () => {
     server.use(
       http.get('/v1/notifications', () => HttpResponse.json({ unreadCount: 0, items: [] })),

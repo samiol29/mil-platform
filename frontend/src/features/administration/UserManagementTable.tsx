@@ -247,7 +247,7 @@ export function UserManagementTable() {
               Assign role
             </Button>
             <Button
-              variant="secondary"
+              variant="danger"
               size="sm"
               disabled={!user.isActive}
               onClick={() => {

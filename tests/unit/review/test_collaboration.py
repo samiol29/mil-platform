@@ -109,6 +109,7 @@ class FakeReviewRepository:
         self.sessions_by_finding: dict[object, ReviewSession] = {}
         self.sessions_by_id: dict[object, ReviewSession] = {}
         self.comments: dict[object, ReviewComment] = {}
+        self.escalated_query_args: dict[str, object] | None = None
 
     def seed_session(self, session: ReviewSession) -> None:
         self.sessions_by_finding[session.finding_id] = session
@@ -128,6 +129,12 @@ class FakeReviewRepository:
 
     def get_comment_by_id(self, comment_id: object) -> ReviewComment | None:
         return self.comments.get(comment_id)
+
+    def get_escalated_for_caller(
+        self, tenant_id: object, *, roles: object, user_id: object
+    ) -> list[ReviewSession]:
+        self.escalated_query_args = {"tenant_id": tenant_id, "roles": roles, "user_id": user_id}
+        return list(self.sessions_by_id.values())
 
 
 class _FakeAuditEvent:
@@ -242,3 +249,34 @@ class TestEditAndDeleteComment:
         deleted = service.delete_comment(caller, comment)
 
         assert deleted.is_deleted is True
+
+
+class TestGetEscalatedForCaller:
+    """Final product polish sprint (A5): the escalation queue."""
+
+    def test_passes_callers_tenant_roles_and_user_id(self) -> None:
+        service, repo, _ = _make_service()
+        tenant_id = uuid4()
+        caller = AuthenticatedUser(
+            user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.RISK_ANALYST})
+        )
+        service.get_escalated_for_caller(caller)
+        assert repo.escalated_query_args == {
+            "tenant_id": tenant_id,
+            "roles": caller.roles,
+            "user_id": caller.user_id,
+        }
+
+    def test_returns_repository_result(self) -> None:
+        service, repo, _ = _make_service()
+        session = _make_session()
+        repo.seed_session(session)
+        caller = _admin_caller(session.tenant_id)
+        result = service.get_escalated_for_caller(caller)
+        assert result == [session]
+
+    def test_requires_read_application_permission(self) -> None:
+        service, _repo, _ = _make_service()
+        caller = AuthenticatedUser(user_id=uuid4(), tenant_id=uuid4(), roles=frozenset())
+        with pytest.raises(AuthorizationError):
+            service.get_escalated_for_caller(caller)

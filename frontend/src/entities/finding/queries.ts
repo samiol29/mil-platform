@@ -130,4 +130,21 @@ export function useEscalateFinding(applicationId: string) {
   });
 }
 
+/**
+ * Every finding currently escalated to the caller — to any role they hold,
+ * or to them specifically (final product polish sprint, A5: the escalation
+ * queue). Before this, an escalated finding was only discoverable by
+ * opening the specific application it belonged to.
+ */
+export function useEscalatedFindings() {
+  return useQuery({
+    queryKey: ['findings', 'escalated'],
+    queryFn: async () => {
+      const response = await httpClient.get<unknown>('/findings/escalated');
+      return findingSchema.array().parse(response.data);
+    },
+    staleTime: STALE_TIME.informational,
+  });
+}
+
 export type { Finding };

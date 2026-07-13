@@ -475,3 +475,18 @@ class ReviewService:
         comment.soft_delete(caller.user_id)
         self._repo.save_comment(comment)
         return comment
+
+    def get_escalated_for_caller(self, caller: AuthenticatedUser) -> list[ReviewSession]:
+        """
+        Return every Review Session currently escalated to the caller — to
+        any role they hold, or to them specifically (final product polish
+        sprint, A5: the escalation queue). Gated on ``read:application``
+        (visibility only); actually resolving one of these sessions still
+        requires ``verify:finding``/``override:finding`` and passes through
+        ``FindingReviewActions._authorize_resolution``'s existing ownership
+        check unchanged.
+        """
+        require_permission(caller, Permission.READ_APPLICATION)
+        return self._repo.get_escalated_for_caller(
+            caller.tenant_id, roles=caller.roles, user_id=caller.user_id
+        )

@@ -134,3 +134,77 @@ class TestGetPortfolio:
         portfolio = service.get_portfolio(caller)
         assert len(portfolio) == 1
         assert portfolio[0].owner_user_id == owner_id
+
+
+class TestGetAssignedToMe:
+    def test_includes_applications_owned_by_caller(self) -> None:
+        service, _repo, _ = _make_service()
+        tenant_id = uuid4()
+        caller = _rm_caller(tenant_id)
+
+        service.set_assignment(
+            caller, application_id=uuid4(), tenant_id=tenant_id, owner_user_id=caller.user_id
+        )
+
+        assigned = service.get_assigned_to_me(caller)
+        assert len(assigned) == 1
+        assert assigned[0].owner_user_id == caller.user_id
+
+    def test_includes_applications_reviewed_by_caller(self) -> None:
+        """
+        Final product polish sprint (A1): before this, "Assigned to Me" only
+        had `get_portfolio` (owner-only) — an Underwriter (reviewer, not
+        owner) had no way to see their own review workload this way.
+        """
+        service, _repo, _ = _make_service()
+        tenant_id = uuid4()
+        underwriter = AuthenticatedUser(
+            user_id=uuid4(), tenant_id=tenant_id, roles=frozenset({Role.UNDERWRITER})
+        )
+        rm = _rm_caller(tenant_id)
+
+        service.set_assignment(
+            rm,
+            application_id=uuid4(),
+            tenant_id=tenant_id,
+            owner_user_id=rm.user_id,
+            reviewer_user_id=underwriter.user_id,
+        )
+
+        assigned = service.get_assigned_to_me(underwriter)
+        assert len(assigned) == 1
+        assert assigned[0].reviewer_user_id == underwriter.user_id
+
+    def test_does_not_duplicate_when_caller_is_both_owner_and_reviewer(self) -> None:
+        service, _repo, _ = _make_service()
+        tenant_id = uuid4()
+        caller = _rm_caller(tenant_id)
+
+        service.set_assignment(
+            caller,
+            application_id=uuid4(),
+            tenant_id=tenant_id,
+            owner_user_id=caller.user_id,
+            reviewer_user_id=caller.user_id,
+        )
+
+        assigned = service.get_assigned_to_me(caller)
+        assert len(assigned) == 1
+
+    def test_excludes_applications_assigned_to_others(self) -> None:
+        service, _repo, _ = _make_service()
+        tenant_id = uuid4()
+        caller = _rm_caller(tenant_id)
+        other = _rm_caller(tenant_id)
+
+        service.set_assignment(
+            other, application_id=uuid4(), tenant_id=tenant_id, owner_user_id=other.user_id
+        )
+
+        assert service.get_assigned_to_me(caller) == []
+
+    def test_readonly_role_forbidden(self) -> None:
+        service, _, _ = _make_service()
+        caller = _readonly_caller(uuid4())
+        with pytest.raises(AuthorizationError):
+            service.get_assigned_to_me(caller)

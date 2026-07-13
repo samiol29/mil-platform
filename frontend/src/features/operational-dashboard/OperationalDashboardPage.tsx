@@ -8,7 +8,8 @@
  * spec's own implementation-correction note for this section).
  */
 
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
 
 import { ErrorState } from '@design-system/components/ErrorState';
 import { Skeleton } from '@design-system/components/LoadingState';
@@ -18,6 +19,17 @@ import {
   usePoisonJobs,
   useQueueDepth,
 } from '@entities/operational/queries';
+
+import { groupPoisonJobs } from './groupPoisonJobs';
+
+function formatUpdatedAt(value: string): string {
+  return new Date(value).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 function StatRow({ items }: { items: readonly { label: string; value: string | number }[] }) {
   return (
@@ -83,6 +95,7 @@ function QueueDepthSection() {
 
 function PoisonJobsSection() {
   const poisonJobsQuery = usePoisonJobs();
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set());
 
   if (poisonJobsQuery.isPending) return <Skeleton className="h-16 w-full" />;
   if (poisonJobsQuery.isError) {
@@ -98,6 +111,21 @@ function PoisonJobsSection() {
   }
 
   const jobs = poisonJobsQuery.data.items;
+  // One upstream outage (e.g. a rate limit) can poison many jobs at once, all
+  // carrying the identical provider error — grouping by (step, error code)
+  // turns that into one summary card with a count instead of N duplicated
+  // full-text cards (final polish sprint). Every individual job is still
+  // listed, just behind an expand toggle.
+  const groups = groupPoisonJobs(jobs);
+
+  function toggleExpanded(key: string) {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   return (
     <section className="flex flex-col gap-2">
@@ -106,29 +134,66 @@ function PoisonJobsSection() {
         Workflow steps that exceeded their retry ceiling — these require manual investigation; no
         automatic redelivery exists for a worker crash (a documented platform limitation).
       </p>
-      {jobs.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="text-caption text-text-tertiary">No poison jobs detected.</p>
       ) : (
         <ul className="flex flex-col gap-2" aria-label="Poison jobs">
-          {jobs.map((job) => (
-            <li
-              key={job.id}
-              className="bg-feedback-error-bg border-feedback-error-border flex items-start gap-2 rounded-container border p-3"
-            >
-              <AlertTriangle
-                className="text-feedback-error-fg mt-0.5 size-4 shrink-0"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="text-body font-medium">
-                  {job.stepName} — {job.retryCount}/{job.maxRetries} retries exhausted
-                </p>
-                {job.errorMessage !== null && (
-                  <p className="text-caption text-text-tertiary">{job.errorMessage}</p>
+          {groups.map((group) => {
+            const isExpanded = expandedKeys.has(group.key);
+            return (
+              <li
+                key={group.key}
+                className="bg-feedback-error-bg border-feedback-error-border rounded-container border"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    toggleExpanded(group.key);
+                  }}
+                  className="flex w-full items-start gap-2 p-3 text-left outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+                >
+                  <AlertTriangle
+                    className="text-feedback-error-fg mt-0.5 size-4 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body flex items-center gap-1.5 font-medium">
+                      {group.stepName} — retries exhausted
+                      <span className="text-caption bg-surface-raised text-text-secondary rounded-chip px-1.5 py-0.5 font-normal">
+                        {group.jobs.length}
+                      </span>
+                    </p>
+                    {group.errorMessage !== null && (
+                      <p className="text-caption text-text-tertiary truncate">
+                        {group.errorMessage}
+                      </p>
+                    )}
+                  </div>
+                  {isExpanded ? (
+                    <ChevronDown className="text-text-tertiary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <ChevronRight className="text-text-tertiary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  )}
+                </button>
+                {isExpanded && (
+                  <ul className="border-feedback-error-border animate-panel-in flex flex-col gap-2 border-t p-3 pt-2">
+                    {group.jobs.map((job) => (
+                      <li key={job.id} className="text-caption text-text-secondary">
+                        <span className="font-medium">
+                          {job.retryCount}/{job.maxRetries} retries
+                        </span>
+                        {' · updated '}
+                        {formatUpdatedAt(job.updatedAt)}
+                        {job.errorMessage !== null && (
+                          <p className="text-text-tertiary">{job.errorMessage}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

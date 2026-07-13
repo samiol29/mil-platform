@@ -129,7 +129,11 @@ describe('ApplicationWorkspace — Evidence Workspace (Phase 5)', () => {
     mockWorkspaceData();
     renderWorkspace('evidence');
 
-    expect((await screen.findAllByText(/Extracted via LLM_EXTRACTION_V1/)).length).toBe(2);
+    // Final polish sprint: when every item in a document's group shares the
+    // same extraction method/model (true here — one item per group), the
+    // provenance is hoisted once into the group header instead of repeated
+    // on every card (see `commonEvidenceProvenance`).
+    expect((await screen.findAllByText(/LLM_EXTRACTION_V1/)).length).toBe(2);
     expect(screen.getAllByRole('meter').length).toBeGreaterThan(0);
   });
 
@@ -604,7 +608,10 @@ describe('ApplicationWorkspace — Submit for review + ownership (final product 
       ),
     );
     renderWorkspace('overview');
-    expect(await screen.findByText(/Owner: 88888888/)).toBeInTheDocument();
+    // Executive header refinement (final polish sprint): "Owner"/its value
+    // now render as separate <dt>/<dd> elements, not one joined text node.
+    expect(await screen.findByText('Owner:')).toBeInTheDocument();
+    expect(screen.getByText('88888888')).toBeInTheDocument();
   });
 
   it('shows nothing ownership-related when no assignment exists yet (honest, not fabricated)', async () => {

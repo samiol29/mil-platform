@@ -442,3 +442,67 @@ class TestEscalateFinding:
         )
         assert response.status_code == 200
         assert response.json()["escalated_to_user_id"] == str(target_user_id)
+
+
+class TestListEscalatedFindings:
+    """Final product polish sprint (A5): GET /v1/findings/escalated."""
+
+    def test_returns_200(
+        self,
+        client: TestClient,
+        mock_finding_service: MagicMock,
+        mock_finding_review_actions: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        mock_review_service.get_escalated_for_caller.return_value = []
+        response = client.get("/v1/findings/escalated")
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_returns_finding_for_each_escalated_session(
+        self,
+        client: TestClient,
+        mock_finding_service: MagicMock,
+        mock_finding_review_actions: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        finding = make_finding()
+        session = _FakeReviewSession(status="ESCALATED", escalated_to_role="COMPLIANCE_OFFICER")
+        session.finding_id = finding.id  # type: ignore[attr-defined]
+        mock_review_service.get_escalated_for_caller.return_value = [session]
+        mock_finding_service.get_by_id.return_value = finding
+        mock_finding_review_actions.policy_version_for.return_value = "policy-pack-2026.2"
+
+        data = client.get("/v1/findings/escalated").json()
+
+        assert len(data) == 1
+        assert data[0]["id"] == str(finding.id)
+        assert data[0]["state"] == "escalated"
+        assert data[0]["escalated_to_role"] == "COMPLIANCE_OFFICER"
+
+    def test_skips_session_whose_finding_is_missing(
+        self,
+        client: TestClient,
+        mock_finding_service: MagicMock,
+        mock_finding_review_actions: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        session = _FakeReviewSession(status="ESCALATED", escalated_to_role="RISK_ANALYST")
+        session.finding_id = uuid4()  # type: ignore[attr-defined]
+        mock_review_service.get_escalated_for_caller.return_value = [session]
+        mock_finding_service.get_by_id.return_value = None
+
+        data = client.get("/v1/findings/escalated").json()
+
+        assert data == []
+
+    def test_authorization_error_returns_403(
+        self,
+        client: TestClient,
+        mock_review_service: MagicMock,
+    ) -> None:
+        mock_review_service.get_escalated_for_caller.side_effect = AuthorizationError(
+            "Permission denied"
+        )
+        response = client.get("/v1/findings/escalated")
+        assert response.status_code == 403

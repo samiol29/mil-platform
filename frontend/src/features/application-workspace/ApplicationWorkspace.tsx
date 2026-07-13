@@ -66,13 +66,13 @@ import { useDocumentsForApplication } from '@entities/document/queries';
 import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
-import { useApplicationPolicyResults } from '@entities/policy/queries';
+import { useApplicationPolicyResults, usePolicyPacks } from '@entities/policy/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { DocumentInspector } from '@features/document-viewer/DocumentInspector';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 import { DocumentProcessingList } from '@features/document-upload/DocumentProcessingList';
 import { UploadSection } from '@features/document-upload/UploadSection';
-import { extractErrorMessage } from '@shared/api/extractErrorMessage';
+import { extractErrorMessage, isConflictError } from '@shared/api/extractErrorMessage';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { ApplicationTimeline } from './ApplicationTimeline';
@@ -85,6 +85,7 @@ import {
   zeroFindingsOutcome,
 } from './applicationPipelineSummary';
 import { buildApplicationTimeline } from './buildApplicationTimeline';
+import { commonEvidenceProvenance } from './commonEvidenceProvenance';
 import { EvidenceCard } from './EvidenceCard';
 import { buildEvidenceToFindingsIndex } from './evidenceFindingIndex';
 import { FindingActions } from './FindingActions';
@@ -96,6 +97,28 @@ import { groupFindingsByPolicyVersion } from './groupFindingsByPolicyVersion';
 import { REGION_LABEL, WORKSPACE_REGIONS, type WorkspaceRegion } from './regions';
 import { StaleRecordBanner } from './StaleRecordBanner';
 
+/**
+ * Final product polish sprint (D6): a 409 here means the evaluation is no
+ * longer FAILED (someone already retried it, or it's mid-run) — "try again"
+ * is the wrong instruction for that; distinguish it from a genuine failure.
+ */
+function retryEvaluationErrorTitle(error: unknown): string {
+  return isConflictError(error)
+    ? 'Evaluation is no longer retryable — refresh to see its current status'
+    : 'Could not retry evaluation';
+}
+
+/**
+ * Final product polish sprint (D6): a 409 here means the application is no
+ * longer in a submittable state (e.g. it moved since the page loaded) —
+ * distinguish it from a genuine failure, same rationale as above.
+ */
+function submitErrorTitle(error: unknown): string {
+  return isConflictError(error)
+    ? 'Application is no longer ready to submit — refresh to see its current status'
+    : 'Could not submit application';
+}
+
 export interface ApplicationWorkspaceProps {
   readonly applicationId: string;
   readonly region: WorkspaceRegion;
@@ -103,6 +126,14 @@ export interface ApplicationWorkspaceProps {
   /** Auditor/compliance role (spec 002 FR-037, tasks.md T128): no action controls render. */
   readonly readOnly?: boolean;
 }
+
+/**
+ * `PolicyRegion`'s per-finding row is a compact summary (full detail is one
+ * "View finding →" click away, in the Findings region's own capped
+ * `FindingCard` display) — a dozen+ evidence chips per finding here was
+ * noise, not information, in a row meant to be scanned quickly.
+ */
+const POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT = 6;
 
 export function ApplicationWorkspace({
   applicationId,
@@ -321,7 +352,7 @@ function FindingsRegion({
                   },
                   onError: (error: unknown) => {
                     addToast({
-                      title: 'Could not retry evaluation',
+                      title: retryEvaluationErrorTitle(error),
                       description: extractErrorMessage(error, 'Please try again.'),
                       variant: 'error',
                     });
@@ -476,6 +507,7 @@ function EvidenceRegion({
         {Array.from(groups.entries()).map(([documentId, items]) => {
           const isCollapsed = collapsedGroups.has(documentId);
           const filename = documents.find((doc) => doc.id === documentId)?.filename ?? 'Document';
+          const provenance = commonEvidenceProvenance(items);
           return (
             <div
               key={documentId}
@@ -504,9 +536,14 @@ function EvidenceRegion({
                 )}
                 {filename}
                 <span className="text-text-tertiary font-normal">({items.length})</span>
+                {provenance !== null && (
+                  <span className="text-caption text-text-tertiary ml-auto font-normal normal-case">
+                    {provenance.method} · {provenance.modelVersion}
+                  </span>
+                )}
               </button>
               {!isCollapsed && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="animate-panel-in grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {items.map((item) => {
                     const supersededItem =
                       item.supersedesId !== null ? evidenceById.get(item.supersedesId) : undefined;
@@ -526,6 +563,7 @@ function EvidenceRegion({
                           });
                         }}
                         onViewFindings={relatedFindings.length > 0 ? onViewFindings : undefined}
+                        hideProvenance={provenance !== null}
                       />
                     );
                   })}
@@ -818,7 +856,7 @@ function PolicyRegion({
                     },
                     onError: (error: unknown) => {
                       addToast({
-                        title: 'Could not retry evaluation',
+                        title: retryEvaluationErrorTitle(error),
                         description: extractErrorMessage(error, 'Please try again.'),
                         variant: 'error',
                       });
@@ -933,13 +971,16 @@ function PolicyRegion({
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-body text-text-primary">{finding.what}</span>
                     <span
-                      className={cn('text-caption font-medium', STATE_CLASS_NAME[finding.state])}
+                      className={cn(
+                        'text-caption font-medium transition-colors duration-panel ease-standard',
+                        STATE_CLASS_NAME[finding.state],
+                      )}
                     >
                       {STATE_LABEL[finding.state]}
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {finding.evidenceRefs.map((evidenceId) => {
+                    {finding.evidenceRefs.slice(0, POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT).map((evidenceId) => {
                       const item = evidenceById.get(evidenceId);
                       return (
                         <EvidenceChip
@@ -961,6 +1002,11 @@ function PolicyRegion({
                         />
                       );
                     })}
+                    {finding.evidenceRefs.length > POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT && (
+                      <span className="text-caption text-text-tertiary">
+                        +{finding.evidenceRefs.length - POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT} more
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -1122,36 +1168,72 @@ function OverviewRegion({
   );
 
   // Ownership (final product polish sprint, R2): a real, already-built
-  // backend/entity capability (`Assignment.ownerUserId`) that nothing in
-  // the UI ever surfaced before this. No display-name resolution endpoint
-  // is reachable at this permission level (`GET /v1/admin/users` requires
-  // `manage:users`), so a truncated id is shown — honest, never a
-  // fabricated name — labeled "You" when it matches the caller.
+  // backend/entity capability (`Assignment.ownerUserId`/`reviewerUserId`)
+  // that nothing in the UI ever surfaced before that sprint. No
+  // display-name resolution endpoint is reachable at this permission level
+  // (`GET /v1/admin/users` requires `manage:users`), so a truncated id is
+  // shown — honest, never a fabricated name — labeled "You" when it
+  // matches the caller.
   const assignment = assignmentQuery.data;
-  const ownerLabel =
-    assignment === null || assignment === undefined
-      ? null
-      : `Owner: ${
-          currentUser !== null && assignment.ownerUserId === currentUser.userId
-            ? 'You'
-            : assignment.ownerUserId.slice(0, 8)
-        }`;
+  const partiesQuery = usePartiesForApplication(applicationId);
+  const policyPacksQuery = usePolicyPacks();
 
-  const metadataParts = [
+  function actorLabel(userId: string): string {
+    return currentUser !== null && userId === currentUser.userId ? 'You' : userId.slice(0, 8);
+  }
+
+  const parties = partiesQuery.data ?? [];
+  const primaryBorrowerName =
+    parties.length === 0
+      ? null
+      : (parties.find((party) => party.partyType === 'APPLICANT') ?? parties[0]).displayName;
+
+  const activePolicyPackName =
+    application.activePolicyPackId === null
+      ? 'Not yet assigned'
+      : (policyPacksQuery.data?.items.find((pack) => pack.id === application.activePolicyPackId)
+          ?.name ?? application.activePolicyPackId.slice(0, 8));
+
+  // Executive-summary review progress (executive review pass, final polish
+  // sprint): "resolved" means a human reached a terminal decision (verified
+  // or overridden) — `escalated` is deliberately non-terminal (it can
+  // re-enter `IN_REVIEW`), so it is not counted as resolved. Omitted
+  // entirely when there are no findings yet, rather than showing a
+  // meaningless "0 of 0".
+  const resolvedFindingsCount = findings.filter(
+    (f) => f.state === 'verified' || f.state === 'overridden',
+  ).length;
+
+  const summaryFields = [
+    assignment !== null && assignment !== undefined
+      ? { label: 'Owner', value: actorLabel(assignment.ownerUserId) }
+      : null,
+    assignment !== null && assignment !== undefined && assignment.reviewerUserId !== null
+      ? { label: 'Reviewer', value: actorLabel(assignment.reviewerUserId) }
+      : null,
+    { label: 'Active policy pack', value: activePolicyPackName },
+    findings.length > 0
+      ? {
+          label: 'Review progress',
+          value: `${String(resolvedFindingsCount)} of ${String(findings.length)} resolved`,
+        }
+      : null,
+    application.updatedAt !== null
+      ? { label: 'Last updated', value: new Date(application.updatedAt).toLocaleDateString() }
+      : null,
+  ].filter((field): field is { label: string; value: string } => field !== null);
+
+  const secondaryMetadataParts = [
     application.losReference !== null ? `LOS ${application.losReference}` : null,
     application.loanNumber !== null ? `Loan ${application.loanNumber}` : null,
     `${String(application.partyCount)} ${application.partyCount === 1 ? 'party' : 'parties'}`,
     `Created ${new Date(application.createdAt).toLocaleDateString()}`,
-    application.updatedAt !== null
-      ? `Updated ${new Date(application.updatedAt).toLocaleDateString()}`
-      : null,
-    ownerLabel,
   ].filter((part): part is string => part !== null);
 
   return (
     <section aria-label="Overview" className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <h2 className="text-heading-page text-text-primary">
               {application.loanNumber ?? application.losReference ?? 'Application'}
@@ -1162,7 +1244,20 @@ function OverviewRegion({
               {APPLICATION_STATUS_LABEL[application.status]}
             </span>
           </div>
-          <p className="text-caption text-text-tertiary">{metadataParts.join(' · ')}</p>
+          {primaryBorrowerName !== null && (
+            <p className="text-body-emphasis text-text-primary">{primaryBorrowerName}</p>
+          )}
+          {summaryFields.length > 0 && (
+            <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              {summaryFields.map((field) => (
+                <div key={field.label} className="flex items-baseline gap-1.5">
+                  <dt className="text-caption text-text-tertiary">{field.label}:</dt>
+                  <dd className="text-label text-text-primary font-medium">{field.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <p className="text-caption text-text-tertiary">{secondaryMetadataParts.join(' · ')}</p>
           <BorrowerChips applicationId={applicationId} />
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -1178,7 +1273,7 @@ function OverviewRegion({
                   },
                   onError: (error: unknown) => {
                     addToast({
-                      title: 'Could not submit application',
+                      title: submitErrorTitle(error),
                       description: extractErrorMessage(error, 'Please try again.'),
                       variant: 'error',
                     });

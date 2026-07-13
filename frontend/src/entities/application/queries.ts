@@ -71,6 +71,17 @@ export interface ApplicationSearchParams {
   /** Case-insensitive substring match against LOS reference, loan number, application ID, or borrower display name. */
   readonly search?: string;
   readonly status?: Application['status'];
+  /**
+   * Real Application Queue filters (final product polish sprint, A1) — both
+   * compose with `status`/`search` (AND, not OR). `assignedToMe` restricts
+   * to applications the caller owns or reviews (`Assignment.ownerUserId`/
+   * `reviewerUserId`); `escalated` restricts to applications with a Finding
+   * currently escalated to the caller's role or to them specifically. Both
+   * were previously reserved (see `features/application-queue/filters.ts`)
+   * because no backend field/query existed — they do now.
+   */
+  readonly assignedToMe?: boolean;
+  readonly escalated?: boolean;
   /** Set `false` to skip the request entirely (e.g. Global Search below a minimum query length). Defaults to `true`. */
   readonly enabled?: boolean;
 }
@@ -90,11 +101,24 @@ export function useApplicationSearch(params: ApplicationSearchParams = {}) {
   if (params.status !== undefined) {
     query.set('status', params.status);
   }
+  if (params.assignedToMe === true) {
+    query.set('assigned_to_me', 'true');
+  }
+  if (params.escalated === true) {
+    query.set('escalated', 'true');
+  }
   const queryString = query.toString();
   const url = queryString.length > 0 ? `/applications?${queryString}` : '/applications';
 
   return useEntityQuery({
-    queryKey: ['applications', 'search', params.search ?? null, params.status ?? null],
+    queryKey: [
+      'applications',
+      'search',
+      params.search ?? null,
+      params.status ?? null,
+      params.assignedToMe ?? false,
+      params.escalated ?? false,
+    ],
     url,
     schema: applicationListResponseSchema,
     staleTime: STALE_TIME.informational,

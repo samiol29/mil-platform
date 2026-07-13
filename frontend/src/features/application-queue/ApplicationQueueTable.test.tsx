@@ -134,6 +134,73 @@ describe('ApplicationQueueTable', () => {
       'true',
     );
   });
+
+  it('clicking "Assigned to Me" sends assigned_to_me=true and marks the chip active', async () => {
+    let capturedUrl: URL | null = null;
+    server.use(
+      http.get('/v1/applications', ({ request }) => {
+        capturedUrl = new URL(request.url);
+        return HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 });
+      }),
+    );
+
+    renderQueue();
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Assigned to Me' })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Assigned to Me' }));
+
+    await waitFor(() => {
+      expect(capturedUrl?.searchParams.get('assigned_to_me')).toBe('true');
+    });
+    expect(screen.getByRole('button', { name: 'Assigned to Me' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('clicking "Escalated" sends escalated=true and marks the chip active', async () => {
+    let capturedUrl: URL | null = null;
+    server.use(
+      http.get('/v1/applications', ({ request }) => {
+        capturedUrl = new URL(request.url);
+        return HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 });
+      }),
+    );
+
+    renderQueue();
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Escalated' })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Escalated' }));
+
+    await waitFor(() => {
+      expect(capturedUrl?.searchParams.get('escalated')).toBe('true');
+    });
+    expect(screen.getByRole('button', { name: 'Escalated' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('attention filters compose with the status filter (both sent together)', async () => {
+    let capturedUrl: URL | null = null;
+    server.use(
+      http.get('/v1/applications', ({ request }) => {
+        capturedUrl = new URL(request.url);
+        return HttpResponse.json({ items: [], total: 0, page: 1, page_size: 20 });
+      }),
+    );
+
+    renderQueue('/applications?status=IN_REVIEW&assignedToMe=true');
+
+    await waitFor(() => {
+      expect(capturedUrl?.searchParams.get('status')).toBe('IN_REVIEW');
+      expect(capturedUrl?.searchParams.get('assigned_to_me')).toBe('true');
+    });
+  });
 });
 
 describe('ApplicationQueueTable rows', () => {

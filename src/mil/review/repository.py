@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import extract, func, select
+from sqlalchemy import extract, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from mil.review.models import (
@@ -131,6 +131,35 @@ class ReviewRepository:
                 ReviewSession.tenant_id == tenant_id,
                 ReviewSession.status == ESCALATED,
                 ReviewSession.escalated_to_role == role,
+            )
+            .order_by(ReviewSession.updated_at.asc())
+        )
+        return list(self._session.scalars(stmt))
+
+    def get_escalated_for_caller(
+        self, tenant_id: UUID, *, roles: frozenset[str], user_id: UUID
+    ) -> list[ReviewSession]:
+        """
+        Return every Review Session currently escalated either to any of
+        ``roles`` (the caller's own roles) or specifically to ``user_id`` —
+        the caller's full escalation queue (final product polish sprint,
+        A5: "findings escalated to my role or to me specifically").
+
+        Generalises ``get_escalated_for_role`` (role-only) for any caller-
+        facing endpoint; that method is kept for the one existing role-only
+        call site. Before this, a caller had no way to see everything
+        escalated to them — only by opening the specific application (via a
+        notification or by chance).
+        """
+        stmt = (
+            select(ReviewSession)
+            .where(
+                ReviewSession.tenant_id == tenant_id,
+                ReviewSession.status == ESCALATED,
+                or_(
+                    ReviewSession.escalated_to_role.in_(roles),
+                    ReviewSession.escalated_to_user_id == user_id,
+                ),
             )
             .order_by(ReviewSession.updated_at.asc())
         )

@@ -41,7 +41,19 @@ import { downloadDocument } from '@entities/document/download';
 import { usePartiesForApplication } from '@entities/party/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { summarizeDocuments } from '@features/application-workspace/applicationPipelineSummary';
-import { extractErrorMessage } from '@shared/api/extractErrorMessage';
+import { extractErrorMessage, isConflictError } from '@shared/api/extractErrorMessage';
+
+/**
+ * Final product polish sprint (D6): a 409 here means the document is no
+ * longer FAILED (already retried, or already completed) — "please try
+ * again" is the wrong instruction for that; distinguish it from a genuine
+ * failure.
+ */
+function retryErrorTitle(error: unknown): string {
+  return isConflictError(error)
+    ? 'This document is no longer retryable — refresh to see its current status'
+    : 'Could not retry this document';
+}
 
 import { deriveDocumentStages } from './deriveDocumentStages';
 import { duplicateDocumentIds } from './findDuplicateGroups';
@@ -87,9 +99,17 @@ export function DocumentProcessingList({
           return next;
         });
       },
+      onSuccess: () => {
+        // Final product polish sprint (D1): every other retryable action
+        // added this sprint (Submit, Evaluation retry, Verify/Override/
+        // Escalate) confirms both success and failure with a toast — this
+        // one previously only toasted on error, a silent-success feedback
+        // gap unique to document retry.
+        addToast({ title: 'Retry started', variant: 'success' });
+      },
       onError: (error: unknown) => {
         addToast({
-          title: 'Could not retry this document',
+          title: retryErrorTitle(error),
           description: extractErrorMessage(error, 'Please try again.'),
           variant: 'error',
         });
@@ -178,6 +198,11 @@ export function DocumentProcessingList({
               key={document.id}
               className={cn(
                 'border-l-2 border-l-transparent',
+                // Final polish sprint: a failed document should be
+                // immediately obvious by shape alone, not just by reading
+                // the row's text — the same left-border-accent pattern
+                // `Toast`'s error variant already uses.
+                isFailed && 'border-l-feedback-error-fg',
                 isSelected && 'border-l-interactive-primary-default bg-surface-secondary',
               )}
             >
@@ -278,7 +303,7 @@ export function DocumentProcessingList({
               </div>
 
               {isExpanded && (
-                <dl className="text-caption text-text-secondary grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-2 pr-3 pl-9">
+                <dl className="text-caption text-text-secondary animate-panel-in grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-2 pr-3 pl-9">
                   <dt className="text-text-tertiary">Content hash</dt>
                   <dd className="truncate font-mono" title={document.contentHash}>
                     {document.contentHash.slice(0, 16)}…

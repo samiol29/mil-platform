@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PortalIndexRouteImport } from './routes/portal.index'
 import { Route as PolicyAdministrationIndexRouteImport } from './routes/policy-administration.index'
 import { Route as OperationalDashboardIndexRouteImport } from './routes/operational-dashboard.index'
+import { Route as EscalationQueueIndexRouteImport } from './routes/escalation-queue.index'
 import { Route as BusinessAnalyticsIndexRouteImport } from './routes/business-analytics.index'
 import { Route as BankerWorkspaceIndexRouteImport } from './routes/banker-workspace.index'
 import { Route as ApplicationsIndexRouteImport } from './routes/applications.index'
@@ -43,6 +44,11 @@ const OperationalDashboardIndexRoute =
     path: '/operational-dashboard/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const EscalationQueueIndexRoute = EscalationQueueIndexRouteImport.update({
+  id: '/escalation-queue/',
+  path: '/escalation-queue/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BusinessAnalyticsIndexRoute = BusinessAnalyticsIndexRouteImport.update({
   id: '/business-analytics/',
   path: '/business-analytics/',
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/applications/': typeof ApplicationsIndexRoute
   '/banker-workspace/': typeof BankerWorkspaceIndexRoute
   '/business-analytics/': typeof BusinessAnalyticsIndexRoute
+  '/escalation-queue/': typeof EscalationQueueIndexRoute
   '/operational-dashboard/': typeof OperationalDashboardIndexRoute
   '/policy-administration/': typeof PolicyAdministrationIndexRoute
   '/portal/': typeof PortalIndexRoute
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/applications': typeof ApplicationsIndexRoute
   '/banker-workspace': typeof BankerWorkspaceIndexRoute
   '/business-analytics': typeof BusinessAnalyticsIndexRoute
+  '/escalation-queue': typeof EscalationQueueIndexRoute
   '/operational-dashboard': typeof OperationalDashboardIndexRoute
   '/policy-administration': typeof PolicyAdministrationIndexRoute
   '/portal': typeof PortalIndexRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/applications/': typeof ApplicationsIndexRoute
   '/banker-workspace/': typeof BankerWorkspaceIndexRoute
   '/business-analytics/': typeof BusinessAnalyticsIndexRoute
+  '/escalation-queue/': typeof EscalationQueueIndexRoute
   '/operational-dashboard/': typeof OperationalDashboardIndexRoute
   '/policy-administration/': typeof PolicyAdministrationIndexRoute
   '/portal/': typeof PortalIndexRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/applications/'
     | '/banker-workspace/'
     | '/business-analytics/'
+    | '/escalation-queue/'
     | '/operational-dashboard/'
     | '/policy-administration/'
     | '/portal/'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/applications'
     | '/banker-workspace'
     | '/business-analytics'
+    | '/escalation-queue'
     | '/operational-dashboard'
     | '/policy-administration'
     | '/portal'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/applications/'
     | '/banker-workspace/'
     | '/business-analytics/'
+    | '/escalation-queue/'
     | '/operational-dashboard/'
     | '/policy-administration/'
     | '/portal/'
@@ -171,6 +183,7 @@ export interface RootRouteChildren {
   ApplicationsIndexRoute: typeof ApplicationsIndexRoute
   BankerWorkspaceIndexRoute: typeof BankerWorkspaceIndexRoute
   BusinessAnalyticsIndexRoute: typeof BusinessAnalyticsIndexRoute
+  EscalationQueueIndexRoute: typeof EscalationQueueIndexRoute
   OperationalDashboardIndexRoute: typeof OperationalDashboardIndexRoute
   PolicyAdministrationIndexRoute: typeof PolicyAdministrationIndexRoute
   PortalIndexRoute: typeof PortalIndexRoute
@@ -205,6 +218,13 @@ declare module '@tanstack/react-router' {
       path: '/operational-dashboard'
       fullPath: '/operational-dashboard/'
       preLoaderRoute: typeof OperationalDashboardIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/escalation-queue/': {
+      id: '/escalation-queue/'
+      path: '/escalation-queue'
+      fullPath: '/escalation-queue/'
+      preLoaderRoute: typeof EscalationQueueIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/business-analytics/': {
@@ -267,6 +287,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApplicationsIndexRoute: ApplicationsIndexRoute,
   BankerWorkspaceIndexRoute: BankerWorkspaceIndexRoute,
   BusinessAnalyticsIndexRoute: BusinessAnalyticsIndexRoute,
+  EscalationQueueIndexRoute: EscalationQueueIndexRoute,
   OperationalDashboardIndexRoute: OperationalDashboardIndexRoute,
   PolicyAdministrationIndexRoute: PolicyAdministrationIndexRoute,
   PortalIndexRoute: PortalIndexRoute,

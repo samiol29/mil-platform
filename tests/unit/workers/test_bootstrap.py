@@ -8,6 +8,7 @@ import pytest
 
 from mil.kernel.context import get_request_context
 from mil.kernel.job_queue import InProcessJobQueue, Job, JobQueue
+from mil.kernel.observability import get_log_context
 from workers.bootstrap import WorkerContext, build_worker_context, process_next, run_forever
 
 # ---------------------------------------------------------------------------
@@ -15,11 +16,21 @@ from workers.bootstrap import WorkerContext, build_worker_context, process_next,
 # ---------------------------------------------------------------------------
 
 
-def _make_job(correlation_id: str = "corr-1") -> Job:
+def _make_job(
+    correlation_id: str = "corr-1",
+    *,
+    application_id: str = "",
+    tenant_id: str = "",
+) -> Job:
+    payload = {"correlation_id": correlation_id, "step_name": "OCR"}
+    if application_id:
+        payload["application_id"] = application_id
+    if tenant_id:
+        payload["tenant_id"] = tenant_id
     return Job(
         job_type="workflow_step",
         idempotency_key=f"run:{correlation_id}:OCR",
-        payload={"correlation_id": correlation_id, "step_name": "OCR"},
+        payload=payload,
     )
 
 
@@ -45,7 +56,7 @@ class TestBuildWorkerContext:
         container = MagicMock()
         container.resolve.return_value = queue
         ctx = build_worker_context(
-            settings=MagicMock(),
+            settings=MagicMock(mil_log_level="INFO"),
             container=container,
             session_factory=MagicMock(),
         )
@@ -57,7 +68,7 @@ class TestBuildWorkerContext:
         container = MagicMock()
         container.resolve.return_value = InProcessJobQueue()
         ctx = build_worker_context(
-            settings=MagicMock(),
+            settings=MagicMock(mil_log_level="INFO"),
             container=container,
             session_factory=factory,
         )
@@ -67,7 +78,7 @@ class TestBuildWorkerContext:
         container = MagicMock()
         container.resolve.return_value = InProcessJobQueue()
         ctx = build_worker_context(
-            settings=MagicMock(),
+            settings=MagicMock(mil_log_level="INFO"),
             container=container,
             session_factory=MagicMock(),
         )
@@ -150,6 +161,48 @@ class TestProcessNextSuccess:
         process_next(ctx, handler)
         assert seen == ["corr-bound"]
 
+    def test_log_context_bound_during_handler(self) -> None:
+        """
+        Final product polish sprint (B1): before this, workers only bound
+        ``RequestContext`` (which nothing in the JSON log formatter reads) —
+        ``LogContext`` was never bound, so a worker's log lines carried no
+        correlation_id/application_id/tenant_id at all. This confirms the fix.
+        """
+        queue = InProcessJobQueue()
+        queue.enqueue(
+            _make_job(
+                correlation_id="corr-log",
+                application_id="app-1",
+                tenant_id="tenant-1",
+            )
+        )
+        ctx, _ = _make_context(queue)
+        seen: list[tuple[str, str, str]] = []
+
+        def handler(session: object, job: object) -> None:
+            log_ctx = get_log_context()
+            seen.append((log_ctx.correlation_id, log_ctx.application_id, log_ctx.tenant_id))
+
+        process_next(ctx, handler)
+        assert seen == [("corr-log", "app-1", "tenant-1")]
+
+    def test_log_context_reset_after_handler(self) -> None:
+        queue = InProcessJobQueue()
+        queue.enqueue(_make_job(correlation_id="corr-reset"))
+        ctx, _ = _make_context(queue)
+        process_next(ctx, MagicMock())
+        assert get_log_context().correlation_id != "corr-reset"
+
+    def test_logs_job_dequeued_and_completed(self, caplog: pytest.LogCaptureFixture) -> None:
+        queue = InProcessJobQueue()
+        queue.enqueue(_make_job())
+        ctx, _ = _make_context(queue)
+        with caplog.at_level("INFO", logger="workers.bootstrap"):
+            process_next(ctx, MagicMock())
+        messages = [record.message for record in caplog.records]
+        assert "Job dequeued" in messages
+        assert "Job completed" in messages
+
 
 # ---------------------------------------------------------------------------
 # process_next — failure path
@@ -205,6 +258,22 @@ class TestProcessNextFailure:
         with pytest.raises(RuntimeError):
             process_next(ctx, handler)
         session.close.assert_called_once()
+
+    def test_logs_job_failed(self, caplog: pytest.LogCaptureFixture) -> None:
+        queue = InProcessJobQueue()
+        queue.enqueue(_make_job())
+        ctx, _ = _make_context(queue)
+
+        def handler(session: object, job: object) -> None:
+            raise RuntimeError("boom")
+
+        with (
+            caplog.at_level("WARNING", logger="workers.bootstrap"),
+            pytest.raises(RuntimeError),
+        ):
+            process_next(ctx, handler)
+        messages = [record.message for record in caplog.records]
+        assert "Job failed; rolled back and requeued for retry" in messages
 
 
 # ---------------------------------------------------------------------------

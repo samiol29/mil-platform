@@ -61,6 +61,52 @@ import { CommentThread } from './CommentThread';
 import { deriveFindingImpact } from './deriveFindingImpact';
 import { STATE_CLASS_NAME, STATE_LABEL } from './findingState';
 import type { ReviewHistoryEntry } from './findingReviewHistory';
+import { formatFindingNarrative } from './formatFindingNarrative';
+
+/**
+ * Renders `finding.why` as real paragraphs/lists with bold emphasis instead
+ * of the raw markdown-ish text Gemini produces (final polish sprint) — see
+ * `formatFindingNarrative`'s own docstring for why no markdown library is
+ * introduced for this.
+ */
+function FindingNarrative({ why }: { readonly why: string }) {
+  const blocks = formatFindingNarrative(why);
+  return (
+    <div className="text-body text-text-secondary flex max-w-[68ch] flex-col gap-2">
+      {blocks.map((block, index) =>
+        block.kind === 'list' ? (
+          <ul key={index} className="list-disc space-y-1 pl-5">
+            {block.items.map((segments, itemIndex) => (
+              <li key={itemIndex}>
+                {segments.map((segment, segmentIndex) =>
+                  segment.bold ? (
+                    <strong key={segmentIndex} className="text-text-primary font-medium">
+                      {segment.text}
+                    </strong>
+                  ) : (
+                    segment.text
+                  ),
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p key={index}>
+            {block.segments.map((segment, segmentIndex) =>
+              segment.bold ? (
+                <strong key={segmentIndex} className="text-text-primary font-medium">
+                  {segment.text}
+                </strong>
+              ) : (
+                segment.text
+              ),
+            )}
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString(undefined, {
@@ -96,6 +142,8 @@ export interface FindingCardProps {
   readonly className?: string;
 }
 
+const EVIDENCE_CHIP_VISIBLE_LIMIT = 8;
+
 export function FindingCard({
   finding,
   evidenceItems,
@@ -108,6 +156,13 @@ export function FindingCard({
   const [aiDetailsOpen, setAiDetailsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [allEvidenceShown, setAllEvidenceShown] = useState(false);
+
+  const visibleEvidenceRefs =
+    allEvidenceShown || finding.evidenceRefs.length <= EVIDENCE_CHIP_VISIBLE_LIMIT
+      ? finding.evidenceRefs
+      : finding.evidenceRefs.slice(0, EVIDENCE_CHIP_VISIBLE_LIMIT);
+  const hiddenEvidenceCount = finding.evidenceRefs.length - visibleEvidenceRefs.length;
 
   return (
     <article
@@ -118,7 +173,12 @@ export function FindingCard({
     >
       <div className="flex items-center justify-between gap-3">
         <AiSignalBadge variant="signal" />
-        <span className={cn('text-label font-medium', STATE_CLASS_NAME[finding.state])}>
+        <span
+          className={cn(
+            'text-label font-medium transition-colors duration-panel ease-standard',
+            STATE_CLASS_NAME[finding.state],
+          )}
+        >
           {STATE_LABEL[finding.state]}
           {finding.state === 'escalated' && finding.escalatedToRole !== null && (
             <> &mdash; {finding.escalatedToRole}</>
@@ -133,7 +193,7 @@ export function FindingCard({
 
       <div>
         <p className="text-caption text-text-tertiary tracking-wide uppercase">Why it matters</p>
-        <p className="text-body text-text-secondary max-w-[68ch]">{finding.why}</p>
+        <FindingNarrative why={finding.why} />
       </div>
 
       <div>
@@ -141,7 +201,7 @@ export function FindingCard({
           Supporting evidence
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          {finding.evidenceRefs.map((evidenceId) => {
+          {visibleEvidenceRefs.map((evidenceId) => {
             const item = evidenceById.get(evidenceId);
             return (
               <EvidenceChip
@@ -158,6 +218,17 @@ export function FindingCard({
               />
             );
           })}
+          {hiddenEvidenceCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setAllEvidenceShown(true);
+              }}
+              className="text-caption text-text-secondary hover:text-text-primary rounded-interactive outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+            >
+              +{hiddenEvidenceCount} more
+            </button>
+          )}
         </div>
       </div>
 
@@ -200,7 +271,7 @@ export function FindingCard({
           {aiDetailsOpen ? 'Hide AI details' : 'AI details'}
         </button>
         {aiDetailsOpen && (
-          <dl className="text-caption text-text-secondary grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <dl className="text-caption text-text-secondary animate-panel-in grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
             <dt className="text-text-tertiary">Model version</dt>
             <dd>{finding.modelVersion}</dd>
             <dt className="text-text-tertiary">Prompt version</dt>
@@ -221,13 +292,15 @@ export function FindingCard({
         </button>
         {historyOpen &&
           (reviewHistory.length > 0 ? (
-            <ul className="text-caption text-text-secondary flex flex-col gap-1">
+            <ul className="text-caption text-text-secondary animate-panel-in flex flex-col gap-1">
               {reviewHistory.map((entry) => (
                 <li key={entry.id}>{reviewHistoryLine(entry)}</li>
               ))}
             </ul>
           ) : (
-            <p className="text-caption text-text-tertiary">No review decisions recorded yet.</p>
+            <p className="text-caption text-text-tertiary animate-panel-in">
+              No review decisions recorded yet.
+            </p>
           ))}
 
         <button
@@ -239,7 +312,11 @@ export function FindingCard({
         >
           {commentsOpen ? 'Hide comments' : 'Comments'}
         </button>
-        {commentsOpen && <CommentThread findingId={finding.id} />}
+        {commentsOpen && (
+          <div className="animate-panel-in">
+            <CommentThread findingId={finding.id} />
+          </div>
+        )}
       </div>
     </article>
   );

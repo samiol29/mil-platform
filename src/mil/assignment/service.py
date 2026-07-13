@@ -100,3 +100,21 @@ class AssignmentService:
         """Applications the caller owns (RM's own portfolio)."""
         require_permission(caller, Permission.MANAGE_ASSIGNMENT)
         return self._repo.get_owned_by(caller.user_id)
+
+    def get_assigned_to_me(self, caller: AuthenticatedUser) -> list[Assignment]:
+        """
+        Applications where the caller is either the owner (RM) or the
+        reviewer (Underwriter) — the "Assigned to Me" Application Queue
+        filter (final product polish sprint, A1). Unlike ``get_portfolio``
+        (owner only), this covers both assignment roles: an Underwriter
+        holds ``manage:assignment`` too (see ``ROLE_PERMISSIONS``) precisely
+        so they can see their own reviewer-assigned work, not just RMs their
+        owned applications.
+        """
+        require_permission(caller, Permission.MANAGE_ASSIGNMENT)
+        owned = self._repo.get_owned_by(caller.user_id)
+        reviewed = self._repo.get_reviewed_by(caller.user_id)
+        seen_application_ids = {a.application_id for a in owned}
+        combined = list(owned)
+        combined.extend(a for a in reviewed if a.application_id not in seen_application_ids)
+        return combined

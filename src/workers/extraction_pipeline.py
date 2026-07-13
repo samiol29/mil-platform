@@ -61,7 +61,7 @@ from mil.kernel.errors import NotFoundError, ProviderError, ProviderVersionMissi
 from mil.kernel.event_bus import EventBus
 from mil.kernel.events import EvidenceExtracted, WorkflowStepFailed
 from mil.kernel.metrics import MetricName
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter, get_logger
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import (
     ApplicationId,
@@ -98,6 +98,8 @@ EXTRACTION_STEP_NAME = "EXTRACTION"
 # a job before checking again. A long-running worker process, not a one-shot
 # drain — see main()'s docstring.
 _POLL_TIMEOUT_SECONDS = 5.0
+
+_log = get_logger(__name__)
 
 
 class ExtractionProcessingOutcome(enum.StrEnum):
@@ -212,6 +214,7 @@ class ExtractionJobProcessor:
                 run=run,
                 step=step,
                 document_id=document_id,
+                application_id=application_id,
                 workflow_run_id=workflow_run_id,
                 tenant_id=tenant_id,
                 correlation_id=correlation_id,
@@ -248,6 +251,14 @@ class ExtractionJobProcessor:
                 correlation_id=correlation_id,
             )
         )
+        _log.info(
+            "Extraction completed",
+            event_type="worker.extraction.completed",
+            document_id=str(document_id),
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            evidence_item_count=len(created),
+        )
         return ExtractionProcessingOutcome.COMPLETED
 
     # ------------------------------------------------------------------
@@ -260,6 +271,7 @@ class ExtractionJobProcessor:
         run: WorkflowRun,
         step: WorkflowStep,
         document_id: UUID,
+        application_id: UUID,
         workflow_run_id: UUID,
         tenant_id: UUID,
         correlation_id: str,
@@ -270,6 +282,17 @@ class ExtractionJobProcessor:
             exc, retry_count=job.retry_count, max_retries=job.max_retries
         )
         if decision is RetryDecision.RETRY:
+            _log.warning(
+                "Extraction failed; retryable, requeueing",
+                event_type="worker.extraction.retry",
+                document_id=str(document_id),
+                application_id=str(application_id),
+                workflow_run_id=str(workflow_run_id),
+                error_code=exc.code,
+                error_message=exc.message,
+                retry_count=job.retry_count,
+                max_retries=job.max_retries,
+            )
             # Re-raise so the Unit of Work rolls back and the queue requeues.
             raise exc
 
@@ -293,6 +316,16 @@ class ExtractionJobProcessor:
                 retry_count=job.retry_count,
                 correlation_id=correlation_id,
             )
+        )
+        _log.error(
+            "Extraction permanently failed",
+            event_type="worker.extraction.failed",
+            document_id=str(document_id),
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            error_code=exc.code,
+            error_message=exc.message,
+            retry_count=job.retry_count,
         )
         return ExtractionProcessingOutcome.FAILED_TERMINAL
 
@@ -431,7 +464,7 @@ def main() -> None:  # pragma: no cover - process entry point
     Runs indefinitely as a long-running service — see
     ``workers.document_pipeline.main``'s docstring for the same rationale.
     """
-    ctx = build_worker_context()
+    ctx = build_worker_context(service_name="mil-worker-extraction")
     handler = make_extraction_handler(ctx.container)
     run_forever(ctx, handler, job_type=EXTRACTION_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 

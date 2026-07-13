@@ -226,6 +226,13 @@ export const handlers = [
   // process/worker), so E2E specs call this explicitly rather than
   // relying on module re-initialization. Never reachable from real
   // application code, which never calls `/__test__/*`.
+  // No findings escalated to the caller by default (final product polish
+  // sprint, A5) — an honest empty default, same as any real caller with
+  // nothing in their escalation queue.
+  http.get('/v1/findings/escalated', () => {
+    return HttpResponse.json([]);
+  }),
+
   http.post('/v1/__test__/reset', () => {
     findingReviewState = { state: 'unreviewed', escalatedToRole: null, escalatedToUserId: null };
     applicationStatus = fixtureApplication.status;

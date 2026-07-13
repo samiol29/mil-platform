@@ -163,6 +163,32 @@
   --shadow-overlay: var(--elevation-overlay-shadow);
 }
 
+/**
+ * Panel-entrance motion (final product polish sprint) — a single, reusable
+ * mount transition for a floating panel (dropdown, toast) that appears
+ * without a full unmount/remount lifecycle to hook into (unlike `Dialog`,
+ * which animates via Radix's `data-state` and already has enter/exit
+ * covered). Uses the existing `--duration-panel`/`--ease-decelerate`
+ * tokens verbatim — the same 200ms "drawer/dialog/dropdown enter-exit"
+ * timing already established, not a new value. Deliberately subtle (8px
+ * rise + fade, no scale/bounce) to match Fluent/Azure/GitHub-style motion
+ * rather than a consumer-app entrance.
+ */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-panel-in {
+  animation: panel-in var(--duration-panel) var(--ease-decelerate);
+}
+
 @layer base {
   * {
     @apply border-border-default;

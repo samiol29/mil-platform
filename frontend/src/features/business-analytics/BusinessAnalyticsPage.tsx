@@ -27,6 +27,45 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+/**
+ * A plain proportion bar for an already-real count against an already-real
+ * total (final polish sprint) — no analytics are invented here, this is
+ * purely a visual comparison of numbers the page already renders as text,
+ * so a reviewer can compare rows at a glance instead of doing the division
+ * themselves.
+ */
+function ProportionRow({
+  label,
+  count,
+  total,
+  detail,
+}: {
+  label: string;
+  count: number;
+  total: number;
+  detail?: string;
+}) {
+  const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <tr>
+      <td className="py-1.5">
+        <div className="flex flex-col gap-1">
+          <span>{label}</span>
+          <div className="bg-surface-sunken h-1.5 w-full max-w-48 overflow-hidden rounded-full">
+            <div
+              className="bg-interactive-primary-default h-full rounded-full"
+              style={{ width: `${String(percent)}%` }}
+            />
+          </div>
+        </div>
+      </td>
+      <td className="py-1.5 text-right tabular-nums">
+        {detail ?? `${String(count)} (${String(percent)}%)`}
+      </td>
+    </tr>
+  );
+}
+
 export function BusinessAnalyticsPage() {
   const snapshotQuery = useBusinessAnalyticsSnapshot();
 
@@ -76,10 +115,13 @@ export function BusinessAnalyticsPage() {
           <table className="text-body w-full">
             <tbody className="divide-border-default divide-y">
               {snapshot.applicationCountsByStatus.map((row) => (
-                <tr key={row.status}>
-                  <td className="py-1.5">{row.status}</td>
-                  <td className="py-1.5 text-right tabular-nums">{row.count}</td>
-                </tr>
+                <ProportionRow
+                  key={row.status}
+                  label={row.status}
+                  count={row.count}
+                  total={totalApplications}
+                  detail={String(row.count)}
+                />
               ))}
             </tbody>
           </table>
@@ -97,13 +139,12 @@ export function BusinessAnalyticsPage() {
           <table className="text-body w-full">
             <tbody className="divide-border-default divide-y">
               {snapshot.findingOutcomes.map((row) => (
-                <tr key={row.lifecycleState}>
-                  <td className="py-1.5">{row.lifecycleState}</td>
-                  <td className="py-1.5 text-right tabular-nums">
-                    {row.count} (
-                    {totalFindings > 0 ? Math.round((row.count / totalFindings) * 100) : 0}%)
-                  </td>
-                </tr>
+                <ProportionRow
+                  key={row.lifecycleState}
+                  label={row.lifecycleState}
+                  count={row.count}
+                  total={totalFindings}
+                />
               ))}
             </tbody>
           </table>

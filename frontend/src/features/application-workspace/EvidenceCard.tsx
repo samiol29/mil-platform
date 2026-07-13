@@ -26,6 +26,14 @@
  * (an AI-explanation string, a fuller lineage chain, conflict detection)
  * to extend into — no such field exists on `EvidenceItem` today, so none
  * of that is built or faked here.
+ *
+ * `hideProvenance` (final polish sprint): when every item in this card's
+ * document group shares the same extraction method/model (the common
+ * case — one pipeline run per document), `EvidenceRegion` hoists that
+ * line into the group header once instead of repeating the identical
+ * sentence on every card. Only suppressed when a group genuinely agrees;
+ * a real divergence (e.g. a superseded re-extraction on a different
+ * model) still shows its own line here.
  */
 
 import { FileText } from 'lucide-react';
@@ -61,6 +69,7 @@ export interface EvidenceCardProps {
   readonly relatedFindingsCount: number;
   readonly onViewInDocument: () => void;
   readonly onViewFindings?: (() => void) | undefined;
+  readonly hideProvenance?: boolean;
 }
 
 export function EvidenceCard({
@@ -69,6 +78,7 @@ export function EvidenceCard({
   relatedFindingsCount,
   onViewInDocument,
   onViewFindings,
+  hideProvenance = false,
 }: EvidenceCardProps) {
   return (
     <article className="bg-surface-raised shadow-raised flex flex-col gap-2 rounded-container p-3">
@@ -86,10 +96,12 @@ export function EvidenceCard({
 
       <ConfidenceIndicator level={item.confidence} />
 
-      <p className="text-caption text-text-tertiary">
-        Extracted via {item.extractionMethod} · model {item.extractionModelVersion} ·{' '}
-        {formatDate(item.extractedAt)}
-      </p>
+      {!hideProvenance && (
+        <p className="text-caption text-text-tertiary">
+          Extracted via {item.extractionMethod} · model {item.extractionModelVersion} ·{' '}
+          {formatDate(item.extractedAt)}
+        </p>
+      )}
 
       {supersededItem !== undefined && (
         <p className="text-caption text-text-tertiary">

@@ -110,6 +110,24 @@ class TestGetEscalatedForRole:
         assert repo.get_escalated_for_role(uuid4(), "COMPLIANCE_OFFICER") == [s1, s2]
 
 
+class TestGetEscalatedForCaller:
+    def test_returns_list(self) -> None:
+        repo, session = _make_repo()
+        s1, s2 = _session(), _session()
+        session.scalars.return_value = iter([s1, s2])
+        result = repo.get_escalated_for_caller(
+            uuid4(), roles=frozenset({"COMPLIANCE_OFFICER"}), user_id=uuid4()
+        )
+        assert result == [s1, s2]
+
+    def test_accepts_empty_roles(self) -> None:
+        """A caller with no roles still gets a valid (empty IN-clause) query, not an error."""
+        repo, session = _make_repo()
+        session.scalars.return_value = iter([])
+        result = repo.get_escalated_for_caller(uuid4(), roles=frozenset(), user_id=uuid4())
+        assert result == []
+
+
 class TestSaveAction:
     def test_adds_and_flushes(self) -> None:
         repo, session = _make_repo()

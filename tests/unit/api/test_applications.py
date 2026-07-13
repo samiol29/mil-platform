@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -172,6 +173,64 @@ class TestListApplications:
         call_kwargs = mock_app_service.list_applications.call_args.kwargs
         assert call_kwargs["status"] == "DRAFT"
         assert call_kwargs["search"] == "LOS-123"
+
+    def test_assigned_to_me_filters_to_caller_assigned_applications(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_assignment_service: MagicMock,
+    ) -> None:
+        mine_id = uuid4()
+        other_id = uuid4()
+        mock_app_service.list_applications.return_value = [
+            make_application(app_id=mine_id),
+            make_application(app_id=other_id),
+        ]
+        mock_assignment_service.get_assigned_to_me.return_value = [
+            SimpleNamespace(application_id=mine_id)
+        ]
+        data = client.get("/v1/applications?assigned_to_me=true").json()
+        assert [item["id"] for item in data["items"]] == [str(mine_id)]
+
+    def test_assigned_to_me_defaults_to_false_and_does_not_filter(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_assignment_service: MagicMock,
+    ) -> None:
+        mock_app_service.list_applications.return_value = [make_application(), make_application()]
+        data = client.get("/v1/applications").json()
+        assert len(data["items"]) == 2
+        mock_assignment_service.get_assigned_to_me.assert_not_called()
+
+    def test_escalated_filters_to_applications_with_escalated_sessions(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        escalated_id = uuid4()
+        clean_id = uuid4()
+        mock_app_service.list_applications.return_value = [
+            make_application(app_id=escalated_id),
+            make_application(app_id=clean_id),
+        ]
+        mock_review_service.get_escalated_for_caller.return_value = [
+            SimpleNamespace(application_id=escalated_id)
+        ]
+        data = client.get("/v1/applications?escalated=true").json()
+        assert [item["id"] for item in data["items"]] == [str(escalated_id)]
+
+    def test_escalated_defaults_to_false_and_does_not_filter(
+        self,
+        client: TestClient,
+        mock_app_service: MagicMock,
+        mock_review_service: MagicMock,
+    ) -> None:
+        mock_app_service.list_applications.return_value = [make_application(), make_application()]
+        data = client.get("/v1/applications").json()
+        assert len(data["items"]) == 2
+        mock_review_service.get_escalated_for_caller.assert_not_called()
 
     def test_search_too_long_returns_422(
         self, client: TestClient, mock_app_service: MagicMock

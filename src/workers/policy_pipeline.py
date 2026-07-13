@@ -66,7 +66,7 @@ from mil.kernel.errors import (
 from mil.kernel.events import PolicyEvaluated, WorkflowStepFailed
 from mil.kernel.job_queue import Job, JobQueue
 from mil.kernel.metrics import MetricName
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter, get_logger
 from mil.kernel.providers.policy import PolicyEvaluationContext, PolicyRuleDefinition
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, FindingId, PolicyPackId, TenantId, WorkflowRunId
@@ -105,6 +105,8 @@ _REVIEW_STEP_NAME = "REVIEW"
 # a job before checking again. A long-running worker process, not a one-shot
 # drain — see main()'s docstring.
 _POLL_TIMEOUT_SECONDS = 5.0
+
+_log = get_logger(__name__)
 
 
 class PolicyProcessingOutcome(enum.StrEnum):
@@ -226,6 +228,7 @@ class PolicyJobProcessor:
             return self._handle_failure(
                 run=run,
                 step=step,
+                application_id=application_id,
                 workflow_run_id=workflow_run_id,
                 tenant_id=tenant_id,
                 correlation_id=correlation_id,
@@ -242,6 +245,7 @@ class PolicyJobProcessor:
             return self._handle_failure(
                 run=run,
                 step=step,
+                application_id=application_id,
                 workflow_run_id=workflow_run_id,
                 tenant_id=tenant_id,
                 correlation_id=correlation_id,
@@ -291,6 +295,14 @@ class PolicyJobProcessor:
             correlation_id=correlation_id,
             finding_id=finding_id,
             policy_result_id=policy_result.id,
+        )
+        _log.info(
+            "Policy evaluated",
+            event_type="worker.policy.completed",
+            application_id=str(application_id),
+            finding_id=str(finding_id),
+            workflow_run_id=str(workflow_run_id),
+            outcome=policy_result.outcome,
         )
         return PolicyProcessingOutcome.COMPLETED
 
@@ -346,6 +358,7 @@ class PolicyJobProcessor:
         *,
         run: WorkflowRun,
         step: WorkflowStep,
+        application_id: UUID,
         workflow_run_id: UUID,
         tenant_id: UUID,
         correlation_id: str,
@@ -356,6 +369,16 @@ class PolicyJobProcessor:
             exc, retry_count=job.retry_count, max_retries=job.max_retries
         )
         if decision is RetryDecision.RETRY:
+            _log.warning(
+                "Policy evaluation failed; retryable, requeueing",
+                event_type="worker.policy.retry",
+                application_id=str(application_id),
+                workflow_run_id=str(workflow_run_id),
+                error_code=exc.code,
+                error_message=exc.message,
+                retry_count=job.retry_count,
+                max_retries=job.max_retries,
+            )
             # Re-raise so the Unit of Work rolls back and the queue requeues.
             raise exc
 
@@ -378,6 +401,15 @@ class PolicyJobProcessor:
                 retry_count=job.retry_count,
                 correlation_id=correlation_id,
             )
+        )
+        _log.error(
+            "Policy evaluation permanently failed",
+            event_type="worker.policy.failed",
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            error_code=exc.code,
+            error_message=exc.message,
+            retry_count=job.retry_count,
         )
         return PolicyProcessingOutcome.FAILED_TERMINAL
 
@@ -536,7 +568,7 @@ def main() -> None:  # pragma: no cover - process entry point
     Runs indefinitely as a long-running service — see
     ``workers.document_pipeline.main``'s docstring for the same rationale.
     """
-    ctx = build_worker_context()
+    ctx = build_worker_context(service_name="mil-worker-policy")
     handler = make_policy_handler(ctx.container)
     run_forever(ctx, handler, job_type=POLICY_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 

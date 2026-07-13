@@ -58,7 +58,7 @@ from mil.audit.writer import AuditWriter
 from mil.kernel.errors import NotFoundError
 from mil.kernel.events import ReviewCompleted, ReviewStarted, WorkflowCompleted
 from mil.kernel.metrics import MetricName
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter, get_logger
 from mil.kernel.types import ApplicationId, FindingId, ReviewSessionId, TenantId, WorkflowRunId
 from mil.orchestrator.models import StepStatus
 from mil.orchestrator.repository import WorkflowRepository
@@ -82,6 +82,8 @@ REVIEW_STEP_NAME = "REVIEW"
 # a job before checking again. A long-running worker process, not a one-shot
 # drain — see main()'s docstring.
 _POLL_TIMEOUT_SECONDS = 5.0
+
+_log = get_logger(__name__)
 
 
 class ReviewProcessingOutcome(enum.StrEnum):
@@ -212,6 +214,14 @@ class ReviewJobProcessor:
                 )
             )
             self._c.metrics.increment(MetricName.WORKFLOW_EXECUTIONS_TOTAL)
+        _log.info(
+            "Review session started",
+            event_type="worker.review.completed",
+            application_id=str(application_id),
+            finding_id=str(finding_id),
+            workflow_run_id=str(workflow_run_id),
+            review_session_id=str(session.id),
+        )
         return ReviewProcessingOutcome.COMPLETED
 
 
@@ -300,7 +310,7 @@ def main() -> None:  # pragma: no cover - process entry point
     Runs indefinitely as a long-running service — see
     ``workers.document_pipeline.main``'s docstring for the same rationale.
     """
-    ctx = build_worker_context()
+    ctx = build_worker_context(service_name="mil-worker-review")
     handler = make_review_handler(ctx.container)
     run_forever(ctx, handler, job_type=REVIEW_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 

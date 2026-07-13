@@ -80,7 +80,7 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
               >
                 <Icon
                   className={cn(
-                    'size-3.5',
+                    'size-3.5 transition-colors duration-panel ease-standard',
                     STATUS_CLASS_NAME[step.status],
                     step.status === 'active' && 'animate-spin',
                   )}
@@ -94,7 +94,7 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
                 <div
                   aria-hidden="true"
                   className={cn(
-                    'bg-border-default mx-1 h-px w-3',
+                    'bg-border-default mx-1 h-px w-3 transition-colors duration-panel ease-standard',
                     (step.status === 'complete' || step.status === 'skipped') &&
                       'bg-feedback-success-fg',
                   )}
@@ -128,7 +128,7 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
             >
               <span
                 className={cn(
-                  'flex size-7 items-center justify-center rounded-full',
+                  'flex size-7 items-center justify-center rounded-full transition-colors duration-panel ease-standard',
                   NODE_CLASS_NAME[step.status],
                 )}
               >
@@ -139,7 +139,7 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
               </span>
               <span
                 className={cn(
-                  'text-caption font-medium',
+                  'text-caption font-medium transition-colors duration-panel ease-standard',
                   step.status === 'pending' || step.status === 'skipped'
                     ? 'text-text-tertiary'
                     : 'text-text-primary',
@@ -158,7 +158,7 @@ export function ProcessingPipeline({ steps, size = 'md', className }: Processing
               <div
                 aria-hidden="true"
                 className={cn(
-                  'mx-2 mt-3.5 h-0.5 min-w-6 flex-1 rounded-full',
+                  'mx-2 mt-3.5 h-0.5 min-w-6 flex-1 rounded-full transition-colors duration-panel ease-standard',
                   step.status === 'complete' || step.status === 'skipped'
                     ? 'bg-feedback-success-fg'
                     : 'bg-border-default',

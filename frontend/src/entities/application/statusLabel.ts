@@ -43,4 +43,4 @@ export const APPLICATION_STATUS_CHIP_CLASS_NAME: Record<ApplicationStatus, strin
 };
 
 export const APPLICATION_STATUS_CHIP_BASE_CLASS =
-  'rounded-chip px-2 py-0.5 text-caption font-medium';
+  'rounded-chip px-2 py-0.5 text-caption font-medium transition-colors duration-panel ease-standard';

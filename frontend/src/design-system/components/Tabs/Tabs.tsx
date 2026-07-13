@@ -116,7 +116,7 @@ export function TabsTrigger({ value, children, className }: TabsTriggerProps) {
         onValueChange(value);
       }}
       className={cn(
-        'text-label -mb-px border-b-2 px-3 py-2 font-medium transition-colors',
+        'text-label -mb-px border-b-2 px-3 py-2 font-medium transition-colors duration-micro ease-standard',
         'outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2',
         isActive
           ? 'border-interactive-primary-default text-text-primary'

@@ -51,7 +51,7 @@ from mil.kernel.event_bus import EventBus
 from mil.kernel.events import OCRCompleted, WorkflowStepFailed
 from mil.kernel.job_queue import Job, JobQueue
 from mil.kernel.metrics import MetricName
-from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter
+from mil.kernel.observability import MetricEmitter, NoOpMetricEmitter, get_logger
 from mil.kernel.providers.registry import ProviderRegistry
 from mil.kernel.types import ApplicationId, DocumentId, TenantId, WorkflowRunId
 from mil.orchestrator.models import PinnedVersions, StepStatus, WorkflowRun, WorkflowStep
@@ -95,6 +95,8 @@ _NOT_APPLICABLE_VERSION = "n/a"
 # a job before checking again. A long-running worker process, not a one-shot
 # drain — see main()'s docstring.
 _POLL_TIMEOUT_SECONDS = 5.0
+
+_log = get_logger(__name__)
 
 
 class OCRProcessingOutcome(enum.StrEnum):
@@ -196,6 +198,7 @@ class OCRJobProcessor:
                 run=run,
                 step=step,
                 document_id=document_id,
+                application_id=application_id,
                 tenant_id=tenant_id,
                 workflow_run_id=workflow_run_id,
                 correlation_id=correlation_id,
@@ -219,6 +222,14 @@ class OCRJobProcessor:
             return OCRProcessingOutcome.ALREADY_DONE
         step.mark_completed()
         self._c.workflows.save(run)
+        _log.info(
+            "OCR completed",
+            event_type="worker.ocr.completed",
+            document_id=str(document_id),
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            page_count=result.page_count,
+        )
         self._c.outbox.add(
             OCRCompleted(
                 tenant_id=TenantId(tenant_id),
@@ -297,6 +308,7 @@ class OCRJobProcessor:
         run: WorkflowRun,
         step: WorkflowStep,
         document_id: UUID,
+        application_id: UUID,
         tenant_id: UUID,
         workflow_run_id: UUID,
         correlation_id: str,
@@ -307,6 +319,17 @@ class OCRJobProcessor:
             exc, retry_count=job.retry_count, max_retries=job.max_retries
         )
         if decision is RetryDecision.RETRY:
+            _log.warning(
+                "OCR failed; retryable, requeueing",
+                event_type="worker.ocr.retry",
+                document_id=str(document_id),
+                application_id=str(application_id),
+                workflow_run_id=str(workflow_run_id),
+                error_code=exc.code,
+                error_message=exc.message,
+                retry_count=job.retry_count,
+                max_retries=job.max_retries,
+            )
             # Re-raise so the Unit of Work rolls back and the queue requeues.
             raise exc
 
@@ -320,6 +343,16 @@ class OCRJobProcessor:
         run.mark_failed()
         self._c.workflows.save(run)
         self._c.documents.fail_processing(document_id=document_id, reason=exc.message)
+        _log.error(
+            "OCR permanently failed",
+            event_type="worker.ocr.failed",
+            document_id=str(document_id),
+            application_id=str(application_id),
+            workflow_run_id=str(workflow_run_id),
+            error_code=exc.code,
+            error_message=exc.message,
+            retry_count=job.retry_count,
+        )
         self._c.outbox.add(
             WorkflowStepFailed(
                 tenant_id=TenantId(tenant_id),
@@ -538,7 +571,7 @@ def main() -> None:  # pragma: no cover - process entry point
     process and silently halting every other application's processing too —
     see its own docstring.
     """
-    ctx = build_worker_context()
+    ctx = build_worker_context(service_name="mil-worker-ocr")
     handler = make_ocr_handler(ctx.container)
     run_forever(ctx, handler, job_type=OCR_STEP_NAME, poll_timeout=_POLL_TIMEOUT_SECONDS)
 
