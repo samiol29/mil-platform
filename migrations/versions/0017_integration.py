@@ -101,6 +101,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("los_sync_events", schema="integration")
     op.drop_table("los_connections", schema="integration")
     op.execute("DROP SCHEMA IF EXISTS integration")

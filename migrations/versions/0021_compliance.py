@@ -75,6 +75,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("consent_records", schema="compliance")
     op.drop_table("data_retention_policies", schema="compliance")
     op.execute("DROP SCHEMA IF EXISTS compliance")

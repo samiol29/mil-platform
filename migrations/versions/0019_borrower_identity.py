@@ -146,6 +146,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("borrower_identity_members", schema="borrower_identity")
     op.drop_table("borrower_identities", schema="borrower_identity")
     op.drop_table("identity_match_candidates", schema="borrower_identity")

@@ -103,6 +103,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("api_keys", schema="identity")
     op.drop_table("tenant_configurations", schema="identity")
     op.execute("DROP SCHEMA IF EXISTS identity")

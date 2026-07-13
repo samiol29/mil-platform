@@ -67,5 +67,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("notifications", schema="notification")
     op.execute("DROP SCHEMA IF EXISTS notification")

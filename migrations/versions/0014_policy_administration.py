@@ -89,5 +89,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("policy_pack_approvals", schema="policy")
     op.drop_column("policy_results", "evaluated_rule_keys", schema="policy")

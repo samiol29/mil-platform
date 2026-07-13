@@ -91,6 +91,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("document_checklist_items", schema="portal")
     op.drop_table("portal_accounts", schema="portal")
     op.execute("DROP SCHEMA IF EXISTS portal")

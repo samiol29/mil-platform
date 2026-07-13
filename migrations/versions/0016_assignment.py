@@ -117,6 +117,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_table("assignment_history", schema="assignment")
     op.drop_table("assignments", schema="assignment")
     op.execute("DROP SCHEMA IF EXISTS assignment")

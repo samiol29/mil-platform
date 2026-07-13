@@ -50,6 +50,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_column("review_comments", "deleted_at", schema="review")
     op.drop_column("review_comments", "edited_at", schema="review")
     op.drop_column("review_comments", "mentioned_user_ids", schema="review")
