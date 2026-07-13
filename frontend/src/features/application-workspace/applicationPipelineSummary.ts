@@ -86,11 +86,7 @@ export function allDocumentsTerminal(documents: readonly Document[]): boolean {
  *   claim, not an assumption papering over a processing failure.
  */
 export type ZeroFindingsOutcome =
-  | 'not-submitted'
-  | 'evaluation-failed'
-  | 'pending'
-  | 'failures'
-  | 'clean';
+  'not-submitted' | 'evaluation-failed' | 'pending' | 'failures' | 'clean';
 
 export function zeroFindingsOutcome(
   documents: readonly Document[],
@@ -144,9 +140,12 @@ export function deriveApplicationStages(
       : {
           id: 'evaluation',
           label: 'Evaluation',
-          status: hasFindings || evaluationStatus?.status === 'COMPLETED' ? 'complete' : (
-            submitted ? 'active' : 'pending'
-          ),
+          status:
+            hasFindings || evaluationStatus?.status === 'COMPLETED'
+              ? 'complete'
+              : submitted
+                ? 'active'
+                : 'pending',
         };
 
   return [

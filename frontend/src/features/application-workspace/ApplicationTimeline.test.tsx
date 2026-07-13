@@ -24,7 +24,11 @@ describe('ApplicationTimeline motion (final polish sprint — Timeline Motion)',
   it('does not animate any entry on the very first render', () => {
     const { container } = renderTimeline([
       makeEntry({ id: 'a', label: 'Application created' }),
-      makeEntry({ id: 'b', label: 'Document uploaded: file.pdf', occurredAt: '2026-07-13T11:28:00Z' }),
+      makeEntry({
+        id: 'b',
+        label: 'Document uploaded: file.pdf',
+        occurredAt: '2026-07-13T11:28:00Z',
+      }),
     ]);
     expect(container.querySelectorAll('.animate-panel-in')).toHaveLength(0);
   });
@@ -37,7 +41,11 @@ describe('ApplicationTimeline motion (final polish sprint — Timeline Motion)',
 
     const withNewEntry = [
       ...initial,
-      makeEntry({ id: 'b', label: 'Document uploaded: file.pdf', occurredAt: '2026-07-13T11:28:00Z' }),
+      makeEntry({
+        id: 'b',
+        label: 'Document uploaded: file.pdf',
+        occurredAt: '2026-07-13T11:28:00Z',
+      }),
     ];
     rerender(
       <ApplicationTimeline

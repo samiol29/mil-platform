@@ -56,9 +56,7 @@ describe('EscalationQueuePage (final product polish sprint, A5)', () => {
     server.use(http.get('/v1/findings/escalated', () => HttpResponse.json([])));
     renderEscalationQueue();
 
-    expect(
-      await screen.findByText('Nothing escalated to you right now'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Nothing escalated to you right now')).toBeInTheDocument();
   });
 
   it('renders a row for each escalated finding, with the real "what"/"why" text', async () => {
@@ -80,9 +78,7 @@ describe('EscalationQueuePage (final product polish sprint, A5)', () => {
     renderEscalationQueue();
 
     expect(await screen.findByText('Income mismatch')).toBeInTheDocument();
-    expect(
-      screen.getByText('Reported income differs from the pay stub.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Reported income differs from the pay stub.')).toBeInTheDocument();
     expect(await screen.findByText('4009123456')).toBeInTheDocument();
   });
 
@@ -116,9 +112,7 @@ describe('EscalationQueuePage (final product polish sprint, A5)', () => {
   });
 
   it('shows an error state when the escalation query fails', async () => {
-    server.use(
-      http.get('/v1/findings/escalated', () => HttpResponse.json(null, { status: 500 })),
-    );
+    server.use(http.get('/v1/findings/escalated', () => HttpResponse.json(null, { status: 500 })));
     renderEscalationQueue();
 
     await waitFor(

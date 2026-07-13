@@ -31,7 +31,9 @@ describe('extractErrorMessage', () => {
   });
 
   it('returns a nested `detail.message`', () => {
-    const error = makeAxiosError(413, { detail: { code: 'PAYLOAD_TOO_LARGE', message: 'Too big' } });
+    const error = makeAxiosError(413, {
+      detail: { code: 'PAYLOAD_TOO_LARGE', message: 'Too big' },
+    });
     expect(extractErrorMessage(error, 'fallback')).toBe('Too big');
   });
 

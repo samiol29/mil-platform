@@ -31,8 +31,7 @@ import { useEscalatedFindings } from '@entities/finding/queries';
 function EscalatedFindingRow({ finding }: { readonly finding: Finding }) {
   const applicationQuery = useApplication(finding.applicationId);
   const application = applicationQuery.data;
-  const reference =
-    application?.loanNumber ?? application?.losReference ?? finding.applicationId;
+  const reference = application?.loanNumber ?? application?.losReference ?? finding.applicationId;
 
   return (
     <li className="bg-surface-raised shadow-raised rounded-container animate-panel-in flex flex-col gap-2 p-4">

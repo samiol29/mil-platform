@@ -170,9 +170,15 @@ function PoisonJobsSection() {
                     )}
                   </div>
                   {isExpanded ? (
-                    <ChevronDown className="text-text-tertiary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                    <ChevronDown
+                      className="text-text-tertiary mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
                   ) : (
-                    <ChevronRight className="text-text-tertiary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                    <ChevronRight
+                      className="text-text-tertiary mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
                   )}
                 </button>
                 {isExpanded && (

@@ -203,15 +203,12 @@ describe('DocumentProcessingList', () => {
     ]);
     const retriedIds = new Set<string>();
     server.use(
-      http.post(
-        `/v1/applications/${APPLICATION_ID}/documents/:documentId/retry`,
-        ({ params }) => {
-          retriedIds.add(params.documentId as string);
-          return HttpResponse.json(
-            makeDocument({ id: params.documentId, ingestionStatus: 'PENDING' }),
-          );
-        },
-      ),
+      http.post(`/v1/applications/${APPLICATION_ID}/documents/:documentId/retry`, ({ params }) => {
+        retriedIds.add(params.documentId as string);
+        return HttpResponse.json(
+          makeDocument({ id: params.documentId, ingestionStatus: 'PENDING' }),
+        );
+      }),
     );
     renderList();
     const user = userEvent.setup();

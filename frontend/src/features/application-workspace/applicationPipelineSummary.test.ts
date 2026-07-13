@@ -128,7 +128,10 @@ describe('zeroFindingsOutcome', () => {
   it('is "pending" while any document is still processing', () => {
     expect(
       zeroFindingsOutcome(
-        [makeDocument({ ingestionStatus: 'COMPLETED' }), makeDocument({ ingestionStatus: 'IN_PROGRESS' })],
+        [
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+          makeDocument({ ingestionStatus: 'IN_PROGRESS' }),
+        ],
         'SUBMITTED',
         makeEvaluationStatus({ status: 'RUNNING' }),
       ),
@@ -142,7 +145,10 @@ describe('zeroFindingsOutcome', () => {
   it('is "clean" when every document is COMPLETED — the only honest "no material issues" case', () => {
     expect(
       zeroFindingsOutcome(
-        [makeDocument({ ingestionStatus: 'COMPLETED' }), makeDocument({ ingestionStatus: 'COMPLETED' })],
+        [
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+        ],
         'SUBMITTED',
         makeEvaluationStatus({ status: 'COMPLETED' }),
       ),
@@ -152,7 +158,10 @@ describe('zeroFindingsOutcome', () => {
   it('is "failures" when documents are terminal but at least one FAILED — never reported as a clean pass', () => {
     expect(
       zeroFindingsOutcome(
-        [makeDocument({ ingestionStatus: 'COMPLETED' }), makeDocument({ ingestionStatus: 'FAILED' })],
+        [
+          makeDocument({ ingestionStatus: 'COMPLETED' }),
+          makeDocument({ ingestionStatus: 'FAILED' }),
+        ],
         'SUBMITTED',
         makeEvaluationStatus({ status: 'COMPLETED' }),
       ),
@@ -179,7 +188,11 @@ describe('deriveApplicationStages', () => {
   });
 
   it('submitted with no findings yet: Submitted complete, Findings/Policy pending, Evaluation active', () => {
-    const steps = deriveApplicationStages([], 'SUBMITTED', makeEvaluationStatus({ status: 'RUNNING' }));
+    const steps = deriveApplicationStages(
+      [],
+      'SUBMITTED',
+      makeEvaluationStatus({ status: 'RUNNING' }),
+    );
     expect(statusOf(steps, 'submitted')).toBe('complete');
     expect(statusOf(steps, 'evaluation')).toBe('active');
     expect(statusOf(steps, 'findings')).toBe('active');

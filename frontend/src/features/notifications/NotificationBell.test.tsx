@@ -107,9 +107,7 @@ describe('NotificationBell (spec 005 §13, Wave 2)', () => {
     expect(
       await screen.findByText('A finding on your application was verified'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText('A finding on your application was overridden'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('A finding on your application was overridden')).toBeInTheDocument();
     expect(screen.getByText('A finding on your application was escalated')).toBeInTheDocument();
   });
 

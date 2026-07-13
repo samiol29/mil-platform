@@ -47,7 +47,10 @@ function splitBold(line: string): readonly FindingNarrativeSegment[] {
 /** Parses `finding.why` into paragraph/list blocks with bold spans and condensed citations. */
 export function formatFindingNarrative(why: string): readonly FindingNarrativeBlock[] {
   const blocks: FindingNarrativeBlock[] = [];
-  const rawBlocks = why.split(/\n\s*\n/).map((block) => block.trim()).filter((block) => block.length > 0);
+  const rawBlocks = why
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0);
 
   for (const rawBlock of rawBlocks) {
     const lines = rawBlock.split('\n').map((line) => line.trim());

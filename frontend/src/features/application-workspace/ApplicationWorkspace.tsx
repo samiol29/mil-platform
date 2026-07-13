@@ -980,28 +980,30 @@ function PolicyRegion({
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {finding.evidenceRefs.slice(0, POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT).map((evidenceId) => {
-                      const item = evidenceById.get(evidenceId);
-                      return (
-                        <EvidenceChip
-                          key={evidenceId}
-                          label={item !== undefined ? item.evidenceType : 'Evidence'}
-                          onClick={
-                            item !== undefined
-                              ? () => {
-                                  onEvidenceChipActivate({
-                                    documentId: item.documentId,
-                                    pageNumber: item.pageNumber ?? 1,
-                                    boundingBox: item.fieldLocation?.boundingBox ?? null,
-                                    label: item.evidenceType,
-                                  });
-                                }
-                              : undefined
-                          }
-                          disabled={item === undefined}
-                        />
-                      );
-                    })}
+                    {finding.evidenceRefs
+                      .slice(0, POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT)
+                      .map((evidenceId) => {
+                        const item = evidenceById.get(evidenceId);
+                        return (
+                          <EvidenceChip
+                            key={evidenceId}
+                            label={item !== undefined ? item.evidenceType : 'Evidence'}
+                            onClick={
+                              item !== undefined
+                                ? () => {
+                                    onEvidenceChipActivate({
+                                      documentId: item.documentId,
+                                      pageNumber: item.pageNumber ?? 1,
+                                      boundingBox: item.fieldLocation?.boundingBox ?? null,
+                                      label: item.evidenceType,
+                                    });
+                                  }
+                                : undefined
+                            }
+                            disabled={item === undefined}
+                          />
+                        );
+                      })}
                     {finding.evidenceRefs.length > POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT && (
                       <span className="text-caption text-text-tertiary">
                         +{finding.evidenceRefs.length - POLICY_EVIDENCE_CHIP_SUMMARY_LIMIT} more

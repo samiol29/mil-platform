@@ -6,7 +6,10 @@ describe('formatFindingNarrative', () => {
   it('renders a plain paragraph as-is', () => {
     const blocks = formatFindingNarrative('A simple sentence with no markdown.');
     expect(blocks).toEqual([
-      { kind: 'paragraph', segments: [{ text: 'A simple sentence with no markdown.', bold: false }] },
+      {
+        kind: 'paragraph',
+        segments: [{ text: 'A simple sentence with no markdown.', bold: false }],
+      },
     ]);
   });
 
@@ -29,10 +32,7 @@ describe('formatFindingNarrative', () => {
     expect(blocks).toEqual([
       {
         kind: 'list',
-        items: [
-          [{ text: 'First item.', bold: false }],
-          [{ text: 'Second item.', bold: false }],
-        ],
+        items: [[{ text: 'First item.', bold: false }], [{ text: 'Second item.', bold: false }]],
       },
     ]);
   });
