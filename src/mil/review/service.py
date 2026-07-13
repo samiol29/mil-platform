@@ -169,8 +169,16 @@ class ReviewService:
         )
         return session
 
-    def approve_finding(self, session: ReviewSession, *, actor_user_id: UUID) -> ReviewSession:
-        """Approve the Finding under review, closing the session as ``APPROVED``."""
+    def approve_finding(
+        self, session: ReviewSession, *, actor_user_id: UUID
+    ) -> tuple[ReviewSession, UUID]:
+        """
+        Approve the Finding under review, closing the session as ``APPROVED``.
+
+        Returns the session and the id of the audit event this call wrote —
+        the caller (the API route) uses the event id to create a Notification
+        for the application's owner, mirroring ``post_comment``'s pattern.
+        """
         previous_status = session.status
         session.transition_to(APPROVED)
         self._repo.save_session(session)
@@ -184,7 +192,7 @@ class ReviewService:
         )
         self._repo.save_action(action)
 
-        self._audit.record(
+        event = self._audit.record(
             event_type="REVIEW_FINDING_APPROVED",
             entity_type="REVIEW_SESSION",
             entity_id=session.id,
@@ -193,7 +201,7 @@ class ReviewService:
             actor_id=actor_user_id,
             event_data={"finding_id": str(session.finding_id)},
         )
-        return session
+        return session, event.id
 
     def reject_finding(
         self, session: ReviewSession, *, actor_user_id: UUID, reason: str
@@ -235,7 +243,7 @@ class ReviewService:
         reason: str,
         previous_value: str,
         new_value: str,
-    ) -> ReviewSession:
+    ) -> tuple[ReviewSession, UUID]:
         """
         Override the Finding under review, closing the session as
         ``OVERRIDDEN``.
@@ -245,6 +253,10 @@ class ReviewService:
         on the resulting ``ReviewAction``), a reason, the previous finding
         state, and the new decision. All five are required here and recorded
         permanently — this ``ReviewAction`` row is never updated or deleted.
+
+        Returns the session and the id of the audit event this call wrote —
+        the caller (the API route) uses the event id to create a Notification
+        for the application's owner, mirroring ``post_comment``'s pattern.
         """
         if not reason or not reason.strip():
             raise ValidationError("reason must not be empty", field="reason")
@@ -267,7 +279,7 @@ class ReviewService:
         )
         self._repo.save_action(action)
 
-        self._audit.record(
+        event = self._audit.record(
             event_type="REVIEW_FINDING_OVERRIDDEN",
             entity_type="REVIEW_SESSION",
             entity_id=session.id,
@@ -281,7 +293,7 @@ class ReviewService:
                 "new_value": new_value,
             },
         )
-        return session
+        return session, event.id
 
     def escalate_finding(
         self,
@@ -291,7 +303,7 @@ class ReviewService:
         reason: str,
         target_role: str,
         target_user_id: UUID | None = None,
-    ) -> ReviewSession:
+    ) -> tuple[ReviewSession, UUID]:
         """
         Escalate the Finding under review to another role's queue.
 
@@ -301,6 +313,11 @@ class ReviewService:
         into the target role's queue, and the same ``approve_finding``,
         ``reject_finding``, and ``override_finding`` methods resolve it —
         there is no separate "resolve escalation" action.
+
+        Returns the session and the id of the audit event this call wrote —
+        the caller (the API route) uses the event id to create a Notification
+        for the application's owner and, when a specific ``target_user_id``
+        was given, for that person too.
         """
         if not reason or not reason.strip():
             raise ValidationError("reason must not be empty", field="reason")
@@ -323,7 +340,7 @@ class ReviewService:
         )
         self._repo.save_action(action)
 
-        self._audit.record(
+        event = self._audit.record(
             event_type="REVIEW_FINDING_ESCALATED",
             entity_type="REVIEW_SESSION",
             entity_id=session.id,
@@ -337,7 +354,7 @@ class ReviewService:
                 "target_user_id": str(target_user_id) if target_user_id is not None else None,
             },
         )
-        return session
+        return session, event.id
 
     def add_comment(
         self, session: ReviewSession, *, author_user_id: UUID, comment_text: str

@@ -132,6 +132,67 @@ class TestStartDocumentIngestionWorkflow:
         )
         assert run.idempotency_key == f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}"
 
+    def test_retry_count_zero_preserves_original_key(self) -> None:
+        document_id = uuid4()
+        session = _mock_session()
+        container, _ = self._container_with_job_queue()
+        run = start_document_ingestion_workflow(
+            session,
+            container,
+            document_id=document_id,
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            retry_count=0,
+        )
+        assert run.idempotency_key == f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}"
+
+    def test_retry_count_distinguishes_the_idempotency_key(self) -> None:
+        """
+        A real retry must mint a new key — IntelligenceOrchestrator.start_workflow
+        returns the existing run for a repeat key, so an unchanged key would
+        make retry a silent no-op.
+        """
+        document_id = uuid4()
+        session = _mock_session()
+        container, _ = self._container_with_job_queue()
+        run = start_document_ingestion_workflow(
+            session,
+            container,
+            document_id=document_id,
+            application_id=uuid4(),
+            tenant_id=uuid4(),
+            retry_count=1,
+        )
+        assert run.idempotency_key == f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}:retry1"
+
+    def test_retry_dispatches_a_new_job_instead_of_no_op(self) -> None:
+        document_id = uuid4()
+        application_id = uuid4()
+        tenant_id = uuid4()
+        container, queue = self._container_with_job_queue()
+
+        first = start_document_ingestion_workflow(
+            _mock_session(),
+            container,
+            document_id=document_id,
+            application_id=application_id,
+            tenant_id=tenant_id,
+        )
+        queue.dequeue()
+
+        retried = start_document_ingestion_workflow(
+            _mock_session(),
+            container,
+            document_id=document_id,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            retry_count=1,
+        )
+        assert retried.id != first.id
+        job = queue.dequeue()
+        assert job is not None
+        assert job.payload["document_id"] == str(document_id)
+
     def test_repeat_call_with_existing_run_returns_it_unchanged(self) -> None:
         """Simulates a replay where the idempotency lookup finds a prior run."""
         document_id = uuid4()

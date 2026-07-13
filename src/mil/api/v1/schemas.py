@@ -95,6 +95,33 @@ class ApplicationResponse(BaseModel):
         )
 
 
+class EvaluationStatusResponse(BaseModel):
+    """
+    Real status of an application's FINDING_GENERATION evaluation run.
+
+    ``status`` is ``"NOT_TRIGGERED"`` when evaluation has never been started
+    (e.g. the application has not been submitted yet — see ADR-009) — never
+    inferred from document processing status, which is a separate, unrelated
+    pipeline. When a run exists, ``status`` echoes the real
+    ``WorkflowRun.status`` (PENDING/RUNNING/COMPLETED/FAILED).
+    ``retryable`` is ``True`` only when the most recent run is FAILED — the
+    only case in which retrying evaluation is a valid action (see
+    ``FindingTrigger.retry``).
+    """
+
+    status: str = Field(
+        description="NOT_TRIGGERED, or the real WorkflowRun.status (PENDING/RUNNING/COMPLETED/FAILED)."
+    )
+    error_message: str | None = Field(
+        default=None, description="The real failure reason, when status is FAILED."
+    )
+    retryable: bool = Field(
+        default=False, description="True only when the most recent run is FAILED."
+    )
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class ApplicationListResponse(BaseModel):
     """Paginated application list."""
 
@@ -187,6 +214,10 @@ class DocumentResponse(BaseModel):
     page_count: int | None = None
     ingestion_completed_at: datetime | None = None
     ingestion_error: str | None = None
+    retry_count: int = Field(
+        default=0,
+        description="Number of times ingestion has been retried after a FAILED state.",
+    )
 
     model_config = ConfigDict(from_attributes=False)
 
@@ -206,6 +237,7 @@ class DocumentResponse(BaseModel):
             page_count=doc.page_count,
             ingestion_completed_at=doc.ingestion_completed_at,
             ingestion_error=doc.ingestion_error,
+            retry_count=doc.retry_count,
         )
 
 

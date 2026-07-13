@@ -523,6 +523,98 @@ describe("ApplicationWorkspace — Timeline: the application's case history (Pha
   });
 });
 
+describe('ApplicationWorkspace — Submit for review + ownership (final product polish sprint)', () => {
+  it('shows "Submit for review" only for a DRAFT application with at least one document', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}`, () =>
+        HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-1',
+          loanNumber: null,
+          status: 'DRAFT',
+          activePolicyPackId: null,
+          partyCount: 0,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: null,
+        }),
+      ),
+    );
+    renderWorkspace('overview');
+    expect(await screen.findByRole('button', { name: 'Submit for review' })).toBeInTheDocument();
+  });
+
+  it('does not show "Submit for review" once the application is no longer DRAFT', async () => {
+    mockWorkspaceData();
+    renderWorkspace('overview');
+    await screen.findByText(/documents ready/);
+    expect(screen.queryByRole('button', { name: 'Submit for review' })).not.toBeInTheDocument();
+  });
+
+  it('submitting calls the real submit endpoint and reflects the new status', async () => {
+    mockWorkspaceData();
+    let currentStatus = 'DRAFT';
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}`, () =>
+        HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-1',
+          loanNumber: null,
+          status: currentStatus,
+          activePolicyPackId: null,
+          partyCount: 0,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: null,
+        }),
+      ),
+      http.post(`/v1/applications/${FIXTURE_APPLICATION_ID}/submit`, () => {
+        currentStatus = 'SUBMITTED';
+        return HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-1',
+          loanNumber: null,
+          status: currentStatus,
+          activePolicyPackId: null,
+          partyCount: 0,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: null,
+        });
+      }),
+    );
+    renderWorkspace('overview');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Submit for review' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Submit for review' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows the real assignment owner when one exists', async () => {
+    mockWorkspaceData();
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}/assignment`, () =>
+        HttpResponse.json({
+          id: '99999999-9999-4999-a999-999999999999',
+          applicationId: FIXTURE_APPLICATION_ID,
+          ownerUserId: '88888888-8888-4888-a888-888888888888',
+          reviewerUserId: null,
+          assignedByUserId: '88888888-8888-4888-a888-888888888888',
+          assignedAt: '2026-06-20T09:00:00Z',
+        }),
+      ),
+    );
+    renderWorkspace('overview');
+    expect(await screen.findByText(/Owner: 88888888/)).toBeInTheDocument();
+  });
+
+  it('shows nothing ownership-related when no assignment exists yet (honest, not fabricated)', async () => {
+    mockWorkspaceData();
+    renderWorkspace('overview');
+    await screen.findByText(/documents ready/);
+    expect(screen.queryByText(/Owner:/)).not.toBeInTheDocument();
+  });
+});
+
 describe('ApplicationWorkspace — AI Case Copilot (spec 005 §8)', () => {
   it('shows an honest "no questions yet" state when no Copilot session exists', async () => {
     mockWorkspaceData();

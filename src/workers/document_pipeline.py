@@ -381,6 +381,7 @@ def start_document_ingestion_workflow(
     application_id: UUID,
     tenant_id: UUID,
     correlation_id: str | None = None,
+    retry_count: int = 0,
 ) -> WorkflowRun:
     """
     Start (or return the existing) ``DOCUMENT_INGESTION`` workflow run for a
@@ -409,6 +410,14 @@ def start_document_ingestion_workflow(
     Idempotent (ADR-008): the idempotency key is deterministic per document, so
     a repeat call (e.g. a retried request) returns the existing run rather than
     creating a duplicate or re-dispatching the first job.
+
+    ``retry_count`` distinguishes a genuine retry attempt (Document.retry_count,
+    incremented by ``Document.reset_for_retry()``) from the original attempt.
+    Left at its default of ``0``, the idempotency key is unchanged from the
+    original ingestion call — a real retry passes the document's current
+    ``retry_count`` so a *new* key is minted per attempt; without this, a
+    retry would be a no-op, since ``IntelligenceOrchestrator.start_workflow``
+    returns the existing run for a repeat key rather than dispatching new work.
     """
     registry = container.resolve(ProviderRegistry)
     extraction_version = registry.get_extraction().version()
@@ -429,7 +438,11 @@ def start_document_ingestion_workflow(
         tenant_id=tenant_id,
         application_id=application_id,
         workflow_type=DOCUMENT_INGESTION_WORKFLOW_TYPE,
-        idempotency_key=f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}",
+        idempotency_key=(
+            f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}"
+            if retry_count == 0
+            else f"{DOCUMENT_INGESTION_WORKFLOW_TYPE}:{document_id}:retry{retry_count}"
+        ),
         step_names=[OCR_STEP_NAME, EXTRACTION_STEP_NAME],
         pinned_versions=pinned,
         correlation_id=correlation_id,

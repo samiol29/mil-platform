@@ -6,6 +6,8 @@ Endpoints:
     GET    /v1/applications                              List applications for the tenant
     GET    /v1/applications/{application_id}             Get application
     POST   /v1/applications/{application_id}/submit      Submit application for review
+    GET    /v1/applications/{application_id}/evaluation  Get real FINDING_GENERATION run status
+    POST   /v1/applications/{application_id}/retry-evaluation  Retry a FAILED evaluation run
     POST   /v1/applications/{application_id}/withdraw    Withdraw application
     POST   /v1/applications/{application_id}/parties     Add party
     DELETE /v1/applications/{application_id}/parties/{party_id}  Remove party
@@ -36,6 +38,7 @@ from mil.api.v1.schemas import (
     ApplicationListResponse,
     ApplicationResponse,
     CreateApplicationRequest,
+    EvaluationStatusResponse,
     PartyResponse,
 )
 from mil.kernel.types import ApplicationId, TenantId
@@ -193,6 +196,82 @@ def submit_application(
     """Submit an application for intelligence review."""
     app = service.submit_application(user, application_id=ApplicationId(application_id))
     finding_trigger.trigger(app)
+    return ApplicationResponse.from_model(app)
+
+
+@router.get(
+    "/{application_id}/evaluation",
+    summary="Get the application's evaluation (Finding Generation) status",
+    description=(
+        "Return the real status of the application's FINDING_GENERATION "
+        "workflow run — NOT_TRIGGERED if evaluation was never started (e.g. "
+        "the application has not been submitted), or the run's actual "
+        "PENDING/RUNNING/COMPLETED/FAILED status. Distinguishes 'no findings "
+        "because evaluation never ran or failed' from 'no findings because "
+        "the application is genuinely clean' — never inferred from document "
+        "processing status alone. Requires ``read:application`` permission."
+    ),
+    response_model=EvaluationStatusResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Application not found"},
+    },
+)
+def get_evaluation_status(
+    application_id: UUID,
+    user: CurrentUser,
+    service: AppService,
+    finding_trigger: FindingTriggerDep,
+) -> EvaluationStatusResponse:
+    """Return the application's real FINDING_GENERATION run status."""
+    app = service.get_application(user, application_id=ApplicationId(application_id))
+    run = finding_trigger.latest_run(app)
+    if run is None:
+        return EvaluationStatusResponse(status="NOT_TRIGGERED")
+
+    error_message = None
+    if run.status == "FAILED":
+        failed_step = next((s for s in run.steps if s.status == "FAILED"), None)
+        error_message = failed_step.error_message if failed_step else None
+
+    return EvaluationStatusResponse(
+        status=run.status,
+        error_message=error_message,
+        retryable=run.status == "FAILED",
+        started_at=run.created_at,
+        completed_at=run.completed_at,
+    )
+
+
+@router.post(
+    "/{application_id}/retry-evaluation",
+    summary="Retry a failed evaluation (Finding Generation)",
+    description=(
+        "Re-run Finding Generation -> Policy Evaluation -> Review handoff for "
+        "an application whose most recent evaluation run ended in FAILED "
+        "(e.g. an AI provider outage). Only available when the real run "
+        "status is FAILED — retrying a run still in flight, or one that "
+        "never started or already succeeded, is rejected. "
+        "Requires ``write:application`` permission."
+    ),
+    response_model=ApplicationResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Insufficient permissions"},
+        404: {"description": "Application not found"},
+        409: {"description": "No FAILED evaluation run exists to retry"},
+    },
+)
+def retry_evaluation(
+    application_id: UUID,
+    user: CurrentUser,
+    service: AppService,
+    finding_trigger: FindingTriggerDep,
+) -> ApplicationResponse:
+    """Retry evaluation for an application whose last run FAILED."""
+    app = service.get_application(user, application_id=ApplicationId(application_id))
+    finding_trigger.retry(user, app)
     return ApplicationResponse.from_model(app)
 
 

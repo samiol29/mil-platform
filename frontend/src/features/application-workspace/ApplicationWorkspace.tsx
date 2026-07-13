@@ -36,6 +36,8 @@ import { Link } from '@tanstack/react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useAuthUser } from '@app/auth/authProvider';
+import { useUiStore } from '@app/uiStore';
 import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
@@ -45,12 +47,18 @@ import { ProcessingPipeline } from '@design-system/components/ProcessingPipeline
 import { Tabs, TabsList, TabsTrigger } from '@design-system/components/Tabs';
 import { cn } from '@design-system/lib/cn';
 import type { Application } from '@entities/application/queries';
-import { useApplication } from '@entities/application/queries';
+import {
+  useApplication,
+  useEvaluationStatus,
+  useRetryEvaluation,
+  useSubmitApplication,
+} from '@entities/application/queries';
 import {
   APPLICATION_STATUS_CHIP_BASE_CLASS,
   APPLICATION_STATUS_CHIP_CLASS_NAME,
   APPLICATION_STATUS_LABEL,
 } from '@entities/application/statusLabel';
+import { useAssignment } from '@entities/assignment/queries';
 import { useAuditTrail } from '@entities/audit/queries';
 import { downloadDocument } from '@entities/document/download';
 import type { Document } from '@entities/document/queries';
@@ -64,6 +72,7 @@ import { DocumentInspector } from '@features/document-viewer/DocumentInspector';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 import { DocumentProcessingList } from '@features/document-upload/DocumentProcessingList';
 import { UploadSection } from '@features/document-upload/UploadSection';
+import { extractErrorMessage } from '@shared/api/extractErrorMessage';
 import { PanelErrorBoundary } from '@shared/errors/PanelErrorBoundary';
 
 import { ApplicationTimeline } from './ApplicationTimeline';
@@ -247,6 +256,10 @@ function FindingsRegion({
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const auditQuery = useAuditTrail(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
+  const applicationQuery = useApplication(applicationId);
+  const evaluationQuery = useEvaluationStatus(applicationId);
+  const retryEvaluation = useRetryEvaluation(applicationId);
+  const addToast = useUiStore((state) => state.addToast);
   const findingRefs = useRef(new Map<string, HTMLDivElement>());
 
   // One O(audit entries) pass for every finding's review history, computed
@@ -275,7 +288,53 @@ function FindingsRegion({
     );
   }
   if (findingsQuery.data.length === 0) {
-    const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
+    const outcome = zeroFindingsOutcome(
+      documentsQuery.data ?? [],
+      applicationQuery.data?.status ?? 'DRAFT',
+      evaluationQuery.data,
+    );
+    if (outcome === 'not-submitted') {
+      return (
+        <EmptyState
+          title="Not yet submitted for review"
+          description="Finding generation runs once the application is submitted for review — see the Overview region to submit it."
+        />
+      );
+    }
+    if (outcome === 'evaluation-failed') {
+      return (
+        <EmptyState
+          title="Evaluation failed"
+          description={
+            evaluationQuery.data?.errorMessage ??
+            'The last evaluation attempt failed before any findings could be generated.'
+          }
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={retryEvaluation.isPending}
+              onClick={() => {
+                retryEvaluation.mutate(undefined, {
+                  onSuccess: () => {
+                    addToast({ title: 'Evaluation retry started', variant: 'success' });
+                  },
+                  onError: (error: unknown) => {
+                    addToast({
+                      title: 'Could not retry evaluation',
+                      description: extractErrorMessage(error, 'Please try again.'),
+                      variant: 'error',
+                    });
+                  },
+                });
+              }}
+            >
+              Retry evaluation
+            </Button>
+          }
+        />
+      );
+    }
     if (outcome === 'clean') {
       return (
         <EmptyState
@@ -685,6 +744,9 @@ function PolicyRegion({
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
   const policyResultsQuery = useApplicationPolicyResults(applicationId);
+  const evaluationQuery = useEvaluationStatus(applicationId);
+  const retryEvaluation = useRetryEvaluation(applicationId);
+  const addToast = useUiStore((state) => state.addToast);
 
   if (findingsQuery.isPending) return <LoadingState label="Loading policy evaluation…" />;
   if (findingsQuery.isError) {
@@ -718,7 +780,59 @@ function PolicyRegion({
   );
 
   if (findings.length === 0) {
-    const outcome = zeroFindingsOutcome(documentsQuery.data ?? []);
+    const outcome = zeroFindingsOutcome(
+      documentsQuery.data ?? [],
+      applicationQuery.data?.status ?? 'DRAFT',
+      evaluationQuery.data,
+    );
+    if (outcome === 'not-submitted') {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-heading-section text-text-primary">Policy</h2>
+          <EmptyState
+            title="Not yet evaluated"
+            description="Policy evaluation runs once the application is submitted for review and findings are generated — see the Overview region to submit it."
+          />
+        </div>
+      );
+    }
+    if (outcome === 'evaluation-failed') {
+      return (
+        <div className="flex flex-col gap-4">
+          <h2 className="text-heading-section text-text-primary">Policy</h2>
+          <EmptyState
+            title="Evaluation failed"
+            description={
+              evaluationQuery.data?.errorMessage ??
+              'The last evaluation attempt failed before policy could run.'
+            }
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={retryEvaluation.isPending}
+                onClick={() => {
+                  retryEvaluation.mutate(undefined, {
+                    onSuccess: () => {
+                      addToast({ title: 'Evaluation retry started', variant: 'success' });
+                    },
+                    onError: (error: unknown) => {
+                      addToast({
+                        title: 'Could not retry evaluation',
+                        description: extractErrorMessage(error, 'Please try again.'),
+                        variant: 'error',
+                      });
+                    },
+                  });
+                }}
+              >
+                Retry evaluation
+              </Button>
+            }
+          />
+        </div>
+      );
+    }
     if (outcome === 'clean') {
       return (
         <div className="flex flex-col gap-4">
@@ -991,13 +1105,37 @@ function OverviewRegion({
   const documentsQuery = useDocumentsForApplication(applicationId);
   const findingsQuery = useFindingsForApplication(applicationId);
   const auditQuery = useAuditTrail(applicationId);
+  const evaluationQuery = useEvaluationStatus(applicationId);
+  const assignmentQuery = useAssignment(applicationId);
+  const submitApplication = useSubmitApplication();
+  const addToast = useUiStore((state) => state.addToast);
+  const currentUser = useAuthUser();
 
   const documents = documentsQuery.data ?? [];
   const findings = findingsQuery.data ?? [];
   const counts = summarizeDocuments(documents);
+  // Submit is only offered once at least one document has been uploaded —
+  // never on a brand-new, empty DRAFT shell.
+  const readyToSubmit = application.status === 'DRAFT' && counts.total > 0;
   const recentActivity = buildApplicationTimeline(auditQuery.data ?? [], documents, findings).slice(
     -5,
   );
+
+  // Ownership (final product polish sprint, R2): a real, already-built
+  // backend/entity capability (`Assignment.ownerUserId`) that nothing in
+  // the UI ever surfaced before this. No display-name resolution endpoint
+  // is reachable at this permission level (`GET /v1/admin/users` requires
+  // `manage:users`), so a truncated id is shown — honest, never a
+  // fabricated name — labeled "You" when it matches the caller.
+  const assignment = assignmentQuery.data;
+  const ownerLabel =
+    assignment === null || assignment === undefined
+      ? null
+      : `Owner: ${
+          currentUser !== null && assignment.ownerUserId === currentUser.userId
+            ? 'You'
+            : assignment.ownerUserId.slice(0, 8)
+        }`;
 
   const metadataParts = [
     application.losReference !== null ? `LOS ${application.losReference}` : null,
@@ -1007,6 +1145,7 @@ function OverviewRegion({
     application.updatedAt !== null
       ? `Updated ${new Date(application.updatedAt).toLocaleDateString()}`
       : null,
+    ownerLabel,
   ].filter((part): part is string => part !== null);
 
   return (
@@ -1026,21 +1165,46 @@ function OverviewRegion({
           <p className="text-caption text-text-tertiary">{metadataParts.join(' · ')}</p>
           <BorrowerChips applicationId={applicationId} />
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            void applicationQuery.refetch();
-          }}
-        >
-          Refresh
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {readyToSubmit && (
+            <Button
+              variant="primary"
+              size="sm"
+              loading={submitApplication.isPending}
+              onClick={() => {
+                submitApplication.mutate(applicationId, {
+                  onSuccess: () => {
+                    addToast({ title: 'Application submitted for review', variant: 'success' });
+                  },
+                  onError: (error: unknown) => {
+                    addToast({
+                      title: 'Could not submit application',
+                      description: extractErrorMessage(error, 'Please try again.'),
+                      variant: 'error',
+                    });
+                  },
+                });
+              }}
+            >
+              Submit for review
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void applicationQuery.refetch();
+            }}
+          >
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {documentsQuery.data !== undefined && (
         <div className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-4 p-5">
           <ProcessingPipeline
-            steps={deriveApplicationStages(documentsQuery.data, findings)}
+            steps={deriveApplicationStages(findings, application.status, evaluationQuery.data)}
             size="md"
           />
           <p className="text-caption text-text-secondary">

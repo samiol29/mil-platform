@@ -111,6 +111,7 @@ from mil.kernel.config import Settings
 from mil.kernel.errors import (
     AuthenticationError,
     AuthorizationError,
+    ConflictError,
     NotFoundError,
     ValidationError,
 )
@@ -465,6 +466,7 @@ class DocumentIngestionTrigger:
             document_id=document.id,
             application_id=document.application_id,
             tenant_id=document.tenant_id,
+            retry_count=document.retry_count,
         )
 
 
@@ -498,7 +500,9 @@ class FindingTrigger:
     — this class exists only so ``mil.api.v1.applications`` can depend on a
     type re-exported from ``mil.api.deps`` (its declared dependency) rather
     than importing ``workers.finding_pipeline`` or any bounded-context module
-    directly.
+    directly. ``latest_run()`` and ``retry()`` (final product polish sprint)
+    additionally expose and re-trigger evaluation for a FAILED run — e.g. a
+    Gemini provider-unavailable error with no other recovery path.
     """
 
     def __init__(self, *, session: Session, container: Container) -> None:
@@ -514,6 +518,67 @@ class FindingTrigger:
             self._container,
             application_id=application.id,
             tenant_id=application.tenant_id,
+        )
+
+    def latest_run(self, application: MortgageApplication) -> WorkflowRun | None:
+        """
+        Return the most recent ``FINDING_GENERATION`` run for ``application``,
+        or ``None`` if evaluation has never been triggered.
+
+        Used to honestly distinguish "not yet submitted" from "evaluation
+        failed" from "evaluation still running" — never inferred from
+        document status alone (Root Cause #1/#2 of the polish-sprint audit).
+        """
+        from workers.finding_pipeline import FINDING_WORKFLOW_TYPE
+
+        runs = [
+            run
+            for run in WorkflowRepository(self._session).get_for_application(application.id)
+            if run.workflow_type == FINDING_WORKFLOW_TYPE
+        ]
+        return runs[0] if runs else None
+
+    def retry(self, user: AuthenticatedUser, application: MortgageApplication) -> WorkflowRun:
+        """
+        Re-trigger ``FINDING_GENERATION`` after a previously FAILED run.
+
+        Only valid when the application's most recent evaluation run ended in
+        FAILED (e.g. a Gemini provider-unavailable error) — retrying a run
+        that is still PENDING/RUNNING would race the in-flight attempt, and
+        there is nothing to retry if evaluation was never triggered or already
+        succeeded. Mints a new idempotency key from the number of prior
+        FINDING_GENERATION runs so the retry actually dispatches new work
+        rather than being a no-op replay of the original trigger.
+
+        Raises:
+            AuthorizationError: If the caller lacks WRITE_APPLICATION.
+            ConflictError:      If there is no FAILED FINDING_GENERATION run to retry.
+        """
+        from mil.orchestrator.models import WorkflowStatus
+        from workers.finding_pipeline import (
+            FINDING_WORKFLOW_TYPE,
+            start_finding_generation_workflow,
+        )
+
+        require_permission(user, Permission.WRITE_APPLICATION)
+
+        runs = [
+            run
+            for run in WorkflowRepository(self._session).get_for_application(application.id)
+            if run.workflow_type == FINDING_WORKFLOW_TYPE
+        ]
+        if not runs or runs[0].status != WorkflowStatus.FAILED:
+            raise ConflictError(
+                f"Cannot retry evaluation for application (id={application.id}) — "
+                "no FAILED evaluation run exists to retry."
+            )
+        retry_count = len(runs)
+        return start_finding_generation_workflow(
+            self._session,
+            self._container,
+            application_id=application.id,
+            tenant_id=application.tenant_id,
+            retry_count=retry_count,
         )
 
 
@@ -1443,13 +1508,39 @@ class FindingReviewActions:
     transaction, never the outbox); this class only resolves the Finding and
     its Review Session and reports the Policy attribution version findings.py
     needs to build the response.
+
+    Also notifies the application's owner after verify/override/escalate
+    (final product polish sprint) — reuses ``NotificationService.notify()``,
+    the same call ``mil.api.v1.comments`` already makes for @-mentions,
+    pointed at the audit event each review action already writes.
     """
 
     def __init__(self, *, session: Session) -> None:
         self._findings = FindingRepository(session)
         self._reviews = ReviewRepository(session)
         self._policy = PolicyRepository(session)
+        self._assignments = AssignmentRepository(session)
+        self._notifications = NotificationService(NotificationRepository(session))
         self._review_service = ReviewService(self._reviews, AuditWriter(session))
+
+    def _notify_owner(self, finding_id: UUID, tenant_id: UUID, audit_event_id: UUID) -> None:
+        """
+        Notify the application's owner (Relationship Manager) that a
+        reviewer acted on one of their findings — final product polish
+        sprint: Verify/Override/Escalate previously updated Timeline/Audit
+        but never notified anyone. Silently does nothing when no Assignment
+        exists yet for the application (an honest, real "not yet assigned"
+        case — never fabricated).
+        """
+        finding = self.get_finding_or_404(finding_id)
+        assignment = self._assignments.get_for_application(finding.application_id)
+        if assignment is None:
+            return
+        self._notifications.notify(
+            tenant_id=tenant_id,
+            recipient_user_id=assignment.owner_user_id,
+            audit_event_id=audit_event_id,
+        )
 
     def get_finding_or_404(self, finding_id: UUID) -> Finding:
         finding = self._findings.get_by_id(finding_id)
@@ -1534,7 +1625,11 @@ class FindingReviewActions:
         session = self.get_review_session_or_404(finding_id)
         self._authorize_resolution(user, session)
         self._ensure_in_review(session, user)
-        return self._review_service.approve_finding(session, actor_user_id=user.user_id)
+        session, audit_event_id = self._review_service.approve_finding(
+            session, actor_user_id=user.user_id
+        )
+        self._notify_owner(finding_id, user.tenant_id, audit_event_id)
+        return session
 
     def override(
         self,
@@ -1550,13 +1645,15 @@ class FindingReviewActions:
         session = self.get_review_session_or_404(finding_id)
         self._authorize_resolution(user, session)
         self._ensure_in_review(session, user)
-        return self._review_service.override_finding(
+        session, audit_event_id = self._review_service.override_finding(
             session,
             actor_user_id=user.user_id,
             reason=reason,
             previous_value=previous_value,
             new_value=new_value,
         )
+        self._notify_owner(finding_id, user.tenant_id, audit_event_id)
+        return session
 
     def escalate(
         self,
@@ -1576,16 +1673,31 @@ class FindingReviewActions:
         escalate a finding they currently hold, including re-escalating one
         already escalated to someone else (module docstring: ``ESCALATED ->
         ESCALATED`` is a valid transition).
+
+        Notifies the application's owner, and — only when a specific
+        ``target_user_id`` was given — that person directly. A role-only
+        escalation (no specific person) does not fan out to every holder of
+        that role: there is no existing, reliable "all current holders of
+        role X" lookup in this platform to notify against honestly, so this
+        is left as a real, disclosed gap rather than approximated.
         """
         require_permission(user, Permission.ESCALATE_FINDING)
         session = self.get_review_session_or_404(finding_id)
-        return self._review_service.escalate_finding(
+        session, audit_event_id = self._review_service.escalate_finding(
             session,
             actor_user_id=user.user_id,
             reason=reason,
             target_role=target_role,
             target_user_id=target_user_id,
         )
+        self._notify_owner(finding_id, user.tenant_id, audit_event_id)
+        if target_user_id is not None:
+            self._notifications.notify(
+                tenant_id=user.tenant_id,
+                recipient_user_id=target_user_id,
+                audit_event_id=audit_event_id,
+            )
+        return session
 
 
 def get_finding_review_actions(session: DbSession) -> FindingReviewActions:

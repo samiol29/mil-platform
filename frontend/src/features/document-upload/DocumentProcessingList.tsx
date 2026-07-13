@@ -11,10 +11,14 @@
  * AI processing succeeds.** A `FAILED` document is never presented as
  * inaccessible — it's still previewable (the viewer no longer gates on
  * ingestion status) and downloadable here, with its real `ingestionError`
- * shown plainly rather than implying the file itself is broken. There is
- * no backend "retry ingestion" endpoint (confirmed: only a fresh upload
- * creates a new `Document` row), so the copy points at the real remedy —
- * re-uploading — rather than a fake in-place Retry button.
+ * shown plainly rather than implying the file itself is broken. A real
+ * "Retry" action (final product polish sprint) re-runs OCR -> Extraction ->
+ * Evidence for the exact same stored bytes via `POST .../documents/{id}/retry`
+ * — no re-upload needed (ADR-006: documents are immutable, so retry only
+ * re-runs the pipeline). This is distinct from "Retry evaluation" in the
+ * Findings/Policy regions, which re-runs Finding Generation, not OCR — the
+ * two must never be conflated (R3): a document still failing ingestion has
+ * no evidence yet, so retrying evaluation for it would be a no-op.
  *
  * The package-level summary (ready/processing/failed counts, Phase 4's
  * `summarizeDocuments`) plus a new **possible-duplicates** signal
@@ -23,18 +27,21 @@
  * frame this as "the whole borrower package," not a processing log.
  */
 
-import { AlertTriangle, Copy, Download, FileText } from 'lucide-react';
+import { AlertTriangle, Copy, Download, FileText, RotateCw } from 'lucide-react';
 import { useState } from 'react';
 
+import { useUiStore } from '@app/uiStore';
+import { Button } from '@design-system/components/Button';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { LoadingState } from '@design-system/components/LoadingState';
 import { ProcessingPipeline } from '@design-system/components/ProcessingPipeline';
 import { cn } from '@design-system/lib/cn';
-import { useDocumentsForApplication } from '@entities/document/queries';
+import { useDocumentsForApplication, useRetryDocument } from '@entities/document/queries';
 import { downloadDocument } from '@entities/document/download';
 import { usePartiesForApplication } from '@entities/party/queries';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { summarizeDocuments } from '@features/application-workspace/applicationPipelineSummary';
+import { extractErrorMessage } from '@shared/api/extractErrorMessage';
 
 import { deriveDocumentStages } from './deriveDocumentStages';
 import { duplicateDocumentIds } from './findDuplicateGroups';
@@ -65,7 +72,30 @@ export function DocumentProcessingList({
 }: DocumentProcessingListProps) {
   const documentsQuery = useDocumentsForApplication(applicationId);
   const partiesQuery = usePartiesForApplication(applicationId);
+  const retryDocument = useRetryDocument(applicationId);
+  const addToast = useUiStore((state) => state.addToast);
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
+  const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set());
+
+  function retryOne(documentId: string) {
+    setRetryingIds((prev) => new Set(prev).add(documentId));
+    retryDocument.mutate(documentId, {
+      onSettled: () => {
+        setRetryingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(documentId);
+          return next;
+        });
+      },
+      onError: (error: unknown) => {
+        addToast({
+          title: 'Could not retry this document',
+          description: extractErrorMessage(error, 'Please try again.'),
+          variant: 'error',
+        });
+      },
+    });
+  }
 
   if (documentsQuery.isPending) return <LoadingState label="Loading the document package…" />;
   if (documentsQuery.isError) {
@@ -84,6 +114,9 @@ export function DocumentProcessingList({
   const counts = summarizeDocuments(documents);
   const duplicateIds = duplicateDocumentIds(documents);
   const parties = partiesQuery.data ?? [];
+  const failedDocumentIds = documents
+    .filter((document) => document.ingestionStatus === 'FAILED')
+    .map((document) => document.id);
 
   function toggleExpanded(id: string) {
     setExpandedIds((prev) => {
@@ -99,21 +132,34 @@ export function DocumentProcessingList({
       aria-label="Document package"
       className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-3 p-4"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h3 className="text-heading-section text-text-primary">Document Package</h3>
-        <p className="text-caption text-text-secondary">
-          {counts.total} document{counts.total === 1 ? '' : 's'} · {counts.ready} ready
-          {counts.processing > 0 && ` · ${String(counts.processing)} processing`}
-          {counts.failed > 0 && (
-            <span className="text-feedback-error-fg"> · {counts.failed} failed</span>
+        <div className="flex items-center gap-3">
+          <p className="text-caption text-text-secondary">
+            {counts.total} document{counts.total === 1 ? '' : 's'} · {counts.ready} ready
+            {counts.processing > 0 && ` · ${String(counts.processing)} processing`}
+            {counts.failed > 0 && (
+              <span className="text-feedback-error-fg"> · {counts.failed} failed</span>
+            )}
+            {duplicateIds.size > 0 && (
+              <span className="text-feedback-warning-fg">
+                {' '}
+                · {duplicateIds.size} possible duplicate{duplicateIds.size === 1 ? '' : 's'}
+              </span>
+            )}
+          </p>
+          {failedDocumentIds.length > 1 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                for (const documentId of failedDocumentIds) retryOne(documentId);
+              }}
+            >
+              Retry all failed ({failedDocumentIds.length})
+            </Button>
           )}
-          {duplicateIds.size > 0 && (
-            <span className="text-feedback-warning-fg">
-              {' '}
-              · {duplicateIds.size} possible duplicate{duplicateIds.size === 1 ? '' : 's'}
-            </span>
-          )}
-        </p>
+        </div>
       </div>
 
       <ul className="divide-border-subtle flex flex-col divide-y">
@@ -209,6 +255,23 @@ export function DocumentProcessingList({
                     {document.evidenceItemCount === 1 ? '' : 's'} →
                   </button>
                 )}
+                {isFailed && (
+                  <button
+                    type="button"
+                    disabled={retryingIds.has(document.id)}
+                    onClick={() => {
+                      retryOne(document.id);
+                    }}
+                    className="text-feedback-error-fg hover:text-feedback-error-fg inline-flex items-center gap-1 outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2 disabled:opacity-50"
+                  >
+                    <RotateCw
+                      className={cn('size-3.5', retryingIds.has(document.id) && 'animate-spin')}
+                      aria-hidden="true"
+                    />
+                    {retryingIds.has(document.id) ? 'Retrying…' : 'Retry'}
+                    {document.retryCount > 0 && ` (attempt ${String(document.retryCount + 1)})`}
+                  </button>
+                )}
                 {isDuplicate && (
                   <span className="text-feedback-warning-fg">Possible duplicate</span>
                 )}
@@ -230,8 +293,9 @@ export function DocumentProcessingList({
                     <>
                       <dt className="text-feedback-error-fg">Processing failed</dt>
                       <dd className="text-feedback-error-fg">
-                        {document.ingestionError ?? 'Processing failed.'} — Upload this document
-                        again to retry.
+                        {document.ingestionError ?? 'Processing failed.'}
+                        {document.retryCount > 0 &&
+                          ` — retried ${String(document.retryCount)} time${document.retryCount === 1 ? '' : 's'} already.`}
                       </dd>
                     </>
                   )}

@@ -134,5 +134,28 @@ export function useUploadDocument(applicationId: string) {
   });
 }
 
+/**
+ * Retry a FAILED document's ingestion pipeline (final product polish
+ * sprint). Reuses the already-stored bytes — never re-uploads. Only valid
+ * for a FAILED document; the backend rejects any other state with a 409.
+ * Invalidates the same list query `useUploadDocument` does, so the retried
+ * document (now PENDING again) flows straight back into the existing
+ * ingestion-polling loop.
+ */
+export function useRetryDocument(applicationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (documentId: string) => {
+      const response = await httpClient.post<unknown>(
+        `/applications/${applicationId}/documents/${documentId}/retry`,
+      );
+      return documentSchema.parse(response.data);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: documentsQueryKey(applicationId) });
+    },
+  });
+}
+
 export type { Document };
 export { staleTimeFor };

@@ -71,6 +71,7 @@ const fixtureDocument = {
   pageCount: 1,
   ingestionCompletedAt: '2026-06-20T09:05:00Z',
   ingestionError: null,
+  retryCount: 0,
 };
 
 const fixtureFinding = {
@@ -103,9 +104,56 @@ let findingReviewState: {
   escalatedToUserId: string | null;
 } = { state: 'unreviewed', escalatedToRole: null, escalatedToUserId: null };
 
+// Mutable in-memory application/evaluation state (final product polish
+// sprint) — a real state machine mirroring the backend's own
+// DRAFT -> SUBMITTED transition and FINDING_GENERATION run status, so
+// submit/retry-evaluation round trips are exercisable in tests exactly like
+// `findingReviewState` above.
+let applicationStatus: string = fixtureApplication.status;
+let evaluationState: {
+  status: string;
+  errorMessage: string | null;
+  retryable: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+} = {
+  status: 'COMPLETED',
+  errorMessage: null,
+  retryable: false,
+  startedAt: '2026-06-20T09:05:00Z',
+  completedAt: '2026-06-20T09:10:00Z',
+};
+
 export const handlers = [
   http.get('/v1/applications/:id', ({ params }) => {
-    return HttpResponse.json({ ...fixtureApplication, id: params.id });
+    return HttpResponse.json({ ...fixtureApplication, id: params.id, status: applicationStatus });
+  }),
+
+  http.post('/v1/applications/:id/submit', ({ params }) => {
+    applicationStatus = 'SUBMITTED';
+    return HttpResponse.json({ ...fixtureApplication, id: params.id, status: applicationStatus });
+  }),
+
+  http.get('/v1/applications/:id/evaluation', () => {
+    return HttpResponse.json(evaluationState);
+  }),
+
+  // No assignment exists by default for the fixture application — an honest
+  // "not yet assigned" state, same as any real application before an RM/
+  // Underwriter is explicitly assigned via `PUT .../assignment`.
+  http.get('/v1/applications/:id/assignment', () => {
+    return HttpResponse.json(null);
+  }),
+
+  http.post('/v1/applications/:id/retry-evaluation', ({ params }) => {
+    evaluationState = {
+      status: 'RUNNING',
+      errorMessage: null,
+      retryable: false,
+      startedAt: '2026-06-21T12:00:00Z',
+      completedAt: null,
+    };
+    return HttpResponse.json({ ...fixtureApplication, id: params.id, status: applicationStatus });
   }),
 
   http.get('/v1/applications/:id/evidence', ({ params }) => {
@@ -125,6 +173,17 @@ export const handlers = [
   http.get('/v1/applications/:applicationId/documents/:documentId/content', () => {
     return new HttpResponse(MINIMAL_PDF_BYTES, {
       headers: { 'Content-Type': 'application/pdf' },
+    });
+  }),
+
+  http.post('/v1/applications/:applicationId/documents/:documentId/retry', ({ params }) => {
+    return HttpResponse.json({
+      ...fixtureDocument,
+      id: params.documentId,
+      applicationId: params.applicationId,
+      ingestionStatus: 'PENDING',
+      ingestionError: null,
+      retryCount: fixtureDocument.retryCount + 1,
     });
   }),
 
@@ -169,6 +228,14 @@ export const handlers = [
   // application code, which never calls `/__test__/*`.
   http.post('/v1/__test__/reset', () => {
     findingReviewState = { state: 'unreviewed', escalatedToRole: null, escalatedToUserId: null };
+    applicationStatus = fixtureApplication.status;
+    evaluationState = {
+      status: 'COMPLETED',
+      errorMessage: null,
+      retryable: false,
+      startedAt: '2026-06-20T09:05:00Z',
+      completedAt: '2026-06-20T09:10:00Z',
+    };
     return HttpResponse.json({ ok: true });
   }),
 ];

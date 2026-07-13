@@ -214,6 +214,36 @@ class DocumentService:
         require_permission(user, Permission.READ_DOCUMENT)
         return self._repo.get_for_application(application_id)
 
+    def retry_ingestion(
+        self,
+        user: AuthenticatedUser,
+        *,
+        document_id: UUID,
+    ) -> Document:
+        """
+        Reset a FAILED document back to PENDING so its ingestion pipeline
+        (OCR -> Extraction -> Evidence) can be re-triggered.
+
+        Reuses the already-stored file bytes (``storage_reference`` is
+        immutable per ADR-006) — no re-upload is ever required. The caller
+        is responsible for re-triggering the DOCUMENT_INGESTION workflow
+        (see ``DocumentIngestionTrigger.trigger``) after this returns.
+
+        Raises:
+            AuthorizationError: If the caller lacks UPLOAD_DOCUMENT permission.
+            NotFoundError:      If no document with the given id exists.
+            ConflictError:      If the document is not FAILED (retry is only
+                                 valid for a terminally failed document —
+                                 see ``Document.reset_for_retry``).
+        """
+        require_permission(user, Permission.UPLOAD_DOCUMENT)
+        document = self._repo.get_by_id(document_id)
+        if document is None:
+            raise NotFoundError("Document", document_id)
+        document.reset_for_retry()
+        self._repo.save(document, actor=user)
+        return document
+
     @staticmethod
     def compute_content_hash(content: bytes) -> str:
         """

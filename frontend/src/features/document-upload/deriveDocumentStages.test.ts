@@ -19,6 +19,7 @@ function makeDocument(overrides: Partial<Document> = {}): Document {
     pageCount: null,
     ingestionCompletedAt: null,
     ingestionError: null,
+    retryCount: 0,
     ...overrides,
   };
 }

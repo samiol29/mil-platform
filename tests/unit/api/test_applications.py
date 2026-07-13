@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock  # noqa: TC003
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from fastapi.testclient import TestClient  # noqa: TC002
@@ -252,6 +252,97 @@ class TestSubmitApplication:
         )
         response = client.post(f"/v1/applications/{TEST_APP_ID}/submit")
         assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/applications/{id}/evaluation
+# ---------------------------------------------------------------------------
+
+
+class TestGetEvaluationStatus:
+    def test_returns_not_triggered_when_no_run_exists(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        mock_finding_trigger.latest_run.return_value = None
+        data = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation").json()
+        assert data["status"] == "NOT_TRIGGERED"
+        assert data["retryable"] is False
+
+    def test_returns_completed_status(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        run = MagicMock(status="COMPLETED", steps=[])
+        mock_finding_trigger.latest_run.return_value = run
+        data = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation").json()
+        assert data["status"] == "COMPLETED"
+        assert data["retryable"] is False
+
+    def test_failed_run_is_retryable_with_error_message(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        failed_step = MagicMock(status="FAILED", error_message="Gemini API returned HTTP 429")
+        run = MagicMock(status="FAILED", steps=[failed_step])
+        mock_finding_trigger.latest_run.return_value = run
+        data = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation").json()
+        assert data["status"] == "FAILED"
+        assert data["retryable"] is True
+        assert data["error_message"] == "Gemini API returned HTTP 429"
+
+    def test_not_found_returns_404(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        mock_app_service.get_application.side_effect = NotFoundError(
+            "MortgageApplication", TEST_APP_ID
+        )
+        response = client.get(f"/v1/applications/{TEST_APP_ID}/evaluation")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/applications/{id}/retry-evaluation
+# ---------------------------------------------------------------------------
+
+
+class TestRetryEvaluation:
+    def test_returns_200(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        assert response.status_code == 200
+
+    def test_calls_finding_trigger_retry(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        mock_finding_trigger.retry.assert_called_once()
+
+    def test_conflict_when_no_failed_run_returns_409(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        app = make_application()
+        mock_app_service.get_application.return_value = app
+        mock_finding_trigger.retry.side_effect = ConflictError("No FAILED evaluation run exists")
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        assert response.status_code == 409
+
+    def test_not_found_returns_404(
+        self, client: TestClient, mock_app_service: MagicMock, mock_finding_trigger: MagicMock
+    ) -> None:
+        mock_app_service.get_application.side_effect = NotFoundError(
+            "MortgageApplication", TEST_APP_ID
+        )
+        response = client.post(f"/v1/applications/{TEST_APP_ID}/retry-evaluation")
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

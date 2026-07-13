@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
+from dataclasses import dataclass
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -46,13 +47,18 @@ class FakeReviewRepository:
         self.saved_comments.append(comment)
 
 
+@dataclass
+class _FakeAuditEvent:
+    id: UUID
+
+
 class FakeAuditWriter:
     def __init__(self) -> None:
         self.records: list[dict[str, object]] = []
 
-    def record(self, **kwargs: object) -> object:
+    def record(self, **kwargs: object) -> _FakeAuditEvent:
         self.records.append(kwargs)
-        return object()
+        return _FakeAuditEvent(id=uuid4())
 
 
 def _make_service() -> tuple[ReviewService, FakeReviewRepository, FakeAuditWriter]:

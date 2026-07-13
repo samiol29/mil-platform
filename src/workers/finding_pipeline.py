@@ -538,6 +538,7 @@ def start_finding_generation_workflow(
     application_id: UUID,
     tenant_id: UUID,
     correlation_id: str | None = None,
+    retry_count: int = 0,
 ) -> WorkflowRun:
     """
     Start (or return the existing) ``FINDING_GENERATION`` workflow run for an
@@ -554,6 +555,15 @@ def start_finding_generation_workflow(
     Idempotent (ADR-008): the idempotency key is deterministic per application,
     so a repeat call (e.g. a retried request) returns the existing run rather
     than creating a duplicate or re-dispatching the job.
+
+    ``retry_count`` distinguishes a genuine human-triggered retry of a FAILED
+    evaluation (see ``FindingTrigger.retry`` in ``mil.api.deps``) from the
+    original submission trigger. Left at its default of ``0``, the
+    idempotency key is unchanged from the original call — a real retry passes
+    the number of prior FINDING_GENERATION runs for this application so a
+    *new* key is minted per attempt; without this, a retry would be a no-op,
+    since ``IntelligenceOrchestrator.start_workflow`` returns the existing run
+    for a repeat key rather than dispatching new work.
     """
     registry = container.resolve(ProviderRegistry)
     inference_version = registry.get_inference().version()
@@ -576,7 +586,11 @@ def start_finding_generation_workflow(
         tenant_id=tenant_id,
         application_id=application_id,
         workflow_type=FINDING_WORKFLOW_TYPE,
-        idempotency_key=f"{FINDING_WORKFLOW_TYPE}:{application_id}",
+        idempotency_key=(
+            f"{FINDING_WORKFLOW_TYPE}:{application_id}"
+            if retry_count == 0
+            else f"{FINDING_WORKFLOW_TYPE}:{application_id}:retry{retry_count}"
+        ),
         step_names=[FINDING_STEP_NAME, _POLICY_STEP_NAME, _REVIEW_STEP_NAME],
         pinned_versions=pinned,
         correlation_id=correlation_id,
