@@ -53,6 +53,7 @@ from mil.copilot.ports import (
     DocumentView,
     EvidenceView,
     FindingView,
+    PartyView,
     PolicyResultView,
     ReviewActionView,
     ReviewCommentView,
@@ -63,7 +64,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from mil.application.models import MortgageApplication
+    from mil.application.models import MortgageApplication, Party
     from mil.application.repository import ApplicationRepository
     from mil.document.models import Document
     from mil.document.ocr_models import OCRResultRecord
@@ -91,7 +92,18 @@ def _to_application_view(application: MortgageApplication) -> ApplicationView:
         id=application.id,
         tenant_id=application.tenant_id,
         status=application.status,
+        loan_number=application.loan_number,
+        los_reference=application.los_reference,
         created_at=application.created_at,
+    )
+
+
+def _to_party_view(party: Party) -> PartyView:
+    return PartyView(
+        id=party.id,
+        application_id=party.application_id,
+        party_type=party.party_type,
+        display_name=party.display_name,
     )
 
 
@@ -225,6 +237,28 @@ class ApplicationReaderAdapter:
     def get_by_id(self, application_id: UUID) -> ApplicationView | None:
         application = self._repo.get_by_id(application_id)
         return _to_application_view(application) if application is not None else None
+
+
+class PartyReaderAdapter:
+    """
+    Adapts ``ApplicationRepository`` to the ``PartyReader`` port.
+
+    Reuses ``ApplicationRepository.get_by_id`` (the same one
+    ``ApplicationReaderAdapter`` already calls) rather than adding a new
+    repository — ``MortgageApplication.parties`` is already a real,
+    already-loaded relationship (``mil.application.models``), the same one
+    ``add_party``/``remove_party`` iterate. No new query, no new table
+    access; this only exposes data the aggregate already carries.
+    """
+
+    def __init__(self, repository: ApplicationRepository) -> None:
+        self._repo = repository
+
+    def get_for_application(self, application_id: UUID) -> Sequence[PartyView]:
+        application = self._repo.get_by_id(application_id)
+        if application is None:
+            return ()
+        return tuple(_to_party_view(party) for party in application.parties)
 
 
 class DocumentReaderAdapter:

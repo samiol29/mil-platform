@@ -186,19 +186,24 @@ export function FindingCard({
         </span>
       </div>
 
-      <div>
-        <p className="text-caption text-text-tertiary tracking-wide uppercase">Issue</p>
-        <h3 className="text-heading-section text-text-primary">{finding.what}</h3>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-caption text-text-tertiary tracking-wide uppercase">
+            Finding Summary
+          </p>
+          <h3 className="text-heading-section text-text-primary">{finding.what}</h3>
+        </div>
+        <ConfidenceIndicator level={finding.confidence} className="shrink-0 pt-4" />
       </div>
 
       <div>
-        <p className="text-caption text-text-tertiary tracking-wide uppercase">Why it matters</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Analysis</p>
         <FindingNarrative why={finding.why} />
       </div>
 
       <div>
         <p className="text-caption text-text-tertiary mb-2 tracking-wide uppercase">
-          Supporting evidence
+          Supporting Evidence
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {visibleEvidenceRefs.map((evidenceId) => {
@@ -233,17 +238,17 @@ export function FindingCard({
       </div>
 
       <div>
-        <p className="text-caption text-text-tertiary tracking-wide uppercase">Impact</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Business Impact</p>
         <p className="text-body text-text-primary">{deriveFindingImpact(finding)}</p>
         <p className="text-caption text-text-tertiary">
-          Derived from confidence and evidence count — not a backend-assigned severity.
+          Derived from confidence and evidence count — not a backend-assigned risk score.
         </p>
       </div>
 
-      <ConfidenceIndicator level={finding.confidence} />
-
       <div className="border-border-subtle border-t pt-3">
-        <p className="text-caption text-text-tertiary tracking-wide uppercase">Policy</p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">
+          Policy Evaluation
+        </p>
         <p className="text-body text-text-tertiary">
           {finding.policyVersion !== null
             ? `Evaluated under policy ${finding.policyVersion}`
@@ -252,12 +257,16 @@ export function FindingCard({
       </div>
 
       <div className="bg-surface-secondary rounded-container flex flex-col gap-2 p-3">
-        <p className="text-caption text-text-tertiary tracking-wide uppercase">Your decision</p>
-        <p className="text-label text-text-primary">
-          <span className="text-text-secondary">Recommended reviewer action: </span>
-          {finding.recommendedAction}
-        </p>
-        {actions !== undefined && <div className="mt-1">{actions}</div>}
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Recommendation</p>
+        <p className="text-label text-text-primary">{finding.recommendedAction}</p>
+        {actions !== undefined && (
+          <div className="border-border-subtle mt-1 flex flex-col gap-2 border-t pt-2">
+            <p className="text-caption text-text-tertiary tracking-wide uppercase">
+              Reviewer Action
+            </p>
+            {actions}
+          </div>
+        )}
       </div>
 
       <div className="border-border-subtle flex flex-col gap-2 border-t pt-2">

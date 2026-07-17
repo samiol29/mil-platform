@@ -233,6 +233,14 @@ export const handlers = [
     return HttpResponse.json([]);
   }),
 
+  // No policy packs by default (final design sprint — Policy region now
+  // resolves `activePolicyPackId` to a real name via this endpoint, same
+  // as the Overview region already did) — an honest empty default; tests
+  // that need a specific pack override this per-test.
+  http.get('/v1/policy-packs', () => {
+    return HttpResponse.json({ items: [] });
+  }),
+
   http.post('/v1/__test__/reset', () => {
     findingReviewState = { state: 'unreviewed', escalatedToRole: null, escalatedToUserId: null };
     applicationStatus = fixtureApplication.status;

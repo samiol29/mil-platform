@@ -27,6 +27,7 @@
 
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowRight, FolderKanban, Plus } from 'lucide-react';
+import { Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 
 import { useAuthUser } from '@app/auth/authProvider';
 import { useUiStore } from '@app/uiStore';
@@ -34,6 +35,7 @@ import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { Skeleton } from '@design-system/components/LoadingState';
+import { PageContainer } from '@design-system/components/PageContainer';
 import { cn } from '@design-system/lib/cn';
 import { useApplicationSearch } from '@entities/application/queries';
 import {
@@ -47,6 +49,22 @@ const NEEDS_ATTENTION_LIMIT = 6;
 
 /** Urgency order for "Needs attention": decisions waiting on a human first. */
 const ATTENTION_ORDER: readonly ApplicationStatus[] = ['IN_REVIEW', 'SUBMITTED', 'DRAFT'];
+
+/** Same per-status color vocabulary as the Business Analytics status chart — one palette, not two. */
+const STATUS_CHART_COLOR: Record<ApplicationStatus, string> = {
+  DRAFT: 'var(--text-tertiary)',
+  SUBMITTED: 'var(--interactive-primary-default)',
+  IN_REVIEW: 'var(--feedback-warning-fg)',
+  REVIEW_COMPLETE: 'var(--feedback-success-fg)',
+  WITHDRAWN: 'var(--text-disabled)',
+};
+
+const TOOLTIP_CONTENT_STYLE = {
+  background: 'var(--surface-overlay)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 8,
+  fontSize: 12,
+};
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -78,7 +96,7 @@ export function HomeDashboard() {
   const applicationsQuery = useApplicationSearch();
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+    <PageContainer variant="dense" className="gap-8">
       <div className="flex items-center justify-between">
         <h1 className="text-heading-page text-text-primary">
           {greeting()}
@@ -122,7 +140,7 @@ export function HomeDashboard() {
       {applicationsQuery.isSuccess && (
         <DashboardContent applications={applicationsQuery.data.items} />
       )}
-    </div>
+    </PageContainer>
   );
 }
 
@@ -193,58 +211,131 @@ function DashboardContent({ applications }: { readonly applications: readonly Ap
         />
       </section>
 
-      <section aria-label="Needs attention" className="flex flex-col gap-3">
-        <h2 className="text-heading-section text-text-primary">Needs attention</h2>
-        {needsAttention.length === 0 ? (
-          <EmptyState
-            title="Nothing in progress"
-            description="Open applications will show up here as you work them."
-          />
-        ) : (
-          <ul className="bg-surface-raised shadow-raised divide-border-subtle divide-y rounded-container">
-            {needsAttention.map((app) => (
-              <li key={app.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void navigate({
-                      to: '/applications/$applicationId',
-                      params: { applicationId: app.id },
-                      search: { region: 'overview' },
-                    });
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-4 px-4 py-3 text-left',
-                    'hover:bg-surface-secondary',
-                    'outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2',
-                  )}
-                >
-                  <span className="text-body-emphasis text-text-primary min-w-0 flex-1 truncate">
-                    {app.loanNumber ?? app.losReference ?? app.id}
-                  </span>
-                  <span className="text-caption text-text-tertiary shrink-0">
-                    {app.partyCount} {app.partyCount === 1 ? 'party' : 'parties'}
-                  </span>
-                  <span
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <section aria-label="Needs attention" className="flex flex-col gap-3 lg:col-span-2">
+          <h2 className="text-heading-section text-text-primary">Needs attention</h2>
+          {needsAttention.length === 0 ? (
+            <EmptyState
+              title="Nothing in progress"
+              description="Open applications will show up here as you work them."
+            />
+          ) : (
+            <ul className="bg-surface-raised shadow-raised divide-border-subtle divide-y rounded-container">
+              {needsAttention.map((app) => (
+                <li key={app.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigate({
+                        to: '/applications/$applicationId',
+                        params: { applicationId: app.id },
+                        search: { region: 'overview' },
+                      });
+                    }}
                     className={cn(
-                      APPLICATION_STATUS_CHIP_BASE_CLASS,
-                      APPLICATION_STATUS_CHIP_CLASS_NAME[app.status],
-                      'shrink-0',
+                      'flex w-full items-center gap-4 px-4 py-3 text-left',
+                      'hover:bg-surface-secondary transition-colors duration-micro ease-standard',
+                      'outline-none focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:-outline-offset-2',
                     )}
                   >
-                    {APPLICATION_STATUS_LABEL[app.status]}
-                  </span>
-                  <span className="text-caption text-text-tertiary w-16 shrink-0 text-right tabular-nums">
-                    {formatAgeRow(ageInDays(app.createdAt))}
-                  </span>
-                  <ArrowRight className="text-text-tertiary size-4 shrink-0" aria-hidden="true" />
-                </button>
+                    <span className="text-body-emphasis text-text-primary min-w-0 flex-1 truncate">
+                      {app.loanNumber ?? app.losReference ?? app.id}
+                    </span>
+                    <span className="text-caption text-text-tertiary shrink-0">
+                      {app.partyCount} {app.partyCount === 1 ? 'party' : 'parties'}
+                    </span>
+                    <span
+                      className={cn(
+                        APPLICATION_STATUS_CHIP_BASE_CLASS,
+                        APPLICATION_STATUS_CHIP_CLASS_NAME[app.status],
+                        'shrink-0',
+                      )}
+                    >
+                      {APPLICATION_STATUS_LABEL[app.status]}
+                    </span>
+                    <span className="text-caption text-text-tertiary w-16 shrink-0 text-right tabular-nums">
+                      {formatAgeRow(ageInDays(app.createdAt))}
+                    </span>
+                    <ArrowRight className="text-text-tertiary size-4 shrink-0" aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <PortfolioCompositionCard applications={applications} />
+      </div>
+    </>
+  );
+}
+
+const PORTFOLIO_STATUS_ORDER: readonly ApplicationStatus[] = [
+  'DRAFT',
+  'SUBMITTED',
+  'IN_REVIEW',
+  'REVIEW_COMPLETE',
+  'WITHDRAWN',
+];
+
+/**
+ * A real-data donut over the entire visible portfolio's status mix — not
+ * just the three "needs attention" statuses the list above narrows to.
+ * Same data this page already fetches (`useApplicationSearch`), no new
+ * endpoint; same per-status color vocabulary as Business Analytics' status
+ * chart, so a reviewer sees one consistent status palette everywhere.
+ */
+function PortfolioCompositionCard({
+  applications,
+}: {
+  readonly applications: readonly Application[];
+}) {
+  const data = PORTFOLIO_STATUS_ORDER.map((status) => ({
+    name: APPLICATION_STATUS_LABEL[status],
+    value: applications.filter((app) => app.status === status).length,
+    fill: STATUS_CHART_COLOR[status],
+  })).filter((entry) => entry.value > 0);
+
+  return (
+    <section
+      aria-label="Portfolio composition"
+      className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-3 p-5"
+    >
+      <h2 className="text-heading-section text-text-primary">Portfolio composition</h2>
+      {data.length === 0 ? (
+        <p className="text-caption text-text-tertiary">No applications yet.</p>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={44}
+                outerRadius={68}
+                paddingAngle={data.length > 1 ? 2 : 0}
+                strokeWidth={0}
+              />
+              <Tooltip contentStyle={TOOLTIP_CONTENT_STYLE} />
+            </PieChart>
+          </ResponsiveContainer>
+          <ul className="flex flex-col gap-1.5">
+            {data.map((entry) => (
+              <li key={entry.name} className="flex items-center gap-2 text-caption">
+                <span
+                  aria-hidden="true"
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: entry.fill }}
+                />
+                <span className="text-text-secondary min-w-0 flex-1 truncate">{entry.name}</span>
+                <span className="text-text-primary font-medium tabular-nums">{entry.value}</span>
               </li>
             ))}
           </ul>
-        )}
-      </section>
-    </>
+        </>
+      )}
+    </section>
   );
 }
 

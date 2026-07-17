@@ -1,6 +1,6 @@
 """Add escalation columns to review.review_sessions and review.review_actions.
 
-Design (approved after a focused domain-design review — see HANDOFF.md):
+Design (approved after a focused domain-design review — see docs/archive/HANDOFF.md):
 escalation is a non-terminal `ReviewSession` status, resolved by the same
 existing verify/override/reject actions rather than a separate resolution
 action or a separate bounded context — the same normalized-schema

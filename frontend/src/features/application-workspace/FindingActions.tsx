@@ -1,6 +1,6 @@
 /**
  * FindingActions (spec 002 tasks.md T063; escalate added per the approved
- * Review/Escalation domain-design — see HANDOFF.md).
+ * Review/Escalation domain-design — see docs/archive/HANDOFF.md).
  *
  * Verify, override, and escalate action controls. All three open a
  * `Dialog` — the confirming action is always a distinct second step (a

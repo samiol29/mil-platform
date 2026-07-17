@@ -1,12 +1,41 @@
 /**
- * Business Analytics (spec 005-enterprise-platform §11, Wave 3) — an
+ * Business Analytics (spec 005-enterprise-platform §11, Wave 3; visually
+ * redesigned in RC3 — Enterprise Experience & Visual Excellence). An
  * executive analytics view. Only real, on-demand backend aggregates are
  * shown — no fabricated KPI, no historical trend chart, since no
  * time-series metrics substrate exists on the backend (see the spec's own
  * implementation-correction note for this section). Where trend data
  * would normally appear, this page shows an honest disclosure instead.
+ *
+ * RC3 replaces the plain proportion-bar/table rendering with real charts
+ * (`recharts`) over the exact same fields — a horizontal bar chart for
+ * `applicationCountsByStatus`, a donut for `findingOutcomes` — because the
+ * data is genuinely categorical/proportional and a chart communicates that
+ * faster than a column of numbers. Nothing new is computed: every chart
+ * consumes the identical already-fetched snapshot the previous table did.
+ * `policyOutcomes` stays a table — it's a (version × outcome) matrix, not a
+ * single-series distribution, so a chart would not honestly simplify it.
  */
 
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+
+import {
+  CHART_AXIS_STROKE,
+  CHART_GRID_STROKE,
+  CHART_TOOLTIP_BACKGROUND,
+  CHART_TOOLTIP_BORDER,
+  categoricalChartColor,
+} from '@design-system/charts/chartTheme';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { Skeleton } from '@design-system/components/LoadingState';
 import { useBusinessAnalyticsSnapshot } from '@entities/analytics/queries';
@@ -27,42 +56,101 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-/**
- * A plain proportion bar for an already-real count against an already-real
- * total (final polish sprint) — no analytics are invented here, this is
- * purely a visual comparison of numbers the page already renders as text,
- * so a reviewer can compare rows at a glance instead of doing the division
- * themselves.
- */
-function ProportionRow({
-  label,
-  count,
-  total,
-  detail,
+/** Shared tooltip styling — every chart on this page uses the identical treatment. */
+const TOOLTIP_CONTENT_STYLE = {
+  background: CHART_TOOLTIP_BACKGROUND,
+  border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+  borderRadius: 8,
+  fontSize: 12,
+};
+
+const APPLICATION_STATUS_CHART_COLOR: Record<string, string> = {
+  DRAFT: 'var(--text-tertiary)',
+  SUBMITTED: 'var(--interactive-primary-default)',
+  IN_REVIEW: 'var(--feedback-warning-fg)',
+  REVIEW_COMPLETE: 'var(--feedback-success-fg)',
+  WITHDRAWN: 'var(--text-disabled)',
+};
+
+function ApplicationStatusChart({
+  rows,
 }: {
-  label: string;
-  count: number;
-  total: number;
-  detail?: string;
+  readonly rows: readonly { status: string; count: number }[];
 }) {
-  const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+  const data = rows.map((row) => ({
+    name: row.status,
+    count: row.count,
+    fill: APPLICATION_STATUS_CHART_COLOR[row.status] ?? 'var(--text-tertiary)',
+  }));
+  const height = Math.max(140, data.length * 44);
+
   return (
-    <tr>
-      <td className="py-1.5">
-        <div className="flex flex-col gap-1">
-          <span>{label}</span>
-          <div className="bg-surface-sunken h-1.5 w-full max-w-48 overflow-hidden rounded-full">
-            <div
-              className="bg-interactive-primary-default h-full rounded-full"
-              style={{ width: `${String(percent)}%` }}
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid horizontal={false} stroke={CHART_GRID_STROKE} />
+        <XAxis type="number" allowDecimals={false} stroke={CHART_AXIS_STROKE} fontSize={12} />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={110}
+          stroke={CHART_AXIS_STROKE}
+          fontSize={12}
+          tickLine={false}
+        />
+        <Tooltip
+          cursor={{ fill: 'var(--surface-secondary)' }}
+          contentStyle={TOOLTIP_CONTENT_STYLE}
+        />
+        <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={22} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function FindingOutcomeChart({
+  rows,
+}: {
+  readonly rows: readonly { lifecycleState: string; count: number }[];
+}) {
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  const data = rows.map((row, index) => ({
+    name: row.lifecycleState,
+    value: row.count,
+    fill: categoricalChartColor(index),
+  }));
+
+  return (
+    <div className="flex items-center gap-4">
+      <ResponsiveContainer width="60%" height={180}>
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            innerRadius={48}
+            outerRadius={72}
+            paddingAngle={data.length > 1 ? 2 : 0}
+            strokeWidth={0}
+          />
+          <Tooltip contentStyle={TOOLTIP_CONTENT_STYLE} />
+        </PieChart>
+      </ResponsiveContainer>
+      <ul className="flex flex-1 flex-col gap-1.5">
+        {data.map((entry, index) => (
+          <li key={entry.name} className="flex items-center gap-2 text-caption">
+            <span
+              aria-hidden="true"
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: categoricalChartColor(index) }}
             />
-          </div>
-        </div>
-      </td>
-      <td className="py-1.5 text-right tabular-nums">
-        {detail ?? `${String(count)} (${String(percent)}%)`}
-      </td>
-    </tr>
+            <span className="text-text-secondary min-w-0 flex-1 truncate">{entry.name}</span>
+            <span className="text-text-primary font-medium tabular-nums">
+              {entry.value} ({total > 0 ? Math.round((entry.value / total) * 100) : 0}%)
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -71,10 +159,16 @@ export function BusinessAnalyticsPage() {
 
   if (snapshotQuery.isPending) {
     return (
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
+      <div className="flex flex-col gap-4">
+        <div className="flex gap-3">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Skeleton key={i} className="h-16 flex-1" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
       </div>
     );
   }
@@ -107,51 +201,30 @@ export function BusinessAnalyticsPage() {
         />
       </div>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-heading">Applications by Status</h2>
-        {snapshot.applicationCountsByStatus.length === 0 ? (
-          <p className="text-caption text-text-tertiary">No applications yet.</p>
-        ) : (
-          <table className="text-body w-full">
-            <tbody className="divide-border-default divide-y">
-              {snapshot.applicationCountsByStatus.map((row) => (
-                <ProportionRow
-                  key={row.status}
-                  label={row.status}
-                  count={row.count}
-                  total={totalApplications}
-                  detail={String(row.count)}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-2 p-5">
+          <h2 className="text-heading">Applications by Status</h2>
+          {snapshot.applicationCountsByStatus.length === 0 ? (
+            <p className="text-caption text-text-tertiary">No applications yet.</p>
+          ) : (
+            <ApplicationStatusChart rows={snapshot.applicationCountsByStatus} />
+          )}
+        </section>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-heading">Finding Outcomes</h2>
-        <p className="text-caption text-text-tertiary">
-          Verification/override/escalation rate, derived from real finding lifecycle states.
-        </p>
-        {snapshot.findingOutcomes.length === 0 ? (
-          <p className="text-caption text-text-tertiary">No findings yet.</p>
-        ) : (
-          <table className="text-body w-full">
-            <tbody className="divide-border-default divide-y">
-              {snapshot.findingOutcomes.map((row) => (
-                <ProportionRow
-                  key={row.lifecycleState}
-                  label={row.lifecycleState}
-                  count={row.count}
-                  total={totalFindings}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+        <section className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-2 p-5">
+          <h2 className="text-heading">Finding Outcomes</h2>
+          <p className="text-caption text-text-tertiary">
+            Real finding lifecycle states — derived, never a fabricated trend.
+          </p>
+          {snapshot.findingOutcomes.length === 0 ? (
+            <p className="text-caption text-text-tertiary">No findings yet.</p>
+          ) : (
+            <FindingOutcomeChart rows={snapshot.findingOutcomes} />
+          )}
+        </section>
+      </div>
 
-      <section className="flex flex-col gap-2">
+      <section className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-2 p-5">
         <h2 className="text-heading">Policy Calibration</h2>
         <p className="text-caption text-text-tertiary">
           Outcome distribution by policy version — helps judge whether a policy pack is flagging too

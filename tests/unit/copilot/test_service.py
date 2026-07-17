@@ -8,9 +8,15 @@ from uuid import uuid4
 
 import pytest
 
-from mil.copilot.citations import EVIDENCE, FINDING
+from mil.copilot.citations import EVIDENCE, FINDING, PARTY
 from mil.copilot.classifier import classify_query
-from mil.copilot.ports import ApplicationView, FindingView, PolicyResultView, ReviewSessionView
+from mil.copilot.ports import (
+    ApplicationView,
+    FindingView,
+    PartyView,
+    PolicyResultView,
+    ReviewSessionView,
+)
 from mil.copilot.prompts import get_prompt_version
 from mil.copilot.service import CopilotService, GroundingBundle
 from mil.kernel.errors import (
@@ -120,6 +126,14 @@ class FakeApplicationReader:
         return self._application
 
 
+class FakePartyReader:
+    def __init__(self, parties: list[PartyView] | None = None) -> None:
+        self._parties = parties or []
+
+    def get_for_application(self, application_id: object) -> list[PartyView]:
+        return self._parties
+
+
 class FakeDocumentReader:
     def __init__(self, documents: list[DocumentView] | None = None) -> None:
         self._documents = documents or []
@@ -184,12 +198,31 @@ class FakeReviewReader:
         return []
 
 
-def _application_view(application_id: object, tenant_id: object) -> ApplicationView:
+def _application_view(
+    application_id: object,
+    tenant_id: object,
+    *,
+    loan_number: str | None = "4009123456",
+    los_reference: str | None = "LOS-0000042",
+) -> ApplicationView:
     return ApplicationView(
         id=application_id,  # type: ignore[arg-type]
         tenant_id=tenant_id,  # type: ignore[arg-type]
         status="SUBMITTED",
+        loan_number=loan_number,
+        los_reference=los_reference,
         created_at=datetime.now(UTC),
+    )
+
+
+def _party_view(
+    application_id: object, *, party_type: str = "APPLICANT", display_name: str = "Daniel Carter"
+) -> PartyView:
+    return PartyView(
+        id=uuid4(),
+        application_id=application_id,  # type: ignore[arg-type]
+        party_type=party_type,
+        display_name=display_name,
     )
 
 
@@ -213,6 +246,7 @@ def _finding_view(application_id: object) -> FindingView:
 def _make_service(
     *,
     application: ApplicationView | None = None,
+    parties: list[PartyView] | None = None,
     documents: list[DocumentView] | None = None,
     document_texts: list[DocumentTextView] | None = None,
     evidence: list[EvidenceView] | None = None,
@@ -230,6 +264,7 @@ def _make_service(
         audit,  # type: ignore[arg-type]
         inference=fake_inference,  # type: ignore[arg-type]
         applications=FakeApplicationReader(application),  # type: ignore[arg-type]
+        parties=FakePartyReader(parties),  # type: ignore[arg-type]
         documents=FakeDocumentReader(documents),  # type: ignore[arg-type]
         document_texts=FakeDocumentTextReader(document_texts),  # type: ignore[arg-type]
         evidence=FakeEvidenceReader(evidence),  # type: ignore[arg-type]
@@ -864,6 +899,102 @@ class TestGenerateResponseGroundedInDocumentText:
         # so the document-text citation must resolve back through the
         # citation index and appear on the persisted response.
         assert any(c["kind"] == DOCUMENT_TEXT for c in response.citations)
+
+
+class TestGenerateResponseGroundedInPartyRecords:
+    """
+    End-to-end: Copilot answers "who is the borrower?" from the real,
+    structured ``Party`` record (final grounding-pipeline sprint) — the path
+    that was previously entirely missing. Before this, `assemble_grounding`
+    never queried `core.parties` at all, so an identity question could only
+    ever be answered incidentally, via an OCR-extracted `borrower_name`
+    `EvidenceItem` that happened to carry the same value — never from the
+    authoritative record itself, and never on an application that had real
+    parties but no evidence extracted yet.
+    """
+
+    def test_party_alone_satisfies_the_grounding_gate(self) -> None:
+        """No Evidence/Finding/DocumentText rows exist yet — only a real
+        Party record — and the service must still proceed to inference
+        rather than returning the safe-failure response."""
+        application_id, tenant_id = uuid4(), uuid4()
+        application = _application_view(application_id, tenant_id)
+        party = _party_view(application_id, party_type="APPLICANT", display_name="Daniel Carter")
+        service, repo, _, inference = _make_service(application=application, parties=[party])
+        user = _user(tenant_id)
+        session = service.create_session(
+            user,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            created_by_user_id=uuid4(),
+            correlation_id="c-1",
+        )
+        query = service.submit_query(
+            user, session, question_text="Who is the borrower?", asked_by_user_id=uuid4()
+        )
+        response = service.generate_response(user, session, query)
+
+        assert inference.calls, "inference must be called — a Party record alone is sufficient"
+        assert response in repo.saved_responses
+        assert response.answer_text != ""
+
+    def test_party_grounding_item_is_built_and_citable(self) -> None:
+        application_id, tenant_id = uuid4(), uuid4()
+        application = _application_view(application_id, tenant_id)
+        party = _party_view(application_id, party_type="APPLICANT", display_name="Daniel Carter")
+        service, _, _, inference = _make_service(application=application, parties=[party])
+        user = _user(tenant_id)
+        session = service.create_session(
+            user,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            created_by_user_id=uuid4(),
+            correlation_id="c-1",
+        )
+        query = service.submit_query(
+            user, session, question_text="Who is the borrower?", asked_by_user_id=uuid4()
+        )
+        response = service.generate_response(user, session, query)
+
+        grounding_items = inference.calls[0].grounding_items
+        party_items = [item for item in grounding_items if item.kind == PARTY]
+        assert len(party_items) == 1
+        assert party_items[0].ref == str(party.id)
+        assert "Daniel Carter" in party_items[0].summary
+        assert "APPLICANT" in party_items[0].summary
+
+        # The default FakeInferenceProvider cites every grounding item's ref,
+        # so the party citation must resolve back through the citation index
+        # and appear on the persisted response.
+        assert any(c["kind"] == PARTY for c in response.citations)
+
+    def test_application_summary_includes_the_real_loan_number_and_los_reference(self) -> None:
+        """The APPLICATION grounding item previously carried only status —
+        no loan number, no LOS reference — leaving nothing to cite for
+        "what loan is this" style questions."""
+        application_id, tenant_id = uuid4(), uuid4()
+        application = _application_view(
+            application_id, tenant_id, loan_number="4009123456", los_reference="LOS-0000042"
+        )
+        party = _party_view(application_id)
+        service, _, _, inference = _make_service(application=application, parties=[party])
+        user = _user(tenant_id)
+        session = service.create_session(
+            user,
+            application_id=application_id,
+            tenant_id=tenant_id,
+            created_by_user_id=uuid4(),
+            correlation_id="c-1",
+        )
+        query = service.submit_query(
+            user, session, question_text="What loan is this?", asked_by_user_id=uuid4()
+        )
+        service.generate_response(user, session, query)
+
+        grounding_items = inference.calls[0].grounding_items
+        application_item = next(item for item in grounding_items if item.kind == "APPLICATION")
+        assert "4009123456" in application_item.summary
+        assert "LOS-0000042" in application_item.summary
 
 
 class TestGenerateResponseInsufficientGrounding:

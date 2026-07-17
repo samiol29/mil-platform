@@ -7,6 +7,7 @@
 
 import { createFileRoute } from '@tanstack/react-router';
 
+import { PageContainer } from '@design-system/components/PageContainer';
 import { BorrowerProfilePage } from '@features/borrower-identity/BorrowerProfilePage';
 
 export const Route = createFileRoute('/parties/$partyId/borrower-profile')({
@@ -17,8 +18,8 @@ function BorrowerProfileRoute() {
   const { partyId } = Route.useParams();
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <PageContainer variant="workspace">
       <BorrowerProfilePage partyId={partyId} />
-    </div>
+    </PageContainer>
   );
 }

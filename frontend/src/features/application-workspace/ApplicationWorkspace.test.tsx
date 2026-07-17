@@ -178,12 +178,130 @@ describe('ApplicationWorkspace — Evidence Workspace (Phase 5)', () => {
   });
 });
 
+describe('ApplicationWorkspace — Evidence search (Evidence Search Sprint)', () => {
+  it('filters to only the matching evidence group as the query narrows results', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('paystub.pdf')).toBeInTheDocument();
+    expect(screen.getByText('bank-statement.pdf')).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText('Search extracted evidence...'), 'income');
+
+    expect(screen.getByText('paystub.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('bank-statement.pdf')).not.toBeInTheDocument();
+    expect(screen.getByText('1 matching evidence item')).toBeInTheDocument();
+  });
+
+  it('matches on the source document filename, not just field/value', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    await user.type(screen.getByPlaceholderText('Search extracted evidence...'), 'bank-statement');
+
+    expect(screen.queryByText('paystub.pdf')).not.toBeInTheDocument();
+    expect(screen.getByText('bank-statement.pdf')).toBeInTheDocument();
+  });
+
+  it('shows an honest empty state, distinct from "no evidence extracted", when nothing matches', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    await user.type(
+      screen.getByPlaceholderText('Search extracted evidence...'),
+      'nonexistent-term-xyz',
+    );
+
+    expect(screen.getByText('No matching evidence found')).toBeInTheDocument();
+    expect(screen.getByText('No evidence matched your search.')).toBeInTheDocument();
+    expect(screen.queryByText('paystub.pdf')).not.toBeInTheDocument();
+    expect(screen.queryByText('bank-statement.pdf')).not.toBeInTheDocument();
+  });
+
+  it('clicking a suggestion chip in the empty state runs that search', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    await user.type(
+      screen.getByPlaceholderText('Search extracted evidence...'),
+      'nonexistent-term-xyz',
+    );
+    expect(await screen.findByText('No evidence matched your search.')).toBeInTheDocument();
+
+    await user.click(screen.getByText('income'));
+
+    expect(await screen.findByText('paystub.pdf')).toBeInTheDocument();
+    expect(screen.getByText('1 matching evidence item')).toBeInTheDocument();
+  });
+
+  it('the clear (×) button resets the search and restores every group', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    const input = screen.getByPlaceholderText('Search extracted evidence...');
+    await user.type(input, 'income');
+    expect(screen.queryByText('bank-statement.pdf')).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Clear search'));
+
+    expect(input).toHaveValue('');
+    expect(screen.getByText('paystub.pdf')).toBeInTheDocument();
+    expect(screen.getByText('bank-statement.pdf')).toBeInTheDocument();
+  });
+
+  it('highlights the matched substring within a result card', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    await user.type(screen.getByPlaceholderText('Search extracted evidence...'), 'income');
+
+    expect(await screen.findByText('income')).toBeInTheDocument();
+    expect(screen.getByText('income').tagName).toBe('MARK');
+  });
+
+  it('is case-insensitive', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    await user.type(screen.getByPlaceholderText('Search extracted evidence...'), 'INCOME');
+
+    expect(screen.getByText('paystub.pdf')).toBeInTheDocument();
+    expect(screen.queryByText('bank-statement.pdf')).not.toBeInTheDocument();
+  });
+
+  it('"View in document" still works on a filtered search result', async () => {
+    mockWorkspaceData();
+    renderWorkspace('evidence');
+    const user = userEvent.setup();
+
+    await screen.findByText('paystub.pdf');
+    await user.type(screen.getByPlaceholderText('Search extracted evidence...'), 'income');
+
+    await user.click(await screen.findByText('View in document'));
+
+    expect(await screen.findByText('← All documents')).toBeInTheDocument();
+  });
+});
+
 describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
   it('shows real finding counts and the permanent honest limitation disclosure', async () => {
     mockWorkspaceData();
     renderWorkspace('policy');
 
-    expect(await screen.findByText('No active policy pack')).toBeInTheDocument();
+    expect(await screen.findByText('Not yet assigned')).toBeInTheDocument();
     expect(
       screen.getByText(/This workspace shows findings that were flagged during policy evaluation/),
     ).toBeInTheDocument();
@@ -224,7 +342,45 @@ describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
     expect(screen.getByText(/Passed: MISSING_DOCUMENT, LOW_CONFIDENCE/)).toBeInTheDocument();
   });
 
-  it('shows the real activePolicyPackId with an honest caption when one exists, never a fabricated name', async () => {
+  it('resolves the real activePolicyPackId to its real name via GET /v1/policy-packs', async () => {
+    server.use(
+      http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}`, () =>
+        HttpResponse.json({
+          id: FIXTURE_APPLICATION_ID,
+          losReference: 'LOS-0000042',
+          loanNumber: '4009123456',
+          status: 'IN_REVIEW',
+          activePolicyPackId: 'ffffffff-6666-4666-a666-666666666666',
+          partyCount: 1,
+          createdAt: '2026-06-20T09:00:00Z',
+          updatedAt: '2026-06-20T09:00:00Z',
+        }),
+      ),
+      http.get('/v1/policy-packs', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'ffffffff-6666-4666-a666-666666666666',
+              tenantId: FIXTURE_APPLICATION_ID,
+              version: 'v1.0.0',
+              name: 'Standard Underwriting Pack',
+              jurisdiction: null,
+              isActive: true,
+              activatedAt: '2026-06-01T00:00:00Z',
+              deactivatedAt: null,
+              createdAt: '2026-05-01T00:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    mockWorkspaceData();
+    renderWorkspace('policy');
+
+    expect(await screen.findByText('Standard Underwriting Pack')).toBeInTheDocument();
+  });
+
+  it('falls back to a truncated id, never a fabricated name, when the pack cannot be resolved', async () => {
     server.use(
       http.get(`/v1/applications/${FIXTURE_APPLICATION_ID}`, () =>
         HttpResponse.json({
@@ -242,10 +398,7 @@ describe('ApplicationWorkspace — Policy Workspace (Phase 7)', () => {
     mockWorkspaceData();
     renderWorkspace('policy');
 
-    expect(await screen.findByText('ffffffff-6666-4666-a666-666666666666')).toBeInTheDocument();
-    expect(
-      screen.getByText('No policy pack registry endpoint exists yet to resolve this to a name.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('ffffffff')).toBeInTheDocument();
   });
 
   it('groups findings by their real policyVersion, with a null-version finding in its own "Not yet evaluated" group', async () => {
@@ -684,7 +837,10 @@ describe('ApplicationWorkspace — AI Case Copilot (spec 005 §8)', () => {
     await user.click(await screen.findByText('Ask Copilot about this application'));
 
     expect(await screen.findByText(/supported by the pay stub evidence item/)).toBeInTheDocument();
-    const citation = screen.getByText(/DOCUMENT:/);
+    // Final design excellence sprint: citation chips now show a
+    // human-readable kind label ("Document", not the raw "DOCUMENT" enum
+    // string) and a truncated ref, never a full 36-character UUID.
+    const citation = screen.getByText(/^Document:/);
     await user.click(citation);
 
     // Confirms the DOCUMENT citation reused the existing jump mechanism:

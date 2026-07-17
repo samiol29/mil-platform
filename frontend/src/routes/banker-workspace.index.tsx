@@ -7,6 +7,7 @@
 
 import { createFileRoute } from '@tanstack/react-router';
 
+import { PageContainer } from '@design-system/components/PageContainer';
 import { BankerWorkspacePage } from '@features/banker-workspace/BankerWorkspacePage';
 
 export const Route = createFileRoute('/banker-workspace/')({
@@ -15,9 +16,9 @@ export const Route = createFileRoute('/banker-workspace/')({
 
 function BankerWorkspaceRoute() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <PageContainer variant="dense">
       <h1 className="text-display">Banker Workspace</h1>
       <BankerWorkspacePage />
-    </div>
+    </PageContainer>
   );
 }

@@ -34,6 +34,12 @@
  * sentence on every card. Only suppressed when a group genuinely agrees;
  * a real divergence (e.g. a superseded re-extraction on a different
  * model) still shows its own line here.
+ *
+ * `searchQuery` (Evidence Search Sprint): when the Evidence region's search
+ * bar has an active query, wraps matching substrings in the field-name and
+ * value text in `<mark>` via `highlightMatch`. Purely additive — every field
+ * still renders exactly as before, in the same order, with the same
+ * typography; an empty/undefined query highlights nothing.
  */
 
 import { FileText } from 'lucide-react';
@@ -42,6 +48,8 @@ import { AiSignalBadge } from '@design-system/components/AiSignalBadge';
 import { ConfidenceIndicator } from '@design-system/components/ConfidenceIndicator';
 import { EvidenceChip } from '@design-system/components/EvidenceChip';
 import type { EvidenceItem } from '@entities/evidence/queries';
+
+import { highlightMatch } from './highlightMatch';
 
 function formatEvidenceType(evidenceType: string): string {
   return evidenceType.replaceAll('_', ' ');
@@ -70,6 +78,8 @@ export interface EvidenceCardProps {
   readonly onViewInDocument: () => void;
   readonly onViewFindings?: (() => void) | undefined;
   readonly hideProvenance?: boolean;
+  /** Active Evidence-region search query (Evidence Search Sprint); undefined/empty highlights nothing. */
+  readonly searchQuery?: string | undefined;
 }
 
 export function EvidenceCard({
@@ -79,6 +89,7 @@ export function EvidenceCard({
   onViewInDocument,
   onViewFindings,
   hideProvenance = false,
+  searchQuery = '',
 }: EvidenceCardProps) {
   return (
     <article className="bg-surface-raised shadow-raised flex flex-col gap-2 rounded-container p-3">
@@ -89,9 +100,11 @@ export function EvidenceCard({
 
       <div>
         <p className="text-caption text-text-tertiary tracking-wide uppercase">
-          {formatEvidenceType(item.evidenceType)}
+          {highlightMatch(formatEvidenceType(item.evidenceType), searchQuery)}
         </p>
-        <p className="text-heading-section text-text-primary">{formatValue(item)}</p>
+        <p className="text-heading-section text-text-primary">
+          {highlightMatch(formatValue(item), searchQuery)}
+        </p>
       </div>
 
       <ConfidenceIndicator level={item.confidence} />

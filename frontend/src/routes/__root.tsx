@@ -112,12 +112,36 @@ function RootLayout() {
       </header>
       <main>
         <RouteErrorBoundary>
-          {user === null ? <SessionEndedScreen /> : <Outlet />}
+          {user === null ? <SessionEndedScreen /> : <PageTransitionOutlet />}
         </RouteErrorBoundary>
       </main>
       <CommandPaletteHost />
       <ToastHost />
       <IntakeWizard />
+    </div>
+  );
+}
+
+/**
+ * Route-change motion (RC3 — Enterprise Experience & Visual Excellence,
+ * Motion Design). Keyed by pathname (not the full URL, so switching an
+ * Application Workspace region — `?region=` search-param state, never a
+ * pathname change — never re-triggers this; that is, and stays, the
+ * Tabs/TabsTrigger component's own concern). Pure CSS (the existing
+ * `animate-panel-in` token, not Framer Motion): every route mounts inside
+ * this persistent root shell, so a JS animation library loaded here would
+ * sit on the critical path of *every* page view rather than one lazy-loaded
+ * route — measured at ~125KB added to the main bundle when tried, for a
+ * plain fade a `key`-triggered CSS remount does for free. Framer Motion is
+ * used instead on Business Analytics' chart entrance, where it's contained
+ * to that route's own lazy-loaded chunk.
+ */
+function PageTransitionOutlet() {
+  const pathname = useLocation({ select: (location) => location.pathname });
+
+  return (
+    <div key={pathname} className="animate-panel-in">
+      <Outlet />
     </div>
   );
 }

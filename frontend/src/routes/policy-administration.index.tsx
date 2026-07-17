@@ -8,6 +8,7 @@
 
 import { createFileRoute } from '@tanstack/react-router';
 
+import { PageContainer } from '@design-system/components/PageContainer';
 import { PolicyAdministrationPage } from '@features/policy-administration/PolicyAdministrationPage';
 
 export const Route = createFileRoute('/policy-administration/')({
@@ -16,9 +17,9 @@ export const Route = createFileRoute('/policy-administration/')({
 
 function PolicyAdministrationRoute() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <PageContainer variant="dense">
       <h1 className="text-display">Policy Administration</h1>
       <PolicyAdministrationPage />
-    </div>
+    </PageContainer>
   );
 }

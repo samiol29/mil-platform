@@ -9,6 +9,7 @@
 
 import { createFileRoute } from '@tanstack/react-router';
 
+import { PageContainer } from '@design-system/components/PageContainer';
 import { RetentionPolicyPanel } from '@features/administration/RetentionPolicyPanel';
 import { UserManagementTable } from '@features/administration/UserManagementTable';
 
@@ -18,10 +19,10 @@ export const Route = createFileRoute('/administration/')({
 
 function AdministrationRoute() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+    <PageContainer variant="dense" className="gap-8">
       <h1 className="text-display">Administration</h1>
       <UserManagementTable />
       <RetentionPolicyPanel />
-    </div>
+    </PageContainer>
   );
 }

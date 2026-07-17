@@ -20,6 +20,7 @@ from mil.copilot.adapters import (
     DocumentTextReaderAdapter,
     EvidenceReaderAdapter,
     FindingReaderAdapter,
+    PartyReaderAdapter,
     PolicyResultReaderAdapter,
     ReviewReaderAdapter,
 )
@@ -37,7 +38,18 @@ class _FakeApplication:
     id: object = field(default_factory=uuid4)
     tenant_id: object = field(default_factory=uuid4)
     status: str = "SUBMITTED"
+    loan_number: str | None = "4009123456"
+    los_reference: str | None = "LOS-0000042"
     created_at: datetime = _NOW
+    parties: list[_FakeParty] = field(default_factory=list)
+
+
+@dataclass
+class _FakeParty:
+    id: object = field(default_factory=uuid4)
+    application_id: object = field(default_factory=uuid4)
+    party_type: str = "APPLICANT"
+    display_name: str = "Daniel Carter"
 
 
 @dataclass
@@ -219,14 +231,48 @@ class _FakeReviewRepository:
 
 class TestApplicationReaderAdapter:
     def test_maps_fields(self) -> None:
-        application = _FakeApplication(status="APPROVED")
+        application = _FakeApplication(
+            status="APPROVED", loan_number="4009123456", los_reference="LOS-0000042"
+        )
         adapter = ApplicationReaderAdapter(_FakeApplicationRepository(application))  # type: ignore[arg-type]
         view = adapter.get_by_id(application.id)
         assert view is not None
         assert view.id == application.id
         assert view.tenant_id == application.tenant_id
         assert view.status == "APPROVED"
+        assert view.loan_number == "4009123456"
+        assert view.los_reference == "LOS-0000042"
         assert view.created_at == application.created_at
+
+    def test_returns_none_for_missing_application(self) -> None:
+        adapter = ApplicationReaderAdapter(_FakeApplicationRepository(None))  # type: ignore[arg-type]
+        assert adapter.get_by_id(uuid4()) is None
+
+
+# ---------------------------------------------------------------------------
+# PartyReaderAdapter
+# ---------------------------------------------------------------------------
+
+
+class TestPartyReaderAdapter:
+    def test_maps_parties_from_the_application_relationship(self) -> None:
+        application = _FakeApplication(
+            parties=[
+                _FakeParty(party_type="APPLICANT", display_name="Daniel Carter"),
+                _FakeParty(party_type="CO_APPLICANT", display_name="Emily Carter"),
+            ]
+        )
+        adapter = PartyReaderAdapter(_FakeApplicationRepository(application))  # type: ignore[arg-type]
+        views = adapter.get_for_application(application.id)
+        assert len(views) == 2
+        assert views[0].party_type == "APPLICANT"
+        assert views[0].display_name == "Daniel Carter"
+        assert views[1].party_type == "CO_APPLICANT"
+        assert views[1].display_name == "Emily Carter"
+
+    def test_returns_empty_for_a_missing_application(self) -> None:
+        adapter = PartyReaderAdapter(_FakeApplicationRepository(None))  # type: ignore[arg-type]
+        assert adapter.get_for_application(uuid4()) == ()
 
     def test_returns_none_when_missing(self) -> None:
         adapter = ApplicationReaderAdapter(_FakeApplicationRepository(None))  # type: ignore[arg-type]

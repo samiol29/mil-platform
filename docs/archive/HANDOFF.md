@@ -1,3 +1,7 @@
+> **Archived**: session handoff note from 2026-07-06, superseded by current specs under
+> `specs/`. Kept for historical reference; still cited from code/doc comments that
+> describe the Review/Escalation domain-design decisions made in this session.
+
 # MIL Frontend Implementation — Handoff
 
 **Date**: 2026-07-06

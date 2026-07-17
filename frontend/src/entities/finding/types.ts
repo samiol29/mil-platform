@@ -17,7 +17,7 @@
  *
  * `state` includes `"escalated"` (spec 002 FR-053/FR-054) — a real,
  * producible state as of the approved Review/Escalation domain-design
- * (see HANDOFF.md): `escalatedToRole`/`escalatedToUserId` are non-null
+ * (see docs/archive/HANDOFF.md): `escalatedToRole`/`escalatedToUserId` are non-null
  * exactly when `state === "escalated"`.
  */
 

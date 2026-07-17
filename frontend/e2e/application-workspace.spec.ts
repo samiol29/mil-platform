@@ -43,7 +43,7 @@ function skipUnlessChromium(browserName: string): void {
  * leaves the underwriter's active queue") is intentionally not covered: it
  * requires an application-level "all findings resolved" status transition
  * and the underwriter queue, neither of which exist yet (User Story 2) —
- * see HANDOFF.md. The `test.fixme` below documents this rather than
+ * see docs/archive/HANDOFF.md. The `test.fixme` below documents this rather than
  * silently omitting it.
  *
  */
@@ -137,7 +137,7 @@ test.describe('Application Workspace — User Story 1', () => {
   test.fixme('scenario 5: application status advances and leaves the queue once all findings are resolved', () => {
     // Requires the application-level "all findings resolved" status
     // transition and the underwriter queue (User Story 2) — neither
-    // exists in the backend or frontend yet. See HANDOFF.md.
+    // exists in the backend or frontend yet. See docs/archive/HANDOFF.md.
   });
 
   test("escalating a finding moves it to the target role's queue and remains resolvable", async ({
