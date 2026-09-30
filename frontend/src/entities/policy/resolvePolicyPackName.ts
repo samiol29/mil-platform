@@ -18,5 +18,7 @@ export function resolvePolicyPackName(
   packs: readonly PolicyPack[] | undefined,
 ): string {
   if (activePolicyPackId === null) return 'Not yet assigned';
-  return packs?.find((pack) => pack.id === activePolicyPackId)?.name ?? activePolicyPackId.slice(0, 8);
+  return (
+    packs?.find((pack) => pack.id === activePolicyPackId)?.name ?? activePolicyPackId.slice(0, 8)
+  );
 }

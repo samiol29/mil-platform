@@ -48,6 +48,7 @@ happen to touch.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
@@ -68,6 +69,8 @@ from mil.kernel.observability import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.orm import Session
 
     from mil.kernel.config import Settings
@@ -266,12 +269,28 @@ def process_next(
     return True
 
 
+# Bounds on the polling loop's failure handling. Without them a persistent
+# failure that raises *before* any blocking wait (Redis/Postgres down, so
+# ``dequeue`` raises instantly) turns ``run_forever`` into a zero-delay hot loop
+# that writes a traceback per iteration — five workers doing that filled a
+# developer's disk with tens of gigabytes of logs.
+_BACKOFF_BASE_SECONDS = 1.0
+_BACKOFF_MAX_SECONDS = 30.0
+_MAX_CONSECUTIVE_FAILURES = 25
+
+
+class WorkerCircuitOpenError(RuntimeError):
+    """Raised when a worker gives up after too many consecutive failures."""
+
+
 def run_forever(
     ctx: WorkerContext,
     handler: JobHandler,
     *,
     job_type: str,
     poll_timeout: float,
+    sleep: Callable[[float], None] = time.sleep,
+    max_consecutive_failures: int = _MAX_CONSECUTIVE_FAILURES,
 ) -> None:
     """
     Poll for and process jobs indefinitely, surviving any single job's failure.
@@ -293,13 +312,45 @@ def run_forever(
     ``process_next``/``reject`` before the exception reaches here, and this
     loop simply continues on to dequeue the next available job (which may be
     that same job, redelivered, once its retry is due).
+
+    Failure handling is bounded so a persistent fault cannot spin the loop and
+    flood the logs: consecutive failures back off exponentially (1s, 2s, 4s …
+    capped at 30s), only the first failure of a streak logs a full traceback
+    (later ones log a single line), any successful poll — including an empty
+    queue — resets the streak, and after ``max_consecutive_failures`` in a row
+    the worker stops with ``WorkerCircuitOpenError`` so a supervisor (or the
+    developer) sees a dead worker rather than an endless stream of errors.
     """
+    consecutive_failures = 0
     while True:
         try:
             process_next(ctx, handler, timeout=poll_timeout, job_type=job_type)
-        except Exception:
-            _log.exception(
-                f"Unhandled exception processing a {job_type} job; continuing to poll.",
-                event_type="worker.job.unhandled_exception",
-                job_type=job_type,
+            consecutive_failures = 0
+        except Exception as exc:
+            consecutive_failures += 1
+            if consecutive_failures >= max_consecutive_failures:
+                _log.critical(
+                    f"Unhandled exception processing a {job_type} job; giving up after "
+                    f"{consecutive_failures} consecutive failures.",
+                    event_type="worker.job.circuit_open",
+                    job_type=job_type,
+                )
+                raise WorkerCircuitOpenError(
+                    f"{job_type} worker stopped after {consecutive_failures} consecutive failures"
+                ) from exc
+            delay = min(
+                _BACKOFF_BASE_SECONDS * 2 ** (consecutive_failures - 1), _BACKOFF_MAX_SECONDS
             )
+            message = f"Unhandled exception processing a {job_type} job; continuing to poll."
+            if consecutive_failures == 1:
+                _log.exception(
+                    message, event_type="worker.job.unhandled_exception", job_type=job_type
+                )
+            else:
+                _log.error(
+                    f"{message} ({type(exc).__name__}: {str(exc)[:200]}; "
+                    f"{consecutive_failures} consecutive failures, retrying in {delay:.0f}s)",
+                    event_type="worker.job.unhandled_exception",
+                    job_type=job_type,
+                )
+            sleep(delay)

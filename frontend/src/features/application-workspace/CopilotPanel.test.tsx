@@ -49,11 +49,16 @@ describe('CopilotPanel citation labels (final design excellence sprint)', () => 
                 id: '66666666-6666-6666-a666-666666666666',
                 queryId: '55555555-5555-5555-a555-555555555555',
                 sessionId: SESSION_ID,
-                answer: 'The application status is SUBMITTED [64cd5379-5104-4758-b443-5f8ea8ab2db6].',
+                answer:
+                  'The application status is SUBMITTED [64cd5379-5104-4758-b443-5f8ea8ab2db6].',
                 promptVersion: 'summarize-application-v1',
                 modelVersion: 'gemini:gemini-2.5-flash',
                 citations: [
-                  { kind: 'APPLICATION', ref: '64cd5379-5104-4758-b443-5f8ea8ab2db6', locator: null },
+                  {
+                    kind: 'APPLICATION',
+                    ref: '64cd5379-5104-4758-b443-5f8ea8ab2db6',
+                    locator: null,
+                  },
                 ],
                 createdAt: '2026-07-14T00:00:02Z',
               },

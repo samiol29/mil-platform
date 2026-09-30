@@ -39,7 +39,11 @@ export function evidenceSearchFields(item: EvidenceItem, filename: string): read
   ];
 }
 
-export function matchesEvidenceSearch(item: EvidenceItem, filename: string, query: string): boolean {
+export function matchesEvidenceSearch(
+  item: EvidenceItem,
+  filename: string,
+  query: string,
+): boolean {
   const normalizedQuery = query.trim().toLowerCase();
   if (normalizedQuery === '') return true;
   return evidenceSearchFields(item, filename).some((field) =>

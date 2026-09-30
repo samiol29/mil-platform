@@ -188,9 +188,7 @@ export function FindingCard({
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-caption text-text-tertiary tracking-wide uppercase">
-            Finding Summary
-          </p>
+          <p className="text-caption text-text-tertiary tracking-wide uppercase">Finding Summary</p>
           <h3 className="text-heading-section text-text-primary">{finding.what}</h3>
         </div>
         <ConfidenceIndicator level={finding.confidence} className="shrink-0 pt-4" />
@@ -246,9 +244,7 @@ export function FindingCard({
       </div>
 
       <div className="border-border-subtle border-t pt-3">
-        <p className="text-caption text-text-tertiary tracking-wide uppercase">
-          Policy Evaluation
-        </p>
+        <p className="text-caption text-text-tertiary tracking-wide uppercase">Policy Evaluation</p>
         <p className="text-body text-text-tertiary">
           {finding.policyVersion !== null
             ? `Evaluated under policy ${finding.policyVersion}`

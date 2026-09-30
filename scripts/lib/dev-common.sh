@@ -34,6 +34,15 @@ MIL_VENV_DIR="${MIL_REPO_ROOT}/.venv"
 MIL_DEV_PID_DIR="${MIL_REPO_ROOT}/.dev/pids"
 MIL_DEV_LOG_DIR="${MIL_REPO_ROOT}/logs/dev"
 
+# Hard disk-safety limits for dev logs. Every managed process's output goes
+# through scripts/lib/rotate_log.py, so one process can use at most
+# MAX_MB * (BACKUPS + 1) on disk (default 10 MB * 4 = 40 MB; 7 processes =
+# 280 MB worst case) however much it writes. dev-up.sh also refuses to start
+# when free disk is below MIN_FREE_MB. Override via the environment if needed.
+MIL_DEV_LOG_MAX_MB="${MIL_DEV_LOG_MAX_MB:-10}"
+MIL_DEV_LOG_BACKUPS="${MIL_DEV_LOG_BACKUPS:-3}"
+MIL_DEV_MIN_FREE_MB="${MIL_DEV_MIN_FREE_MB:-5120}"
+
 mkdir -p "${MIL_DEV_PID_DIR}" "${MIL_DEV_LOG_DIR}"
 
 # ---------------------------------------------------------------------------
@@ -109,10 +118,16 @@ is_stale_pid_file() {
   [[ -n "${pid}" ]] && ! pid_alive "${pid}"
 }
 
+# free_disk_mb DIR — free space, in MB, on the filesystem holding DIR.
+free_disk_mb() {
+  df -Pk "$1" | awk 'NR==2 {print int($4 / 1024)}'
+}
+
 # start_managed KEY LABEL WORKDIR CMD... — starts CMD in the background from
 # WORKDIR, detached from this shell's job control (so it survives the
-# launcher script exiting) with stdout+stderr appended to its log file, and
-# records its PID. No-op (with a message) if KEY is already running.
+# launcher script exiting) with stdout+stderr sent through rotate_log.py into
+# a size-capped, rotating log file, and records CMD's PID. No-op (with a
+# message) if KEY is already running.
 start_managed() {
   local key="$1" label="$2" workdir="$3"
   shift 3
@@ -127,6 +142,9 @@ start_managed() {
   local log_file
   log_file="$(log_file_for "${key}")"
   : > "${log_file}"
+  # Stale rotated backups belong to a previous session (the live file was just
+  # truncated, same as before) — drop them so retained logs stay bounded.
+  rm -f "${log_file}".[0-9]*
 
   (
     cd "${workdir}"
@@ -134,10 +152,13 @@ start_managed() {
     # SIGTERM doesn't race with the launching shell's own exit; macOS has no
     # setsid, so fall back to plain nohup/disown there — still fully
     # detached from THIS script's controlling terminal via `disown`.
+    # Output goes to a rotating, size-capped sink via process substitution
+    # (not a pipeline), so `$!` below is still CMD's own PID and the sink
+    # exits by itself once CMD closes its output.
     if command -v setsid >/dev/null 2>&1; then
-      exec setsid "$@" >>"${log_file}" 2>&1
+      exec setsid "$@" > >(python3 "${MIL_DEV_LIB_DIR}/rotate_log.py" "${log_file}" "${MIL_DEV_LOG_MAX_MB}" "${MIL_DEV_LOG_BACKUPS}") 2>&1
     else
-      exec "$@" >>"${log_file}" 2>&1
+      exec "$@" > >(python3 "${MIL_DEV_LIB_DIR}/rotate_log.py" "${log_file}" "${MIL_DEV_LOG_MAX_MB}" "${MIL_DEV_LOG_BACKUPS}") 2>&1
     fi
   ) &
   local pid=$!

@@ -78,6 +78,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_constraint(
         op.f("fk_review_actions_target_user_id_users"), "review_actions", schema="review"
     )
