@@ -7,6 +7,7 @@
 
 import { createFileRoute } from '@tanstack/react-router';
 
+import { PageContainer } from '@design-system/components/PageContainer';
 import { BusinessAnalyticsPage } from '@features/business-analytics/BusinessAnalyticsPage';
 
 export const Route = createFileRoute('/business-analytics/')({
@@ -15,9 +16,9 @@ export const Route = createFileRoute('/business-analytics/')({
 
 function BusinessAnalyticsRoute() {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <PageContainer variant="dense">
       <h1 className="text-display">Business Analytics</h1>
       <BusinessAnalyticsPage />
-    </div>
+    </PageContainer>
   );
 }

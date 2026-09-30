@@ -1,3 +1,7 @@
+> **Archived**: superseded by `ARCHITECTURE.md` and `specs/`. Describes an early prototype
+> stack (Celery/Redis, Tailwind+Axios, `users`/`customers` tables) that no longer matches
+> the current codebase. Kept for historical reference only.
+
 # Speckit — Mortgage Underwriting & Fraud Detection
 
 Purpose

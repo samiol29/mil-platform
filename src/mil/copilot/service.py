@@ -61,6 +61,7 @@ from mil.copilot.citations import (
     DOCUMENT_TEXT,
     EVIDENCE,
     FINDING,
+    PARTY,
     POLICY_RESULT,
     REVIEW_ACTION,
     Citation,
@@ -93,6 +94,8 @@ if TYPE_CHECKING:
         EvidenceView,
         FindingReader,
         FindingView,
+        PartyReader,
+        PartyView,
         PolicyResultReader,
         PolicyResultView,
         ReviewActionView,
@@ -137,6 +140,7 @@ class GroundingBundle:
 
     application_id: UUID
     application: ApplicationView
+    parties: tuple[PartyView, ...]
     documents: tuple[DocumentView, ...]
     evidence: tuple[EvidenceView, ...]
     findings: tuple[FindingView, ...]
@@ -165,6 +169,7 @@ class CopilotService:
         *,
         inference: InferenceProvider,
         applications: ApplicationReader,
+        parties: PartyReader,
         documents: DocumentReader,
         document_texts: DocumentTextReader,
         evidence: EvidenceReader,
@@ -176,6 +181,7 @@ class CopilotService:
         self._audit = audit
         self._inference = inference
         self._applications = applications
+        self._parties = parties
         self._documents = documents
         self._document_texts = document_texts
         self._evidence = evidence
@@ -338,9 +344,12 @@ class CopilotService:
         # The application record alone (status, id) is context, not evidence —
         # it cannot ground an answer to an explainability question. Only
         # proceed to inference if at least one substantive governed record
-        # exists to cite.
+        # exists to cite. `parties` counts (final grounding-pipeline sprint):
+        # "who is the borrower" is answerable from the real Party record even
+        # on an application with no evidence extracted yet.
         if not (
-            bundle.documents
+            bundle.parties
+            or bundle.documents
             or bundle.document_texts
             or bundle.evidence
             or bundle.findings
@@ -604,6 +613,7 @@ class CopilotService:
                 },
             )
 
+        parties = tuple(self._parties.get_for_application(application_id))
         documents = tuple(self._documents.get_for_application(application_id))
         document_texts = tuple(self._document_texts.get_for_application(application_id))
         evidence = tuple(self._evidence.get_for_application(application_id))
@@ -622,6 +632,7 @@ class CopilotService:
         return GroundingBundle(
             application_id=application_id,
             application=application,
+            parties=parties,
             documents=documents,
             evidence=evidence,
             findings=findings,
@@ -651,13 +662,33 @@ def _build_grounding_items(
     and a parallel ``ref -> Citation`` index used to validate returned
     citations.
     """
+    application = bundle.application
+    application_summary_parts = [f"status: {application.status}"]
+    if application.loan_number is not None:
+        application_summary_parts.append(f"loan number: {application.loan_number}")
+    if application.los_reference is not None:
+        application_summary_parts.append(f"LOS reference: {application.los_reference}")
     items: list[GroundingItem] = [
         GroundingItem(
             kind=APPLICATION,
-            ref=str(bundle.application.id),
-            summary=f"Application status: {bundle.application.status}",
+            ref=str(application.id),
+            summary=f"Application {', '.join(application_summary_parts)}",
         )
     ]
+
+    # Party records (final grounding-pipeline sprint) — the authoritative
+    # "who is on this application" record, previously excluded from
+    # grounding entirely. Distinct from any OCR-extracted `borrower_name`
+    # EVIDENCE item: this is the real, structured record a human reviewer
+    # already trusts, not an incidental extraction that happens to agree.
+    for party in bundle.parties:
+        items.append(
+            GroundingItem(
+                kind=PARTY,
+                ref=str(party.id),
+                summary=f"{party.party_type}: {party.display_name}",
+            )
+        )
 
     for document in bundle.documents:
         items.append(

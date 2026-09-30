@@ -116,4 +116,31 @@ describe('EvidenceCard', () => {
     );
     expect(screen.getByText(/Supersedes an earlier extraction from/)).toBeInTheDocument();
   });
+
+  it('highlights matching text within the field name and value when searchQuery is set', () => {
+    const { container } = render(
+      <EvidenceCard
+        item={makeItem()}
+        relatedFindingsCount={0}
+        onViewInDocument={() => undefined}
+        searchQuery="income"
+      />,
+    );
+
+    const marks = container.querySelectorAll('mark');
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks[0]).toHaveTextContent('income');
+    expect(container).toHaveTextContent('gross monthly income');
+  });
+
+  it('renders no highlight marks when searchQuery is empty or unset', () => {
+    const { container } = render(
+      <EvidenceCard
+        item={makeItem()}
+        relatedFindingsCount={0}
+        onViewInDocument={() => undefined}
+      />,
+    );
+    expect(container.querySelectorAll('mark')).toHaveLength(0);
+  });
 });

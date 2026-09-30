@@ -33,7 +33,7 @@
  */
 
 import { Link } from '@tanstack/react-router';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, SearchX, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuthUser } from '@app/auth/authProvider';
@@ -42,7 +42,9 @@ import { Button } from '@design-system/components/Button';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { EvidenceChip } from '@design-system/components/EvidenceChip';
+import { Input } from '@design-system/components/Input';
 import { LoadingState } from '@design-system/components/LoadingState';
+import { PageContainer } from '@design-system/components/PageContainer';
 import { ProcessingPipeline } from '@design-system/components/ProcessingPipeline';
 import { Tabs, TabsList, TabsTrigger } from '@design-system/components/Tabs';
 import { cn } from '@design-system/lib/cn';
@@ -67,6 +69,7 @@ import { useEvidenceForApplication } from '@entities/evidence/queries';
 import { useFindingsForApplication } from '@entities/finding/queries';
 import { usePartiesForApplication } from '@entities/party/queries';
 import { useApplicationPolicyResults, usePolicyPacks } from '@entities/policy/queries';
+import { resolvePolicyPackName } from '@entities/policy/resolvePolicyPackName';
 import { PARTY_TYPE_LABEL } from '@entities/party/types';
 import { DocumentInspector } from '@features/document-viewer/DocumentInspector';
 import { DocumentViewer, type DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
@@ -88,6 +91,7 @@ import { buildApplicationTimeline } from './buildApplicationTimeline';
 import { commonEvidenceProvenance } from './commonEvidenceProvenance';
 import { EvidenceCard } from './EvidenceCard';
 import { buildEvidenceToFindingsIndex } from './evidenceFindingIndex';
+import { matchesEvidenceSearch } from './evidenceSearch';
 import { FindingActions } from './FindingActions';
 import { FindingCard } from './FindingCard';
 import { groupReviewHistoryByFinding } from './findingReviewHistory';
@@ -157,7 +161,7 @@ export function ApplicationWorkspace({
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-5 p-6">
+    <PageContainer variant="workspace" className="gap-5">
       <Tabs
         value={region}
         onValueChange={(value) => {
@@ -261,7 +265,7 @@ export function ApplicationWorkspace({
           )}
         </>
       )}
-    </div>
+    </PageContainer>
   );
 }
 
@@ -456,6 +460,8 @@ function EvidenceRegion({
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
   const groupRefs = useRef(new Map<string, HTMLDivElement>());
   const [previousFocusDocumentId, setPreviousFocusDocumentId] = useState(focusDocumentId);
+  const [searchQuery, setSearchQuery] = useState('');
+  const trimmedSearchQuery = searchQuery.trim();
 
   // A Documents-region "View evidence" click always wins: ensure the target
   // group is expanded and scroll it into view. Adjusting state during
@@ -496,13 +502,92 @@ function EvidenceRegion({
   }
 
   const documents = documentsQuery.data ?? [];
+  const filenameByDocumentId = new Map(documents.map((doc) => [doc.id, doc.filename]));
   const evidenceToFindings = buildEvidenceToFindingsIndex(findingsQuery.data ?? []);
   const evidenceById = new Map(evidenceQuery.data.map((item) => [item.id, item]));
-  const groups = groupEvidenceByDocument(evidenceQuery.data);
+  const filteredEvidence =
+    trimmedSearchQuery === ''
+      ? evidenceQuery.data
+      : evidenceQuery.data.filter((item) =>
+          matchesEvidenceSearch(
+            item,
+            filenameByDocumentId.get(item.documentId) ?? '',
+            trimmedSearchQuery,
+          ),
+        );
+  const groups = groupEvidenceByDocument(filteredEvidence);
+  const hasNoSearchMatches = trimmedSearchQuery !== '' && filteredEvidence.length === 0;
 
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-heading-section text-text-primary">Evidence</h2>
+
+      <div className="bg-surface-background sticky top-0 z-10 flex flex-col gap-1.5 pb-3">
+        <div className="relative">
+          <Search
+            className="text-text-tertiary pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
+            aria-hidden="true"
+          />
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+            }}
+            placeholder="Search extracted evidence..."
+            aria-label="Search extracted evidence"
+            className="w-full pl-9 pr-9"
+          />
+          {searchQuery !== '' && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+              }}
+              aria-label="Clear search"
+              className="text-text-tertiary hover:text-text-primary absolute top-1/2 right-3 -translate-y-1/2 outline-none transition-colors duration-micro ease-standard focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+            >
+              <X className="size-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        {trimmedSearchQuery === '' ? (
+          <p className="text-caption text-text-tertiary">
+            Try: borrower name · address · income · employer · liabilities · PAN · Aadhaar ·
+            property · account number
+          </p>
+        ) : (
+          <p className="text-caption text-text-secondary" role="status">
+            {filteredEvidence.length === 0
+              ? 'No matching evidence found'
+              : `${String(filteredEvidence.length)} matching evidence item${filteredEvidence.length === 1 ? '' : 's'}`}
+          </p>
+        )}
+      </div>
+
+      {hasNoSearchMatches && (
+        <EmptyState
+          icon={SearchX}
+          title="No evidence matched your search."
+          action={
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-caption text-text-tertiary">Try:</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {['borrower', 'income', 'address', 'employer'].map((suggestion) => (
+                  <EvidenceChip
+                    key={suggestion}
+                    label={suggestion}
+                    onClick={() => {
+                      setSearchQuery(suggestion);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          }
+        />
+      )}
+
       <div className="flex flex-col gap-6">
         {Array.from(groups.entries()).map(([documentId, items]) => {
           const isCollapsed = collapsedGroups.has(documentId);
@@ -564,6 +649,7 @@ function EvidenceRegion({
                         }}
                         onViewFindings={relatedFindings.length > 0 ? onViewFindings : undefined}
                         hideProvenance={provenance !== null}
+                        searchQuery={trimmedSearchQuery}
                       />
                     );
                   })}
@@ -742,12 +828,13 @@ function DocumentsRegion({
  * Not the decision-maker: **AI identified → Policy evaluated → Human
  * decided** — this region shows the middle step only.
  *
- * Ground truth (confirmed by direct backend inspection): no policy-pack
- * HTTP route exists anywhere — `Application.activePolicyPackId` reaches
- * the frontend as a bare, unresolvable UUID, and `Finding.policyVersion`
- * (independently set per finding) is the only real "which evaluation" the
- * backend exposes. Critically, **the backend has no concept of a rule
- * passing** — a satisfied policy check produces no `Finding` at all, so
+ * `Application.activePolicyPackId` is resolved to its real name via
+ * `GET /v1/policy-packs` (`resolvePolicyPackName`, shared with the Overview
+ * region's executive header — one resolver, not two independently-drifting
+ * copies) rather than shown as a bare UUID. `Finding.policyVersion`
+ * (independently set per finding) remains the only real "which evaluation"
+ * signal below the pack level. Critically, **the backend has no concept of
+ * a rule passing** — a satisfied policy check produces no `Finding` at all, so
  * this region can never show "which rules passed"; the permanent
  * disclosure below states that plainly rather than omitting it silently.
  * `awaitingJudgmentCount`/`resolvedCount` reuse `Finding.state` — the only
@@ -782,6 +869,7 @@ function PolicyRegion({
   const evidenceQuery = useEvidenceForApplication(applicationId);
   const documentsQuery = useDocumentsForApplication(applicationId);
   const policyResultsQuery = useApplicationPolicyResults(applicationId);
+  const policyPacksQuery = usePolicyPacks();
   const evaluationQuery = useEvaluationStatus(applicationId);
   const retryEvaluation = useRetryEvaluation(applicationId);
   const addToast = useUiStore((state) => state.addToast);
@@ -805,7 +893,10 @@ function PolicyRegion({
   const awaitingJudgmentCount = findings.filter(
     (f) => f.state === 'unreviewed' || f.state === 'escalated',
   ).length;
-  const activePolicyPackId = applicationQuery.data?.activePolicyPackId ?? null;
+  const activePolicyPackName = resolvePolicyPackName(
+    applicationQuery.data?.activePolicyPackId ?? null,
+    policyPacksQuery.data?.items,
+  );
   // spec 005-enterprise-platform §3: `PolicyResult.evaluatedRuleKeys`/
   // `passedRuleKeys` are additive/nullable — only evaluations recorded after
   // this capability shipped carry them. Keyed by findingId (one result per
@@ -902,32 +993,27 @@ function PolicyRegion({
       <div className="bg-surface-raised shadow-raised rounded-container flex flex-col gap-3 p-5">
         <div>
           <p className="text-caption text-text-secondary">Active policy pack</p>
-          <p className="text-body text-text-primary font-mono">
-            {activePolicyPackId ?? 'No active policy pack'}
-          </p>
-          {activePolicyPackId !== null && (
-            <p className="text-caption text-text-tertiary">
-              No policy pack registry endpoint exists yet to resolve this to a name.
-            </p>
-          )}
+          <p className="text-body text-text-primary font-medium">{activePolicyPackName}</p>
         </div>
 
         <div className="border-border-subtle grid grid-cols-2 gap-4 border-t pt-3 sm:grid-cols-4">
           <div>
-            <p className="text-caption text-text-secondary">Findings</p>
-            <p className="text-heading-section text-text-primary">{findings.length}</p>
+            <p className="text-caption text-text-tertiary tracking-wide uppercase">Findings</p>
+            <p className="text-display text-text-primary tabular-nums">{findings.length}</p>
           </div>
           <div>
-            <p className="text-caption text-text-secondary">Evaluated</p>
-            <p className="text-heading-section text-text-primary">{evaluatedCount}</p>
+            <p className="text-caption text-text-tertiary tracking-wide uppercase">Evaluated</p>
+            <p className="text-display text-text-primary tabular-nums">{evaluatedCount}</p>
           </div>
           <div>
-            <p className="text-caption text-text-secondary">Awaiting judgment</p>
-            <p className="text-heading-section text-text-primary">{awaitingJudgmentCount}</p>
+            <p className="text-caption text-text-tertiary tracking-wide uppercase">
+              Awaiting judgment
+            </p>
+            <p className="text-display text-text-primary tabular-nums">{awaitingJudgmentCount}</p>
           </div>
           <div>
-            <p className="text-caption text-text-secondary">Resolved</p>
-            <p className="text-heading-section text-text-primary">
+            <p className="text-caption text-text-tertiary tracking-wide uppercase">Resolved</p>
+            <p className="text-display text-text-primary tabular-nums">
               {findings.length - awaitingJudgmentCount}
             </p>
           </div>
@@ -1190,11 +1276,10 @@ function OverviewRegion({
       ? null
       : (parties.find((party) => party.partyType === 'APPLICANT') ?? parties[0]).displayName;
 
-  const activePolicyPackName =
-    application.activePolicyPackId === null
-      ? 'Not yet assigned'
-      : (policyPacksQuery.data?.items.find((pack) => pack.id === application.activePolicyPackId)
-          ?.name ?? application.activePolicyPackId.slice(0, 8));
+  const activePolicyPackName = resolvePolicyPackName(
+    application.activePolicyPackId,
+    policyPacksQuery.data?.items,
+  );
 
   // Executive-summary review progress (executive review pass, final polish
   // sprint): "resolved" means a human reached a terminal decision (verified

@@ -24,6 +24,7 @@ import { Link } from '@tanstack/react-router';
 import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { Skeleton } from '@design-system/components/LoadingState';
+import { PageContainer } from '@design-system/components/PageContainer';
 import { useApplication } from '@entities/application/queries';
 import type { Finding } from '@entities/finding/queries';
 import { useEscalatedFindings } from '@entities/finding/queries';
@@ -60,7 +61,7 @@ export function EscalationQueuePage() {
   const findingsQuery = useEscalatedFindings();
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6">
+    <PageContainer variant="workspace" className="gap-4">
       <div>
         <h1 className="text-heading-page text-text-primary">Escalation Queue</h1>
         <p className="text-caption text-text-secondary">
@@ -98,6 +99,6 @@ export function EscalationQueuePage() {
           ))}
         </ul>
       )}
-    </div>
+    </PageContainer>
   );
 }

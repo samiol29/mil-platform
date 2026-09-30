@@ -9,7 +9,13 @@ import pytest
 from mil.kernel.context import get_request_context
 from mil.kernel.job_queue import InProcessJobQueue, Job, JobQueue
 from mil.kernel.observability import get_log_context
-from workers.bootstrap import WorkerContext, build_worker_context, process_next, run_forever
+from workers.bootstrap import (
+    WorkerCircuitOpenError,
+    WorkerContext,
+    build_worker_context,
+    process_next,
+    run_forever,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -313,7 +319,9 @@ class TestRunForever:
             raise _StopTest
 
         with pytest.raises(_StopTest):
-            run_forever(ctx, handler, job_type="workflow_step", poll_timeout=0.0)
+            run_forever(
+                ctx, handler, job_type="workflow_step", poll_timeout=0.0, sleep=lambda _s: None
+            )
 
         # Handler ran 3 times: the same job, redelivered twice after
         # rollback/reject(requeue=True), never taking the process down.
@@ -332,7 +340,9 @@ class TestRunForever:
             raise _StopTest
 
         with caplog.at_level("ERROR"), pytest.raises(_StopTest):
-            run_forever(ctx, handler, job_type="workflow_step", poll_timeout=0.0)
+            run_forever(
+                ctx, handler, job_type="workflow_step", poll_timeout=0.0, sleep=lambda _s: None
+            )
 
         assert any("Unhandled exception" in record.message for record in caplog.records)
 
@@ -357,3 +367,50 @@ class TestRunForever:
         finally:
             bootstrap_module.process_next = original
         assert calls["n"] == 3
+
+    def test_persistent_failure_backs_off_and_then_gives_up(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """
+        The runaway-log regression: when ``dequeue`` raises instantly (broker
+        down) the loop must sleep with growing delays, log only one traceback,
+        and stop after ``max_consecutive_failures`` instead of spinning forever.
+        """
+        ctx, _ = _make_context()
+        ctx.job_queue = MagicMock()
+        ctx.job_queue.dequeue.side_effect = ConnectionError("redis down")
+        delays: list[float] = []
+
+        with caplog.at_level("ERROR"), pytest.raises(WorkerCircuitOpenError):
+            run_forever(
+                ctx,
+                MagicMock(),
+                job_type="workflow_step",
+                poll_timeout=0.0,
+                sleep=delays.append,
+                max_consecutive_failures=8,
+            )
+
+        assert delays == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
+        assert ctx.job_queue.dequeue.call_count == 8
+        assert sum(1 for r in caplog.records if r.exc_info) == 1
+
+    def test_successful_poll_resets_the_failure_streak(self) -> None:
+        ctx, _ = _make_context()
+        outcomes = iter([ConnectionError("x"), ConnectionError("x"), None, ConnectionError("x")])
+        delays: list[float] = []
+
+        def dequeue(**_: object) -> None:
+            outcome = next(outcomes, _StopTest())
+            if isinstance(outcome, BaseException):
+                raise outcome
+
+        ctx.job_queue = MagicMock()
+        ctx.job_queue.dequeue.side_effect = dequeue
+
+        with pytest.raises(_StopTest):
+            run_forever(
+                ctx, MagicMock(), job_type="workflow_step", poll_timeout=0.0, sleep=delays.append
+            )
+
+        assert delays == [1.0, 2.0, 1.0]

@@ -72,7 +72,6 @@ dev = [
 
     # Type checking
     "mypy>=1.13.0",
-    "sqlalchemy[mypy]>=2.0.36",   # SQLAlchemy mypy plugin
 
     # Type stubs
     "types-python-dateutil>=2.9.0",
@@ -188,9 +187,6 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = false
-
-# SQLAlchemy 2.x mypy plugin for type-safe ORM column access.
-plugins = ["sqlalchemy.ext.mypy.plugin"]
 
 # Exclude generated migration files from type checking.
 exclude = ["migrations/versions/"]

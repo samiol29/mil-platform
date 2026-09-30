@@ -78,6 +78,7 @@ from mil.copilot.adapters import (
     DocumentTextReaderAdapter,
     EvidenceReaderAdapter,
     FindingReaderAdapter,
+    PartyReaderAdapter,
     PolicyResultReaderAdapter,
     ReviewReaderAdapter,
 )
@@ -635,11 +636,13 @@ def get_copilot_service(
     repo = CopilotRepository(session)
 
     document_repo = DocumentRepository(session, audit)
+    application_repo = ApplicationRepository(session, audit)
     return CopilotService(
         repo,
         audit,
         inference=inference,
-        applications=ApplicationReaderAdapter(ApplicationRepository(session, audit)),
+        applications=ApplicationReaderAdapter(application_repo),
+        parties=PartyReaderAdapter(application_repo),
         documents=DocumentReaderAdapter(document_repo),
         document_texts=DocumentTextReaderAdapter(document_repo, OCRResultRepository(session)),
         evidence=EvidenceReaderAdapter(EvidenceRepository(session)),

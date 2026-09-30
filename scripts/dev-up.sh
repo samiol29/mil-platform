@@ -23,6 +23,14 @@ cd "${MIL_REPO_ROOT}"
 
 FAILURES=()
 
+# Refuse to start on a nearly full disk — a dev session must never be the
+# thing that pushes the machine over the edge.
+FREE_MB="$(free_disk_mb "${MIL_REPO_ROOT}")"
+if (( FREE_MB < MIL_DEV_MIN_FREE_MB )); then
+  log_err "Only ${FREE_MB} MB free on the repo's disk (need ${MIL_DEV_MIN_FREE_MB} MB). Free up space first."
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Python virtual environment
 # ---------------------------------------------------------------------------
@@ -247,4 +255,4 @@ echo ""
 echo "────────────────────────"
 echo "Stop everything:   scripts/dev-down.sh"
 echo "Check status:      scripts/status.sh"
-echo "Logs:               logs/dev/"
+echo "Logs:               logs/dev/  (capped at ${MIL_DEV_LOG_MAX_MB} MB x $((MIL_DEV_LOG_BACKUPS + 1)) files per process)"

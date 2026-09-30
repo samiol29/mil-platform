@@ -55,7 +55,7 @@ REJECTED = "REJECTED"
 OVERRIDDEN = "OVERRIDDEN"
 ESCALATED = "ESCALATED"
 
-# ESCALATED is deliberately NOT terminal (see module docstring / HANDOFF.md's
+# ESCALATED is deliberately NOT terminal (see module docstring / docs/archive/HANDOFF.md's
 # domain-design review): an escalated Finding is still awaiting a decision —
 # it has simply moved to a different role's queue — and is resolved by the
 # same approve/reject/override actions any other in-review Finding is.

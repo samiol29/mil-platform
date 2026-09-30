@@ -72,3 +72,4 @@ docker/postgres/data/
 
 # Misc
 .cache/
+.scratch/

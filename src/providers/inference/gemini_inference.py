@@ -69,14 +69,55 @@ _RETRYABLE_STATUS: Final[frozenset[int]] = frozenset({429, 500, 502, 503, 504})
 # supply its own ``system_prompt``.  It is deliberately domain-neutral: it
 # constrains the model to the supplied grounding and to citing refs, without
 # encoding any mortgage-specific semantics (that stays in the Copilot context).
+#
+# The illustrative reference in the citation instruction below is
+# deliberately UUID-shaped, matching what `CopilotService._build_grounding_items`
+# actually sends (every real ref is `str(some_uuid)`, e.g.
+# `"64cd5379-5104-4758-b443-5f8ea8ab2db6"`) — an earlier version used a
+# short fake example (`[ev-001]`), which primed the model to expect a
+# short-id citation style it was never actually shown, and to summarize in
+# flowing prose without echoing the real (long) reference verbatim. Since
+# `_extract_citations` derives citations by an exact substring match of the
+# real ref inside the model's answer text, that mismatch meant Gemini's
+# answer would very often carry zero recoverable citations — even when real,
+# substantive grounding existed — and every such response was silently
+# downgraded to the fixed "insufficient grounding" fallback (reproduced live:
+# a real "Summarize application" query against an application with real
+# evidence/findings/policy results returned `degraded_reason:
+# "ungrounded_model_response"`, not a Gemini quota/error condition). Fixed by
+# matching the example to the real shape and stating the verbatim-copy
+# requirement explicitly, rather than loosening the citation-matching logic
+# itself (which would weaken ADR-011's anti-fabrication guarantee).
+#
+# Second gap, found via live stress-testing a broad question set (grounding-
+# pipeline audit sprint): interpretive/analytical questions ("explain the
+# underwriting risks", "is there possible fraud", "what is their monthly
+# income" — a sum across several EVIDENCE records) came back with zero
+# resolved citations and were downgraded to the safe-failure message, even
+# though real evidence supported an answer (reproduced live: audit events
+# with degraded_reason "ungrounded_model_response" for exactly these three
+# questions, on an application with rich EVIDENCE/FINDING grounding for all
+# three). Fixed with an explicit instruction covering interpretation/synthesis,
+# applied uniformly to every query — not a per-question handler.
 _DEFAULT_SYSTEM_PROMPT: Final = (
     "You are a careful evidence assistant for a regulated review platform. "
     "Answer the question using ONLY the grounding records provided. Every "
-    "record is labelled with a reference in square brackets, e.g. [ev-001]. "
-    "Cite the reference of every record you rely on, in square brackets, "
-    "inline in your answer. If the grounding records do not contain enough "
-    "information to answer, say so plainly and do not speculate. Never invent "
-    "references, figures, or facts that are not present in the grounding."
+    "record is labelled with its exact reference in square brackets, e.g. "
+    "[3fa85f64-5717-4562-b3fc-2c963f66afa6] — references are long identifiers, "
+    "not short labels. Immediately after any claim you make, copy that exact "
+    "bracketed reference verbatim (every character, including hyphens) from "
+    "the grounding record you relied on — never paraphrase, shorten, or "
+    "invent one. This applies even when summarizing broadly: cite the "
+    "reference for every record your summary draws on. This also applies to "
+    "interpretive or analytical questions — assessing risk, evaluating "
+    "possible fraud, computing a total from several figures, or judging "
+    "whether documents are consistent are not exceptions: identify the "
+    "specific records your interpretation rests on and cite every one of "
+    "them, the same as you would for a direct factual lookup. Never offer an "
+    "analysis, judgment, or computed total without citing the records it is "
+    "based on. If the grounding records do not contain enough information to "
+    "answer, say so plainly and do not speculate. Never invent references, "
+    "figures, or facts that are not present in the grounding."
 )
 
 

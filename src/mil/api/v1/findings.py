@@ -12,7 +12,7 @@ Route handlers are intentionally thin: delegate to ``FindingService`` /
 ``FindingReviewActions``, map the result to a response schema, return it.
 
 **Escalation** (spec 002 FR-054) was implemented after a focused domain-design
-review (see ``HANDOFF.md``): ``ESCALATED`` is a non-terminal Review Session
+review (see ``docs/archive/HANDOFF.md``): ``ESCALATED`` is a non-terminal Review Session
 status that transfers ownership to another role's (or, optionally, a
 specific person's) queue; the existing verify/override actions resolve it —
 there is no separate "resolve escalation" action or bounded context.
@@ -54,7 +54,7 @@ def _finding_state(review_status: str | None) -> str:
     overridden / escalated). No session yet, or a non-terminal
     (``PENDING_REVIEW``/``IN_REVIEW``) status, maps to ``"unreviewed"``. A
     ``REJECTED`` session status — a real Review Session state with no
-    defined Underwriter Workspace equivalent, see ``HANDOFF.md`` —
+    defined Underwriter Workspace equivalent, see ``docs/archive/HANDOFF.md`` —
     deliberately falls back to ``"unreviewed"`` rather than
     ``"verified"``/``"overridden"``: the conservative failure mode for a
     compliance-sensitive review state is to keep a finding visibly in the

@@ -11,6 +11,7 @@ export * from './ErrorState';
 export * from './EvidenceChip';
 export * from './Input';
 export * from './LoadingState';
+export * from './PageContainer';
 export * from './ProcessingPipeline';
 export * from './Select';
 export * from './StatusBadge';

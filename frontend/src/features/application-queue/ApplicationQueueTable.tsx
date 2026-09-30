@@ -31,6 +31,7 @@ import { EmptyState } from '@design-system/components/EmptyState';
 import { ErrorState } from '@design-system/components/ErrorState';
 import { Input } from '@design-system/components/Input';
 import { Skeleton } from '@design-system/components/LoadingState';
+import { PageContainer } from '@design-system/components/PageContainer';
 import { Table } from '@design-system/components/Table';
 import { cn } from '@design-system/lib/cn';
 import { useApplicationSearch } from '@entities/application/queries';
@@ -149,7 +150,7 @@ export function ApplicationQueueTable({
   });
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
+    <PageContainer variant="dense" className="gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-heading-page text-text-primary">Application Queue</h1>
         <Button variant="primary" onClick={openIntakeWizard}>
@@ -264,7 +265,7 @@ export function ApplicationQueueTable({
           }
         />
       )}
-    </div>
+    </PageContainer>
   );
 }
 

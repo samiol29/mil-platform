@@ -30,6 +30,26 @@ import {
 import type { Citation } from '@entities/copilot/types';
 import type { DocumentJumpTarget } from '@features/document-viewer/DocumentViewer';
 
+/**
+ * Human-readable label per real citation kind (final design excellence
+ * sprint) — falls back to the raw kind string for forward-compatibility
+ * with a kind this frontend doesn't know about yet, never hiding one.
+ */
+const CITATION_KIND_LABEL: Record<string, string> = {
+  APPLICATION: 'Application',
+  DOCUMENT: 'Document',
+  DOCUMENT_TEXT: 'Document text',
+  EVIDENCE: 'Evidence',
+  FINDING: 'Finding',
+  POLICY_RESULT: 'Policy result',
+  REVIEW_ACTION: 'Review action',
+};
+
+/** Truncated the same way every other internal id shown to a reviewer already is (e.g. `resolvePolicyPackName`'s fallback) — a full 36-character UUID is debug output, not a citation a reviewer can act on. */
+function truncatedRef(ref: string): string {
+  return ref.length > 8 ? `${ref.slice(0, 8)}…` : ref;
+}
+
 function CitationChip({
   citation,
   onEvidenceChipActivate,
@@ -37,7 +57,8 @@ function CitationChip({
   citation: Citation;
   onEvidenceChipActivate: (jump: DocumentJumpTarget) => void;
 }) {
-  const label = `${citation.kind}: ${citation.ref}${citation.locator !== null ? ` (${citation.locator})` : ''}`;
+  const kindLabel = CITATION_KIND_LABEL[citation.kind] ?? citation.kind;
+  const label = `${kindLabel}: ${truncatedRef(citation.ref)}${citation.locator !== null ? ` (${citation.locator})` : ''}`;
 
   if (citation.kind !== 'DOCUMENT') {
     return (

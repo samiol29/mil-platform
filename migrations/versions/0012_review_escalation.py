@@ -1,6 +1,6 @@
 """Add escalation columns to review.review_sessions and review.review_actions.
 
-Design (approved after a focused domain-design review — see HANDOFF.md):
+Design (approved after a focused domain-design review — see docs/archive/HANDOFF.md):
 escalation is a non-terminal `ReviewSession` status, resolved by the same
 existing verify/override/reject actions rather than a separate resolution
 action or a separate bounded context — the same normalized-schema
@@ -78,6 +78,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # destructive-migration-approved
     op.drop_constraint(
         op.f("fk_review_actions_target_user_id_users"), "review_actions", schema="review"
     )

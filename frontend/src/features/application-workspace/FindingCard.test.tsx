@@ -125,15 +125,13 @@ describe('FindingCard', () => {
     );
 
     const text = container.textContent;
-    const decisionIndex = text.indexOf('Your decision');
-    const recommendedActionIndex = text.indexOf('Recommended reviewer action');
+    const recommendationIndex = text.indexOf('Recommendation');
     const verifyButtonIndex = text.indexOf('Verify');
     const aiDetailsIndex = text.indexOf('AI details');
     const reviewHistoryIndex = text.indexOf('Review history');
 
-    expect(decisionIndex).toBeGreaterThan(-1);
-    expect(recommendedActionIndex).toBeGreaterThan(decisionIndex);
-    expect(verifyButtonIndex).toBeGreaterThan(recommendedActionIndex);
+    expect(recommendationIndex).toBeGreaterThan(-1);
+    expect(verifyButtonIndex).toBeGreaterThan(recommendationIndex);
     expect(aiDetailsIndex).toBeGreaterThan(verifyButtonIndex);
     expect(reviewHistoryIndex).toBeGreaterThan(aiDetailsIndex);
   });
@@ -170,7 +168,7 @@ describe('FindingCard', () => {
     expect(screen.getByText('Not yet evaluated against policy')).toBeInTheDocument();
   });
 
-  it('shows an Impact line captioned as derived, not a backend severity', () => {
+  it('shows a Business Impact line captioned as derived, not a backend risk score', () => {
     render(
       <FindingCard
         finding={makeFinding({ confidence: 'high' })}
@@ -181,7 +179,7 @@ describe('FindingCard', () => {
     expect(screen.getByText('High confidence, supported by 1 evidence item.')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Derived from confidence and evidence count — not a backend-assigned severity.',
+        'Derived from confidence and evidence count — not a backend-assigned risk score.',
       ),
     ).toBeInTheDocument();
   });

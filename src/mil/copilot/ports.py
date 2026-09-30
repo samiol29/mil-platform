@@ -56,12 +56,44 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ApplicationView:
-    """Minimal read view of a mortgage application."""
+    """
+    Minimal read view of a mortgage application.
+
+    ``loan_number``/``los_reference`` (final grounding-pipeline sprint) —
+    previously omitted, leaving the sole ``APPLICATION`` grounding item's
+    summary as just "Application status: X". Both are real,
+    already-persisted `MortgageApplication` columns; including them lets the
+    model ground identifier-level questions ("what loan is this") on the
+    authoritative record instead of having nothing to cite at all.
+    """
 
     id: UUID
     tenant_id: UUID
     status: str
+    loan_number: str | None
+    los_reference: str | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class PartyView:
+    """
+    Read view of a party (borrower, co-borrower, guarantor, or corporate
+    entity) on an application.
+
+    Added in the final grounding-pipeline sprint: `Party` — the
+    authoritative record of who the borrower actually is — was previously
+    excluded from Copilot grounding entirely. A question like "who is the
+    borrower?" could only ever be answered incidentally, via an
+    OCR-extracted `borrower_name` `EvidenceItem` that happened to carry the
+    same value, never from the real, structured `core.parties` record a
+    human reviewer would actually trust first.
+    """
+
+    id: UUID
+    application_id: UUID
+    party_type: str
+    display_name: str
 
 
 @dataclass(frozen=True)
@@ -233,6 +265,12 @@ class ApplicationReader(Protocol):
     """Read port over the Application context."""
 
     def get_by_id(self, application_id: UUID) -> ApplicationView | None: ...
+
+
+class PartyReader(Protocol):
+    """Read port over the Party records on an application."""
+
+    def get_for_application(self, application_id: UUID) -> Sequence[PartyView]: ...
 
 
 class DocumentTextReader(Protocol):
