@@ -8,6 +8,8 @@ MIL enables financial institutions to transform fragmented mortgage documents in
 
 MIL provides a Mortgage Intelligence Layer that integrates with existing Loan Origination Systems to transform mortgage documents into structured, explainable evidence — enabling human reviewers to make informed lending decisions with confidence and complete auditability.
 
+**Explore:** [Architecture](docs/architecture/ARCHITECTURE.md) · [Decision records](docs/architecture/adr/) · [Deployment guide](docs/deployment/README.md) · [Roadmap](docs/ROADMAP.md) · [Specifications](specs/)
+
 ---
 
 ## The Mortgage Problem
@@ -263,26 +265,30 @@ These principles govern all platform decisions and may not be overridden by impl
 
 ## Current Project Status
 
-**Phase**: Backend feature-complete and production-hardened (US2 Sprint 8)
+**Assessment: Ready for Demo, not yet Ready for Production.**
 
-The backend implements the full mortgage intelligence pipeline end to end —
+The platform implements the full mortgage intelligence pipeline end to end —
 Application/Document intake, OCR, Evidence Extraction, Finding Generation,
 Policy Evaluation, Human Review, and the AI Copilot — behind a versioned REST
-API, with health/readiness/liveness probes, basic platform metrics,
-structured logging, and fail-fast startup validation. Frontend, LOS adapter
-implementations, and notification channels are not yet built.
+API, with a React underwriter/banker workspace on top. The Enterprise Platform
+scope (`specs/005-enterprise-platform/spec.md`, 17 modules) is feature-complete
+and CI-green as of the RC2 hardening pass.
 
-| Artifact / Milestone | Status |
+The known blocker to production is architectural and documented: the event bus
+has only an in-process implementation, so the container deliberately refuses to
+start a non-development process. See
+[`docs/deployment/RC2_HARDENING_REPORT.md`](docs/deployment/RC2_HARDENING_REPORT.md)
+§5 for the full assessment and remaining limitations.
+
+| Area | Status |
 |---|---|
 | Engineering Constitution | Ratified v1.1.0 |
 | Architecture Decision Records (ADR-005 – ADR-011) | Accepted |
-| Platform Kernel, Provider Framework, Identity & Security | Implemented |
-| Application, Document, OCR, Evidence, Finding, Policy, Review | Implemented |
-| AI Copilot (foundation, inference, API integration) | Implemented |
-| Production Hardening (health, metrics, logging, config validation, CI) | Implemented |
-| Quality gates | ruff clean, mypy clean, `compileall` clean, unit + provider conformance suite passing |
-| Frontend | Not started |
-| LOS adapter implementations | Not started |
+| Backend: kernel, identity, application, document, OCR, evidence, finding, policy, review, Copilot | Implemented |
+| Enterprise modules (RM workspace, LOS integration, notifications, analytics, portal, administration, …) | Implemented per spec 005 |
+| Frontend (React/TypeScript workspace, design system, Storybook) | Implemented |
+| CI quality gates | ruff, mypy, pytest, Prettier, ESLint, `tsc`, Vitest, Storybook a11y, Playwright, migration-safety gate |
+| Production deployment | Not ready (see above) |
 
 See `docs/deployment/README.md` for the startup sequence, environment
 variables, and production checklist.
@@ -291,55 +297,43 @@ variables, and production checklist.
 
 ## Repository Structure
 
+```text
+src/          Backend application (FastAPI, bounded contexts, workers, providers)
+frontend/     Web application (React, TypeScript, Vite, Storybook, Playwright)
+tests/        Automated backend tests (unit, integration, contract, providers)
+migrations/   Alembic database migrations
+scripts/      Development and operational tooling (dev-up.sh, migration-safety gate, seeders)
+infra/        Standalone Postgres/pgAdmin local compose (separate from the root docker-compose.yml)
+docker/       Container/database initialization mounted by docker-compose.yml
+docs/         Engineering documentation (see below)
+specs/        Product and feature specifications (spec, plan, tasks per feature)
 ```
-specs/
-└── 001-mil-platform-spec/       # Platform specification artifacts
-    ├── spec.md                  # Product Specification
-    ├── plan.md                  # Architecture and Implementation Plan
-    ├── research.md              # Architecture Decision Records
-    ├── data-model.md            # PostgreSQL schema and entity model
-    ├── tasks.md                 # Implementation task backlog
-    ├── quickstart.md            # Validation scenarios and acceptance criteria
-    └── checklists/
-        └── requirements.md      # Specification quality checklist
 
-.specify/
-└── memory/
-    └── constitution.md          # Engineering Constitution v1.1.0
+Tool-specific directories live where their tools expect them:
 
+```text
+.github/      CI/CD (GitHub Actions workflows)
+.claude/      Project configuration for Claude Code
+.specify/     Spec Kit tooling, templates, and the Engineering Constitution
+```
+
+`specs/` holds this product's actual specifications; `.specify/` is the
+tooling that generates and governs them. They are intentionally separate.
+
+Root files are conventional: `pyproject.toml` (Python package and tooling
+config), `Dockerfile` and `docker-compose.yml`, `Makefile` (developer
+commands — run `make help`), `alembic.ini`, and `.env.example`.
+
+**Documentation (`docs/`)**
+
+```text
 docs/
-├── adr/                          # Accepted Architecture Decision Records
-└── deployment/                   # Deployment guide, production checklist
-
-src/
-├── main.py                       # ASGI entry point (uvicorn main:app)
-├── mil/
-│   ├── kernel/                   # Platform Core (shared foundation)
-│   │   └── providers/            # Provider interface definitions
-│   ├── orchestrator/              # Intelligence Orchestrator
-│   ├── application/               # Application and Party management
-│   ├── document/                  # Document Intelligence
-│   ├── evidence/                  # Evidence Fabric
-│   ├── policy/                    # Policy Engine
-│   ├── finding/                    # Finding Engine
-│   ├── review/                     # Review Engine
-│   ├── copilot/                    # AI Copilot
-│   ├── audit/                      # Audit and Governance
-│   ├── identity/ (kernel.security) # RBAC/ABAC primitives
-│   └── api/                        # REST API layer, schemas, middleware
-├── workers/                       # Background pipeline workers (one per pipeline step)
-└── providers/                     # Concrete provider implementations (mocks + local storage)
-
-migrations/                       # Alembic database migrations
-tests/
-├── unit/                          # Unit tests (marked `unit`, no external dependencies)
-├── integration/                   # Integration tests (require docker-up)
-├── contract/                      # API contract tests
-└── providers/                     # Provider conformance tests (marked `providers`)
-
-Dockerfile                        # Production container image (API + all workers)
-docker-compose.yml                # Local infrastructure (PostgreSQL, MinIO, Redis)
-.github/workflows/ci.yml          # CI: ruff, format, mypy, pytest, compileall
+├── architecture/
+│   ├── ARCHITECTURE.md    System design, bounded contexts, dependency rules
+│   └── adr/               Accepted Architecture Decision Records
+├── deployment/            Deployment guide, release checklists, hardening reports
+├── archive/               Superseded historical notes (kept for reference)
+└── ROADMAP.md             Scope boundaries and what comes next
 ```
 
 ---
@@ -349,11 +343,13 @@ docker-compose.yml                # Local infrastructure (PostgreSQL, MinIO, Red
 | Layer | Technology |
 |---|---|
 | API Framework | FastAPI |
+| Frontend | React, TypeScript, Vite, TanStack Query/Table, Tailwind CSS |
+| Frontend quality | Vitest, Storybook (a11y gate), Playwright, ESLint, Prettier |
 | Data Layer | PostgreSQL, SQLAlchemy, Alembic |
 | Validation | Pydantic |
 | Observability | OpenTelemetry |
 | Runtime | Python 3.12+ |
-| Message Broker | Replaceable (Redis, AMQP-compatible, or equivalent) |
+| Job Queue | Redis (replaceable behind the `JobQueue` interface) |
 | Document Storage | Replaceable via StorageProvider interface |
 | Intelligence Providers | Replaceable via provider interfaces (OCR, extraction, inference) |
 
@@ -367,6 +363,7 @@ The platform core has no hard dependency on any specific intelligence provider, 
 
 - Python 3.12+
 - Docker and Docker Compose
+- Node.js 22+ (frontend)
 
 **Local development environment**
 
@@ -475,7 +472,10 @@ single dev session — run `docker compose down` explicitly if you want those
 stopped too.
 
 Logs for every managed process live under `logs/dev/<component>.log`; PID
-files live under `.dev/pids/` (both gitignored). The shared logic all three
+files live under `.dev/pids/` (both gitignored). Log output is size-capped
+and rotated (default 10 MB × 4 files per process; override with
+`MIL_DEV_LOG_MAX_MB` / `MIL_DEV_LOG_BACKUPS`), and `dev-up.sh` refuses to
+start when free disk is below `MIL_DEV_MIN_FREE_MB` (default 5120). The shared logic all three
 scripts build on is in `scripts/lib/dev-common.sh`.
 
 ---
@@ -509,7 +509,7 @@ LOS adapter implementations, multi-tenancy, data residency configuration, deploy
 
 ## Contributing
 
-This repository is under active initial development. Contribution guidelines will be established at Milestone 1 completion.
+This repository is under active development and is not yet open to external contributions. Run `make ci` (backend) and the `frontend` checks in `.github/workflows/ci.yml` before proposing changes.
 
 All contributions must comply with the Engineering Constitution at `.specify/memory/constitution.md`. Pull requests that reduce explainability, auditability, or human decision authority will not be accepted regardless of implementation convenience.
 

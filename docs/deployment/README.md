@@ -1,7 +1,7 @@
 # MIL Platform — Deployment Guide
 
 This document covers startup, environment configuration, deployment flow,
-and the production readiness checklist. It complements `ARCHITECTURE.md`
+and the production readiness checklist. It complements `docs/architecture/ARCHITECTURE.md`
 (system design) and the root `README.md` (product overview).
 
 ---
